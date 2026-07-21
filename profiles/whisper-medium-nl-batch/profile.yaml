@@ -1,0 +1,30 @@
+# Example official profile (illustrative). Validated against
+# schemas/benchmark-profile.schema.json.
+id: whisper-medium-nl-batch
+version: 1.0.0
+title: Whisper Medium Dutch (Batch)
+benchmark_type: batch
+language: nl-NL
+runtime:
+  name: faster-whisper
+  min_version: "1.0.0"
+model:
+  name: whisper-medium
+  quantization: int8
+  beam_size: 5
+  temperature: 0.0
+  vad: true
+configuration:
+  threads: 4
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: oesb-nl-v1
+scoring:
+  primary_metric: wer
+  tie_breakers: [real_time_factor, energy_wh]
+metrics: [wer, cer, real_time_factor, cpu_pct, ram_mb, energy_wh]
+changelog:
+  - version: 1.0.0
+    notes: Initial profile.

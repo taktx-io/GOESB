@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.env*.local
+
+# OESB local run artifacts
+/runs/
+/.oesb-cache/
+*.local.yaml
+
+# Audio & datasets are never committed (privacy-first)
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.m4a
+/packs/**/audio/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# transfer artifact (safe to delete)
+_to_delete/

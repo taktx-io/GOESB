@@ -1,0 +1,13 @@
+Copyright (c) 2026 Eric Hendriks / OESB contributors.
+All rights reserved.
+
+This software and associated documentation files (the "Software") are
+proprietary and confidential. No license, express or implied, is granted to
+any party to use, copy, modify, merge, publish, distribute, sublicense, or
+sell copies of the Software without the prior written permission of the
+copyright holder.
+
+NOTE: This is a temporary placeholder. The intended long-term licensing model
+for OESB is an open-source core (see docs/adr/0003-open-source-strategy.md).
+The final license has not yet been chosen. Until it is, treat this repository
+as All Rights Reserved.

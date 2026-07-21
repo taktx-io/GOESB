@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oesb.dev/schemas/benchmark-pack.schema.json",
+  "title": "OESB Benchmark Pack",
+  "description": "An immutable, hash-identified bundle of audio+transcripts+metadata used by a profile.",
+  "type": "object",
+  "required": ["id", "version", "sha256", "profile_id", "visibility", "metadata", "license"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
+      "description": "Hash over the canonical pack contents. Immutable after publication." },
+    "profile_id": { "type": "string", "description": "The profile this pack is scored against." },
+    "visibility": { "enum": ["open", "community", "private"] },
+    "license": { "type": "string", "description": "SPDX id or explicit terms; required for open/community." },
+    "audio": {
+      "type": "object",
+      "description": "How audio is referenced. For private packs the audio never leaves the machine.",
+      "properties": {
+        "count": { "type": "integer", "minimum": 1 },
+        "total_duration_s": { "type": "number", "minimum": 0 },
+        "sample_rate_hz": { "type": "integer" },
+        "manifest_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["language", "recording_environment", "speech_style"],
+      "properties": {
+        "language": { "type": "string" },
+        "dialect": { "type": "string" },
+        "age_group": { "type": "string" },
+        "recording_environment": { "type": "string" },
+        "microphone": { "type": "string" },
+        "sample_rate_hz": { "type": "integer" },
+        "background_noise": { "type": "string" },
+        "num_speakers": { "type": "integer", "minimum": 1 },
+        "speech_style": { "enum": ["spontaneous", "read", "mixed"] },
+        "transcription_style": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" },
+          "description": "Free tags for search/filter only; never affect the benchmark definition." }
+      }
+    }
+  }
+}

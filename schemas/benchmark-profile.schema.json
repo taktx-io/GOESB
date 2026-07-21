@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oesb.dev/schemas/benchmark-profile.schema.json",
+  "title": "OESB Benchmark Profile",
+  "description": "An official, versioned definition of exactly how a benchmark is run and scored.",
+  "type": "object",
+  "required": ["id", "version", "benchmark_type", "runtime", "model", "scoring", "metrics"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Globally unique, immutable profile id, e.g. 'whisper-medium-nl-batch'." },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version. A changed scoring rule requires a new version." },
+    "title": { "type": "string" },
+    "benchmark_type": { "enum": ["batch", "streaming", "conversation"] },
+    "language": { "type": "string", "description": "BCP-47 code, e.g. 'nl', 'nl-NL'." },
+    "runtime": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "Runtime adapter id, e.g. 'faster-whisper'." },
+        "min_version": { "type": "string" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "quantization": { "type": "string" },
+        "beam_size": { "type": "integer", "minimum": 1 },
+        "temperature": { "type": "number" },
+        "vad": { "type": "boolean" }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "description": "Fixed decode/streaming knobs required for reproducibility.",
+      "properties": {
+        "chunk_ms": { "type": "integer", "minimum": 0 },
+        "threads": { "type": "integer", "minimum": 1 },
+        "streaming": { "type": "object" }
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "description": "Text normalization applied before WER/CER scoring.",
+      "properties": {
+        "lowercase": { "type": "boolean" },
+        "remove_punctuation": { "type": "boolean" },
+        "expand_numbers": { "type": "boolean" },
+        "ruleset_id": { "type": "string" }
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "required": ["primary_metric"],
+      "properties": {
+        "primary_metric": { "type": "string" },
+        "tie_breakers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "metrics": {
+      "type": "array", "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Metric ids this profile requires (see docs/specs/metrics.md)."
+    },
+    "changelog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["version", "notes"],
+        "properties": {
+          "version": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}
