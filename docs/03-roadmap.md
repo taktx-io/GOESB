@@ -107,8 +107,10 @@ liability.
 - Profile and pack detail pages (incl. version + changelog); hardware records.
 - 2–3 curated views ("Best Dutch under €300", "Lowest energy", "Best CPU-only").
 - Deploy: CDN-fronted web, stateless API, managed DB; leaderboard reads cached.
-- **Open-source flip** (if ADR-0003 accepted): apply chosen license, publish repo,
-  add governance/neutrality statement.
+- **Open-source flip**: publish repo under the Apache-2.0 scope decided in
+  [ADR-0003](adr/0003-open-source-strategy.md) (runner/schemas/profiles/packs;
+  `api/`/`web/` licensing revisited here at M3/M4), with the
+  [governance/neutrality statement](governance.md) already in place.
 
 **Satisfies:** FR-7.1/7.2, NFR-8/10, and the public face of FR-12.
 **Exit:** a public URL shows real, verified batch results that anyone can
@@ -149,6 +151,22 @@ with audio provably staying local.
 
 **Satisfies:** FR-1.4.
 **Exit:** at least one end-to-end assistant profile with published results.
+
+### Design note (unscheduled) — TTS as a first-class benchmark type
+
+LLM stays scoped to the `conversation` type above only — never a standalone
+LLM leaderboard (see [00-vision.md](00-vision.md) non-goals). TTS, however,
+is a reasonable **first-class** addition once there's a concrete need (e.g.
+Babbl ships TTS today): a new `task` field on profiles (orthogonal to
+`benchmark_type`), a pack shape that inverts (input text, not input audio),
+and metrics that mostly reuse M1's existing plugins unchanged
+(`real_time_factor`, `cpu_pct`, `ram_mb`, `energy_wh`) plus one new
+ASR-based intelligibility metric (`tts_intelligibility_wer`/`_cer` — resynthesize,
+re-transcribe with a fixed *versioned* reference ASR profile, score against
+the original text with the existing WER/CER plugins). Not scheduled against
+a specific milestone number yet — pull forward whenever a concrete TTS
+hardware-selection need arises, same reasoning as Dutch-streaming-STT
+possibly preceding M2 in strict order.
 
 ## M8 — Scale, economics & commercial edges
 

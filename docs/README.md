@@ -7,6 +7,8 @@ Start here.
 3. [Architecture](02-architecture.md) — components, data flow, plugin model, trust model.
 4. [Roadmap](03-roadmap.md) — the iterative path from scaffold to a live website.
 5. [Glossary](04-glossary.md) — shared vocabulary.
+6. [Governance & neutrality](governance.md) — what actually stops a sponsor,
+   vendor, or maintainer from tilting a result.
 
 ### Architecture Decision Records
 - [ADR-0001 — Record architecture decisions](adr/0001-record-architecture-decisions.md)

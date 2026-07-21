@@ -57,6 +57,12 @@ so numbers from different people, machines, and dates are directly comparable.
 - Not a transcription service.
 - Not an AI chat platform.
 - Not a model zoo or a runtime — it benchmarks them.
+- Not a general edge-AI benchmark. LLM benchmarking exists only as the
+  reasoning-step component inside the `conversation` benchmark type
+  (mic→VAD→ASR→LLM→TTS→speaker, FR-1.4) — never a standalone LLM
+  quality/accuracy leaderboard. Vision models and image generation are out
+  of scope entirely. Expanding there would need a different name and a
+  deliberate, separate bet — not a natural extension of this project.
 
 OESB benchmarks local speech processing objectively and reproducibly. That is
 the whole job.

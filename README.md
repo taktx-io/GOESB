@@ -23,7 +23,7 @@ platform is Dutch-specific.
 
 ## Design principles
 
-Open source (intended — see note below) · objective · reproducible ·
+Open source (Apache-2.0 — see Licensing below) · objective · reproducible ·
 privacy-first · secure · extensible · vendor-neutral · scientifically sound ·
 practically useful.
 
@@ -79,10 +79,16 @@ python scripts/validate_assets.py
 
 ## Licensing
 
-This repository is currently **All Rights Reserved** (placeholder). The intended
-long-term model is an **open-source core** with optional commercial extensions;
-the specific license is an open decision documented in
-[ADR-0003](docs/adr/0003-open-source-strategy.md). Nothing is locked in yet.
+**Apache-2.0** for `runner/`, `schemas/`, `profiles/`, `packs/`, and
+`scripts/` — the parts that are built and that the trust/reproducibility
+claim depends on. **`api/` and `web/` are not yet licensed** (unbuilt
+scaffolding; that decision is deferred to milestone M3 — see each
+directory's README). See [ADR-0003](docs/adr/0003-open-source-strategy.md)
+for the reasoning and [governance.md](docs/governance.md) for what actually
+keeps results neutral. Datasets/packs carry their own independent content
+licenses (e.g. CC0-1.0, CC-BY-4.0 — see each pack's `pack.yaml`). Commercial
+modules (Enterprise Edition, Hosted Service, Hardware Certification, Pack
+Marketplace) are separately licensed and not part of this repository.
 
 ## Non-goals
 

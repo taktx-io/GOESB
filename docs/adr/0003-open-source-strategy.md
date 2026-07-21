@@ -1,6 +1,6 @@
 # ADR-0003 — Open-source strategy
 
-- **Status:** Proposed — **decision pending** (owner: Eric)
+- **Status:** Accepted
 - **Date:** 2026-07-21
 
 ## Context
@@ -13,9 +13,7 @@ Hardware Certification, a Pack Marketplace, consultancy, and sponsorship.
 There is a real, deliberate tension here: a benchmark's authority comes from
 being inspectable ("why should I trust your numbers?"), which pulls toward open
 source; while sustainable funding pulls toward capturing some value commercially.
-Eric has not yet decided whether OESB should be open source at all. This ADR
-frames the choice; it does **not** lock anything in. The repository stays
-**private and All Rights Reserved** until this ADR is accepted.
+This ADR resolves that tension (see Decision below).
 
 ## Options
 
@@ -37,26 +35,55 @@ frames the choice; it does **not** lock anything in. The repository stays
    license for those who want to avoid AGPL obligations (a common "open core via
    dual licensing" pattern).
 
-## Recommendation
+## Decision
 
-Adopt **open core**. For the core license, choose between:
-- **Apache-2.0** — best for maximum adoption and hardware-vendor participation
-  (patent grant matters to them); rely on brand, certification, and hosted
-  service for monetisation.
-- **AGPL-3.0 (+ optional commercial dual license)** — best if protecting against
-  closed hosted clones is a priority; keeps the method open while steering
-  service providers toward a commercial agreement.
+**Open core, licensed Apache-2.0** — scoped to what's actually built and
+proven: `runner/`, `schemas/`, scoring/normalization rules, reference
+`profiles/`, and open `packs/`. No AGPL, no dual licensing, no CLA.
 
-Recommended default: **Apache-2.0 core** for the runner/schemas/API/web (to win
-neutral-standard status and vendor buy-in), with commercial modules under a
-separate proprietary license. Reconsider AGPL if a hosted-clone threat becomes
-concrete.
+**`api/` and `web/` are explicitly out of scope for this decision — license
+TBD, not yet Apache-2.0, not yet anything.** They're unbuilt scaffolding
+(M3/M4), and this is where the roadmap's own "Hosted Service" commercial
+line (M8) will actually live. Committing that unbuilt product to a
+permissive license today, before it exists and before any commercial
+pressure is real, would repeat the same mistake as adopting AGPL pre-
+emptively against a hypothetical threat — just in the opposite direction.
+Revisit at M3, once `api/` is actually built and there's a real read on
+whether a self-hostable-competitor risk is concrete.
+
+Rationale for Apache-2.0 (runner/schemas/profiles/packs) over AGPL-3.0(+dual license):
+- OESB's value is becoming *the* neutral standard, which needs hardware
+  vendors (chip makers) and runtime maintainers comfortable contributing
+  adapters/profiles. Apache-2.0's explicit patent grant is what corporate
+  legal teams look for before their engineers can contribute; AGPL's
+  copyleft reputation is friction most standards bodies (MLPerf, SPEC, TPC)
+  deliberately avoid for exactly this reason.
+- The AGPL "hosted-clone" defense is a real pattern (Mongo, Elastic) but
+  solves a problem OESB doesn't have yet — there is no adoption to clone.
+  Dual licensing also requires a CLA from day one, which itself repels some
+  contributors, as a permanent cost against a hypothetical threat.
+- This is reversible in the direction that matters: if a concrete
+  hosted-clone threat emerges later, OESB can relicense *new* versions (as
+  Mongo/Elastic did), at the cost of a CLA at that point — a cost worth
+  paying once the threat is real, not before.
+- What actually protects neutrality long-term is governance, not license
+  terms — see the neutrality/governance doc this ADR requires below.
 
 ## Consequences
 
-- If accepted, replace the placeholder `LICENSE` with the chosen SPDX license,
-  add per-module licensing notes, and flip the repo to public at the milestone
-  agreed in the roadmap (default: end of M1/M2, once the method is presentable).
-- Neutrality commitments (sponsorship never influences results) should be written
-  into a governance doc before going public.
-- Until accepted, treat everything as All Rights Reserved and keep the repo private.
+- `LICENSE` is now Apache-2.0, scoped to `runner/`, `schemas/`, `profiles/`,
+  `packs/`, and repo tooling (`scripts/`) — replacing the All Rights Reserved
+  placeholder for those. Datasets/packs keep their own independent licenses
+  (e.g. CC0-1.0, CC-BY-4.0, already tracked per-pack in `pack.yaml`) —
+  unaffected by the repository's code license.
+- `api/` and `web/` remain unlicensed (default: all rights reserved) until
+  this ADR is revisited at M3 — a placeholder note in each directory says so
+  explicitly, so no one assumes the root `LICENSE` covers them by proximity.
+- No CLA; contributions to the licensed scope are accepted under Apache-2.0
+  terms as-is.
+- Neutrality commitments (sponsorship never influences results) and the
+  plugin review process are written into `docs/governance.md`, a
+  precondition for going public, not an afterthought.
+- Commercial modules (Enterprise Edition, Hosted Service, Hardware
+  Certification, Pack Marketplace — see roadmap M8) are separately licensed
+  and live outside this open core; they are not yet built.
