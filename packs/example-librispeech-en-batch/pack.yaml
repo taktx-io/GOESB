@@ -1,0 +1,25 @@
+# Example open pack manifest — English (LibriSpeech-style). Audio is NOT
+# committed to git. Illustrative only.
+id: example-librispeech-en-batch
+version: 1.0.0
+sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+profile_id: whisper-medium-en-batch
+visibility: open
+license: CC-BY-4.0
+audio:
+  count: 100
+  total_duration_s: 600
+  sample_rate_hz: 16000
+  manifest_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+metadata:
+  language: en-US
+  dialect: general-american
+  age_group: mixed
+  recording_environment: quiet
+  microphone: consumer usb
+  sample_rate_hz: 16000
+  background_noise: none
+  num_speakers: 100
+  speech_style: read
+  transcription_style: verbatim
+  tags: [librispeech, english, clean]

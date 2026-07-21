@@ -73,7 +73,11 @@ runner (validation), the API (ingest validation), and CI (asset validation).
 Immutable, versioned definition of *how* a benchmark runs and is scored:
 type, runtime, model, configuration, normalization, scoring, required metrics,
 changelog. Identified by `id` + `version`. Official profiles gate public
-leaderboards.
+leaderboards. **Language is a first-class field** (BCP-47); the profile also
+selects a per-language **normalization ruleset**. The core is language-agnostic —
+all language-specific text handling lives in the ruleset plugin, never in the
+core — so adding a new language means adding data (a profile + a ruleset), not
+changing the platform.
 
 ### Pack
 Immutable bundle of audio + transcript + metadata + target profile +
@@ -100,6 +104,7 @@ The core defines stable, versioned interfaces; capabilities are plugins:
 | Runtime adapter | how a model is driven | faster-whisper, whisper.cpp, vosk, coqui |
 | Model descriptor | how a model is identified/loaded | whisper-medium int8 |
 | Metric | a measurement + reducer | WER, RTF, First Partial Latency, energy |
+| Normalization ruleset | per-language text handling for scoring | `oesb-en-v1`, `oesb-nl-v1`, `oesb-de-v1`, ... |
 | Hardware probe | how a device is fingerprinted | x86 RAPL, ARM sysfs, NVIDIA NVML |
 | Exporter | how results leave the system | JSON, CSV, OpenTelemetry, leaderboard |
 

@@ -10,6 +10,13 @@ become the de-facto standard for reproducible benchmarks of on-device speech
 processing, with first-class support for privacy-first use cases such as smart
 home, assistive technology, robotics, healthcare, and products like Babbl.
 
+**Language-agnostic by design.** Language is just another selectable dimension —
+like hardware or runtime — not a built-in assumption. Any language works: a
+profile carries a BCP-47 `language` field, normalization is a per-language
+pluggable ruleset, and leaderboards filter by language. Dutch appears in the
+examples because it is one strong privacy-first use case, not because the
+platform is Dutch-specific.
+
 > Status: **early scaffold**. This repository currently contains the project
 > structure, specifications, and documentation. Implementation follows the
 > [roadmap](docs/03-roadmap.md).
@@ -23,7 +30,7 @@ practically useful.
 ## What it answers
 
 - Which hardware runs Whisper Medium in realtime?
-- Which runtime is fastest? Which model is best for Dutch?
+- Which runtime is fastest? Which model is best for a given language (e.g. Dutch, English, German, Spanish, ...)?
 - How much power does a realtime voice assistant draw?
 - Which combination gives the best price/performance?
 - Which hardware is suitable for fully local AI?
@@ -45,7 +52,7 @@ runner/     Python benchmark runner (CLI, environment capture, hashing)
 api/        FastAPI service: /leaderboards /profiles /packs /benchmark
 web/        Next.js public website & leaderboards
 schemas/    JSON Schemas for profiles and packs (source of truth)
-profiles/   Official benchmark profiles (e.g. whisper-medium-nl-batch)
+profiles/   Official benchmark profiles (per language, e.g. whisper-medium-en-batch, whisper-medium-nl-batch)
 packs/      Pack manifests & metadata (never audio)
 docs/       Vision, requirements, architecture, roadmap, ADRs, specs
 scripts/    Repo tooling (schema validation, etc.)

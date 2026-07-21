@@ -9,3 +9,9 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 - Documentation: vision, requirements, architecture, roadmap, glossary.
 - ADRs: record-decisions, tech stack, open-source strategy, runner security model.
 - Specs: metrics, environment capture. JSON Schemas for profile & pack + CI validation.
+
+### Changed
+- Made language-agnostic / multilingual design explicit across docs: language is a
+  first-class dimension with per-language pluggable normalization rulesets; no
+  language is hardcoded or privileged. Added FR-2.6, strengthened NFR-12, and
+  added an English example profile + pack alongside the Dutch ones.

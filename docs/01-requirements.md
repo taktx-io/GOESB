@@ -37,9 +37,17 @@ Streaming is a fundamental benchmark *type*, not a configuration flag.
   create custom profiles, but they appear only locally or in private projects.
 - **FR-2.4 [M]** Profiles are validated against
   [`benchmark-profile.schema.json`](../schemas/benchmark-profile.schema.json).
-- **FR-2.5 [S]** Example official profiles ship: Whisper Medium Dutch, Home
-  Assistant Voice, Babbl Elderly Dutch, Meeting Transcription, Medical
-  Consultation, Automotive Voice, Call Center.
+- **FR-2.5 [S]** Example official profiles ship across multiple languages, e.g.
+  Whisper Medium (English), Whisper Medium (Dutch), Home Assistant Voice, Meeting
+  Transcription, Medical Consultation, Automotive Voice, Call Center. The
+  reference profiles must not be limited to a single language.
+- **FR-2.6 [M]** **Language is a first-class dimension.** Every profile carries a
+  BCP-47 `language`; any language is supported (including low-resource
+  languages), with no language hardcoded or privileged in the core. Normalization
+  is a **per-language pluggable ruleset** (e.g. `oesb-en-v1`, `oesb-nl-v1`), so
+  language-specific text handling (numbers, casing, diacritics, punctuation,
+  script) never leaks into the core. Results are only comparable within the same
+  profile version, which fixes the language and its normalization.
 
 ## 3. Benchmark Packs
 
@@ -165,8 +173,11 @@ Streaming is a fundamental benchmark *type*, not a configuration flag.
 - **NFR-10 Usability [S]** — a newcomer can run a local benchmark and read a
   leaderboard without reading the source.
 - **NFR-11 Accessibility [C]** — the website meets WCAG 2.1 AA.
-- **NFR-12 Internationalisation [S]** — multilingual by design; Dutch is a
-  first-class test language, not an afterthought.
+- **NFR-12 Internationalisation [M]** — multilingual and language-agnostic by
+  design. No language is privileged in the platform's mechanics; every language
+  is a first-class dimension with its own pluggable normalization ruleset. The
+  platform must work equally for high- and low-resource languages and for
+  non-Latin scripts. (Dutch is merely one validation language among many.)
 
 ## Traceability
 

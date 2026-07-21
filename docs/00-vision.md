@@ -7,9 +7,16 @@ Automatic Speech Recognition and realtime voice pipelines**, so that anyone
 building on-device speech AI can choose the optimal combination of hardware,
 runtime, model, configuration, dataset, and language with confidence.
 
-OESB is fully generic, but must be excellent for privacy-first applications:
-smart home, assistive technology, robotics, healthcare, and products such as
-Babbl.
+OESB is fully generic — **language-agnostic and multilingual by design**. No
+language is privileged in the platform's mechanics: language is a first-class,
+selectable dimension (a field on every profile and pack, filterable on every
+leaderboard), and normalization is a per-language pluggable ruleset. The platform
+must be equally usable for English, German, Spanish, Arabic, Mandarin, or any
+other language, including low-resource ones. It must also be excellent for
+privacy-first applications: smart home, assistive technology, robotics,
+healthcare, and products such as Babbl. Dutch recurs in examples only because it
+is one concrete privacy-first use case — never because the platform is
+Dutch-specific.
 
 ## The end state
 
@@ -31,6 +38,8 @@ choices when building local speech applications.
 - **Extensible** — new benchmark types, runtimes, models, metrics, hardware, and
   exporters are added via plugins without touching the core.
 - **Vendor-neutral** — no built-in bias toward any chip, runtime, or model.
+- **Language-agnostic** — any language is a first-class citizen; no language is
+  hardcoded or privileged, and per-language normalization is pluggable.
 - **Scientifically sound** — defined normalization, scoring, and statistics.
 - **Practically useful** — answers real purchasing and deployment questions.
 

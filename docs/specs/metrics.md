@@ -18,6 +18,14 @@ Normalization (lowercasing, punctuation, number expansion, ruleset id) is fixed
 by the profile and applied identically to reference and hypothesis **before**
 alignment, so WER/CER are comparable only within the same profile version.
 
+Normalization is **per-language and pluggable**: each language has its own
+versioned ruleset (e.g. `oesb-en-v1`, `oesb-nl-v1`, `oesb-de-v1`) handling
+language-specific number expansion, casing, diacritics, punctuation, and script.
+The metric implementations (WER/CER alignment) are language-agnostic; only the
+ruleset is language-aware. This keeps the core free of any language assumption
+while allowing correct scoring for high- and low-resource languages and
+non-Latin scripts alike.
+
 ## Realtime (streaming)
 
 | id | Name | Unit | Definition |
