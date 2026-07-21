@@ -88,7 +88,7 @@
           "unit": { "type": "string" },
           "spread": {
             "type": "object",
-            "description": "Required whenever repeats > 1 (FR-5.3): variance must be surfaced, never hidden.",
+            "description": "Required whenever repeats > 1 (FR-5.3): variance must be surfaced, never hidden. Always required for latency metrics (unit 'ms'), independent of repeat count (docs/specs/metrics.md 'Reporting': never mean alone for tail latency).",
             "additionalProperties": false,
             "properties": {
               "std": { "type": "number", "minimum": 0 },
@@ -101,6 +101,16 @@
           "per_repeat": {
             "type": "array", "items": { "type": "number" },
             "description": "Raw per-repeat values, for tolerance/drift analysis."
+          }
+        },
+        "if": {
+          "properties": { "unit": { "const": "ms" } },
+          "required": ["unit"]
+        },
+        "then": {
+          "required": ["spread"],
+          "properties": {
+            "spread": { "required": ["p50", "p95"] }
           }
         }
       }

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..pack import Utterance
+from ..streaming import PartialUpdate, StreamTrace
 from . import register
 
 
@@ -31,7 +32,7 @@ def _resolve_model_id(model_name: str) -> str:
     return model_name[len(prefix):] if model_name.startswith(prefix) else model_name
 
 
-@register("faster-whisper")
+@register("faster-whisper", benchmark_type="batch")
 def run_batch(
     model_name: str,
     utterances: list[Utterance],
@@ -86,3 +87,91 @@ def run_batch(
             processing_time_s=elapsed,
         ))
     return results
+
+
+@register("faster-whisper", benchmark_type="streaming")
+def run_streaming(
+    model_name: str,
+    utterances: list[Utterance],
+    *,
+    chunk_ms: int = 1000,
+    quantization: str = "int8",
+    beam_size: int = 5,
+    temperature: float = 0.0,
+    vad: bool = True,
+    threads: int = 4,
+    download_root: str | Path | None = None,
+) -> list[StreamTrace]:
+    """Feed each utterance to faster-whisper in `chunk_ms` chunks, re-decoding
+    the growing buffer after every chunk (faster-whisper has no incremental
+    decoder state to resume, so "streaming" here means repeated whole-buffer
+    re-transcription — the same "local agreement" pattern used by e.g.
+    whisper_streaming). One `StreamTrace` per utterance records the resulting
+    hypothesis timeline for the streaming metric plugins to score.
+    """
+    try:
+        from faster_whisper import WhisperModel
+        from faster_whisper.audio import decode_audio
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise RuntimeError(
+            "faster-whisper is not installed; run "
+            "`pip install oesb-runner[faster-whisper]`"
+        ) from exc
+
+    sample_rate = 16000
+    chunk_samples = max(1, int(chunk_ms / 1000 * sample_rate))
+
+    model = WhisperModel(
+        _resolve_model_id(model_name),
+        compute_type=quantization,
+        cpu_threads=threads,
+        download_root=str(download_root) if download_root is not None else None,
+    )
+
+    traces: list[StreamTrace] = []
+    for utterance in utterances:
+        samples = decode_audio(str(utterance.audio_path), sampling_rate=sample_rate)
+        total_samples = len(samples)
+        audio_duration_s = total_samples / sample_rate
+
+        updates: list[PartialUpdate] = []
+        processing_time_s = 0.0
+        end = 0
+        while end < total_samples:
+            end = min(end + chunk_samples, total_samples)
+            is_last_chunk = end >= total_samples
+            chunk_end_s = end / sample_rate
+
+            start = time.perf_counter()
+            segments, _info = model.transcribe(
+                samples[:end],
+                beam_size=beam_size,
+                temperature=temperature,
+                vad_filter=vad,
+            )
+            segments = list(segments)
+            decode_wall_s = time.perf_counter() - start
+            processing_time_s += decode_wall_s
+
+            text = " ".join(segment.text.strip() for segment in segments).strip()
+            if is_last_chunk:
+                committed_word_count = len(text.split())
+            else:
+                committed_text = " ".join(s.text.strip() for s in segments[:-1]).strip()
+                committed_word_count = len(committed_text.split())
+
+            updates.append(PartialUpdate(
+                chunk_end_s=chunk_end_s,
+                emit_time_s=chunk_end_s + decode_wall_s,
+                text=text,
+                committed_word_count=committed_word_count,
+            ))
+
+        traces.append(StreamTrace(
+            utterance_id=utterance.utterance_id,
+            audio_duration_s=audio_duration_s,
+            processing_time_s=processing_time_s,
+            updates=updates,
+            final_text=updates[-1].text if updates else "",
+        ))
+    return traces

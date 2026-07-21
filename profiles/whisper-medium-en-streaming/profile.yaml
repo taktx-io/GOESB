@@ -1,0 +1,42 @@
+# Example official profile — English streaming. Same runtime/model as
+# whisper-medium-en-batch; benchmark_type + configuration.chunk_ms + streaming
+# metric set differ. Validated against schemas/benchmark-profile.schema.json.
+id: whisper-medium-en-streaming
+version: 1.0.0
+title: Whisper Medium English (Streaming)
+benchmark_type: streaming
+language: en-US
+runtime:
+  name: faster-whisper
+  min_version: "1.0.0"
+model:
+  name: whisper-medium
+  quantization: int8
+  beam_size: 5
+  temperature: 0.0
+  vad: true
+configuration:
+  threads: 4
+  chunk_ms: 1000
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: oesb-en-v1
+scoring:
+  primary_metric: first_partial_latency
+  tie_breakers: [streaming_responsiveness, real_time_factor]
+metrics:
+  - wer
+  - real_time_factor
+  - cpu_pct
+  - ram_mb
+  - first_partial_latency
+  - first_final_latency
+  - end_of_speech_latency
+  - update_frequency
+  - partial_stability
+  - streaming_responsiveness
+changelog:
+  - version: 1.0.0
+    notes: Initial streaming profile (M5).

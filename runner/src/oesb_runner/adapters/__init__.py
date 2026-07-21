@@ -8,24 +8,30 @@ from __future__ import annotations
 
 from typing import Callable
 
-_ADAPTERS: dict[str, Callable] = {}
+# Keyed by (runtime_name, benchmark_type) — a runtime can implement more than
+# one benchmark type (e.g. faster-whisper's "batch" and "streaming" loops are
+# different callables, same underlying runtime).
+_ADAPTERS: dict[tuple[str, str], Callable] = {}
 
 
-def register(runtime_name: str) -> Callable[[Callable], Callable]:
+def register(runtime_name: str, benchmark_type: str = "batch") -> Callable[[Callable], Callable]:
     def decorator(fn: Callable) -> Callable:
-        if runtime_name in _ADAPTERS:
-            raise ValueError(f"runtime adapter already registered: {runtime_name!r}")
-        _ADAPTERS[runtime_name] = fn
+        key = (runtime_name, benchmark_type)
+        if key in _ADAPTERS:
+            raise ValueError(f"runtime adapter already registered: {key!r}")
+        _ADAPTERS[key] = fn
         return fn
 
     return decorator
 
 
-def get_adapter(runtime_name: str) -> Callable:
+def get_adapter(runtime_name: str, benchmark_type: str = "batch") -> Callable:
     try:
-        return _ADAPTERS[runtime_name]
+        return _ADAPTERS[(runtime_name, benchmark_type)]
     except KeyError:
-        raise ValueError(f"unknown runtime adapter: {runtime_name!r}") from None
+        raise ValueError(
+            f"unknown runtime adapter: {runtime_name!r} for benchmark_type {benchmark_type!r}"
+        ) from None
 
 
 # Built-in adapters register themselves on import.

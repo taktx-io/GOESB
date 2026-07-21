@@ -20,7 +20,18 @@ from . import __version__
 from .adapters import get_adapter
 from .environment import capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
-from .metrics import cer, cpu_ram, rtf, wer
+from .metrics import (
+    cer,
+    cpu_ram,
+    end_of_speech_latency,
+    first_final_latency,
+    first_partial_latency,
+    partial_stability,
+    rtf,
+    streaming_responsiveness,
+    update_frequency,
+    wer,
+)
 from .normalization import normalize
 from .pack import load_pack
 from .schema_validation import validate_against
@@ -33,6 +44,30 @@ app = typer.Typer(help="Open Edge Speech Benchmark runner")
 # default tolerance on the primary metric's relative std across repeats
 # (docs/specs/environment-capture.md "Reproducibility tolerance").
 DEFAULT_TOLERANCE_REL_STD = 0.05
+
+# Latency metrics are pooled per-utterance samples (p50/p95 across the pack),
+# not one aggregate scalar per repeat like WER/RTF — kept separate from
+# per_repeat_metrics below because they aggregate differently.
+LATENCY_METRIC_IDS = {
+    first_partial_latency.METRIC_ID,
+    first_final_latency.METRIC_ID,
+    end_of_speech_latency.METRIC_ID,
+}
+
+_METRIC_UNITS = {
+    wer.METRIC_ID: wer.UNIT,
+    cer.METRIC_ID: cer.UNIT,
+    rtf.METRIC_ID: rtf.UNIT,
+    cpu_ram.CPU_METRIC_ID: cpu_ram.CPU_UNIT,
+    cpu_ram.RAM_METRIC_ID: cpu_ram.RAM_UNIT,
+    "energy_wh": "Wh",
+    first_partial_latency.METRIC_ID: first_partial_latency.UNIT,
+    first_final_latency.METRIC_ID: first_final_latency.UNIT,
+    end_of_speech_latency.METRIC_ID: end_of_speech_latency.UNIT,
+    update_frequency.METRIC_ID: update_frequency.UNIT,
+    partial_stability.METRIC_ID: partial_stability.UNIT,
+    streaming_responsiveness.METRIC_ID: streaming_responsiveness.UNIT,
+}
 
 
 @app.command()
@@ -139,8 +174,9 @@ def run(
 
     environment = capture_environment()
 
+    benchmark_type = profile["benchmark_type"]
     runtime_name = profile["runtime"]["name"]
-    adapter = get_adapter(runtime_name)
+    adapter = get_adapter(runtime_name, benchmark_type=benchmark_type)
     runtime_hash = sha256_module_source(sys.modules[adapter.__module__])
 
     model_cfg = dict(profile["model"])
@@ -155,70 +191,144 @@ def run(
     models_root_path = Path(models_root) if models_root else Path.home() / ".oesb" / "models" / model_name
     models_root_path.mkdir(parents=True, exist_ok=True)
 
-    per_repeat_metrics: dict[str, list[float]] = {m: [] for m in profile["metrics"]}
+    scalar_metrics = [m for m in profile["metrics"] if m not in LATENCY_METRIC_IDS]
+    per_repeat_metrics: dict[str, list[float]] = {m: [] for m in scalar_metrics}
+    latency_samples_ms: dict[str, list[float]] = {
+        m: [] for m in profile["metrics"] if m in LATENCY_METRIC_IDS
+    }
 
     for repeat in range(1, repeats + 1):
         typer.echo(f"Repeat {repeat}/{repeats} ...", err=True)
 
-        def _do_transcribe():
-            return adapter(
-                model_name,
-                pack.utterances,
-                quantization=model_cfg.get("quantization", "int8"),
-                beam_size=model_cfg.get("beam_size", 5),
-                temperature=model_cfg.get("temperature", 0.0),
-                vad=model_cfg.get("vad", True),
-                threads=configuration.get("threads", 4),
-                download_root=models_root_path,
-            )
+        if benchmark_type == "batch":
 
-        transcriptions, samples = _sample_during(_do_transcribe)
-        by_id = {t.utterance_id: t for t in transcriptions}
+            def _do_transcribe():
+                return adapter(
+                    model_name,
+                    pack.utterances,
+                    quantization=model_cfg.get("quantization", "int8"),
+                    beam_size=model_cfg.get("beam_size", 5),
+                    temperature=model_cfg.get("temperature", 0.0),
+                    vad=model_cfg.get("vad", True),
+                    threads=configuration.get("threads", 4),
+                    download_root=models_root_path,
+                )
 
-        pairs = []
-        for utterance in pack.utterances:
-            hyp = by_id[utterance.utterance_id].hypothesis_text
-            pairs.append((
-                normalize(ruleset_id, utterance.reference_text, **norm_options),
-                normalize(ruleset_id, hyp, **norm_options),
-            ))
+            transcriptions, samples = _sample_during(_do_transcribe)
+            by_id = {t.utterance_id: t for t in transcriptions}
 
-        total_processing_s = sum(t.processing_time_s for t in transcriptions)
-        computed = {
-            "wer": wer.compute(pairs),
-            "cer": cer.compute(pairs),
-            "real_time_factor": rtf.compute(total_processing_s, pack.total_duration_s),
-            "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
-            "ram_mb": cpu_ram.reduce_peak_ram_mb(samples),
-        }
-        for metric_id in per_repeat_metrics:
-            if metric_id in computed:
-                per_repeat_metrics[metric_id].append(computed[metric_id])
+            pairs = []
+            for utterance in pack.utterances:
+                hyp = by_id[utterance.utterance_id].hypothesis_text
+                pairs.append((
+                    normalize(ruleset_id, utterance.reference_text, **norm_options),
+                    normalize(ruleset_id, hyp, **norm_options),
+                ))
+
+            total_processing_s = sum(t.processing_time_s for t in transcriptions)
+            computed = {
+                "wer": wer.compute(pairs),
+                "cer": cer.compute(pairs),
+                "real_time_factor": rtf.compute(total_processing_s, pack.total_duration_s),
+                "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
+                "ram_mb": cpu_ram.reduce_peak_ram_mb(samples),
+            }
+            for metric_id in per_repeat_metrics:
+                if metric_id in computed:
+                    per_repeat_metrics[metric_id].append(computed[metric_id])
+
+        elif benchmark_type == "streaming":
+
+            def _do_transcribe():
+                return adapter(
+                    model_name,
+                    pack.utterances,
+                    chunk_ms=configuration.get("chunk_ms", 1000),
+                    quantization=model_cfg.get("quantization", "int8"),
+                    beam_size=model_cfg.get("beam_size", 5),
+                    temperature=model_cfg.get("temperature", 0.0),
+                    vad=model_cfg.get("vad", True),
+                    threads=configuration.get("threads", 4),
+                    download_root=models_root_path,
+                )
+
+            traces, samples = _sample_during(_do_transcribe)
+            by_id = {t.utterance_id: t for t in traces}
+
+            pairs = []
+            for utterance in pack.utterances:
+                hyp = by_id[utterance.utterance_id].final_text
+                pairs.append((
+                    normalize(ruleset_id, utterance.reference_text, **norm_options),
+                    normalize(ruleset_id, hyp, **norm_options),
+                ))
+
+            total_processing_s = sum(t.processing_time_s for t in traces)
+            this_repeat_latency = {
+                first_partial_latency.METRIC_ID: first_partial_latency.compute(traces),
+                first_final_latency.METRIC_ID: first_final_latency.compute(traces),
+                end_of_speech_latency.METRIC_ID: end_of_speech_latency.compute(traces),
+            }
+            update_freq = update_frequency.compute(traces)
+            stability = partial_stability.compute(traces)
+            computed = {
+                "wer": wer.compute(pairs),
+                "cer": cer.compute(pairs),
+                "real_time_factor": rtf.compute(total_processing_s, pack.total_duration_s),
+                "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
+                "ram_mb": cpu_ram.reduce_peak_ram_mb(samples),
+                "update_frequency": update_freq,
+                "partial_stability": stability,
+                "streaming_responsiveness": streaming_responsiveness.compute(
+                    update_frequency_hz=update_freq,
+                    partial_stability=stability,
+                    first_partial_latency_p50_ms=summarize(
+                        this_repeat_latency[first_partial_latency.METRIC_ID]
+                    )["p50"],
+                ),
+            }
+            for metric_id in per_repeat_metrics:
+                if metric_id in computed:
+                    per_repeat_metrics[metric_id].append(computed[metric_id])
+            for metric_id in latency_samples_ms:
+                latency_samples_ms[metric_id].extend(this_repeat_latency[metric_id])
+
+        else:
+            typer.echo(f"unsupported benchmark_type: {benchmark_type!r}", err=True)
+            raise typer.Exit(code=1)
 
     metrics_block = {}
     for metric_id, values in per_repeat_metrics.items():
         if not values:
             continue  # not yet implemented (e.g. energy_wh) — known M1/M2 gap
         summary = summarize(values)
-        metrics_block[metric_id] = {
-            "value": summary["value"],
-            "unit": "ratio" if metric_id in ("wer", "cer", "real_time_factor") else
-                    ("%" if metric_id == "cpu_pct" else "MB"),
-        }
+        metrics_block[metric_id] = {"value": summary["value"], "unit": _METRIC_UNITS[metric_id]}
         if len(values) > 1:
             metrics_block[metric_id]["spread"] = {
                 k: v for k, v in summary.items() if k != "value"
             }
             metrics_block[metric_id]["per_repeat"] = values
 
+    for metric_id, samples_ms in latency_samples_ms.items():
+        summary = summarize(samples_ms)
+        metrics_block[metric_id] = {
+            "value": summary["value"],
+            "unit": _METRIC_UNITS[metric_id],
+            # Always attached (not gated on repeats > 1 like scalar metrics
+            # above): the schema requires p50/p95 for every "ms" metric,
+            # since these are pooled per-utterance samples, not per-repeat.
+            "spread": {k: v for k, v in summary.items() if k != "value"},
+        }
+
     primary_metric = profile["scoring"]["primary_metric"]
-    if primary_metric in metrics_block and len(per_repeat_metrics[primary_metric]) > 1:
-        primary_summary = summarize(per_repeat_metrics[primary_metric])
+    primary_values = latency_samples_ms.get(primary_metric) or per_repeat_metrics.get(primary_metric)
+    if primary_values and len(primary_values) > 1:
+        primary_summary = summarize(primary_values)
         rel_std = relative_std(primary_summary)
         if rel_std > DEFAULT_TOLERANCE_REL_STD:
             typer.echo(
                 f"WARNING: {primary_metric} relative std {rel_std:.1%} exceeds "
-                f"tolerance {DEFAULT_TOLERANCE_REL_STD:.0%} across {repeats} repeats "
+                f"tolerance {DEFAULT_TOLERANCE_REL_STD:.0%} across {len(primary_values)} samples "
                 "(FR-5.3: surfaced, not hidden)",
                 err=True,
             )

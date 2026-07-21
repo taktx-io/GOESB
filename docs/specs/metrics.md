@@ -35,7 +35,7 @@ non-Latin scripts alike.
 | `end_of_speech_latency` | End-of-Speech Latency | ms | Time from the true end of speech to the final transcript being emitted. |
 | `update_frequency` ↑ | Update Frequency | Hz | Rate of partial hypothesis updates during continuous speech. |
 | `partial_stability` ↑ | Partial Stability | ratio 0–1 | Fraction of partial-hypothesis tokens that survive unchanged into the final transcript (measures "flicker"). 1.0 = partials never rewritten. |
-| `streaming_responsiveness` ↑ | Streaming Responsiveness | index | Composite of update frequency and stability against latency; defined per profile. |
+| `streaming_responsiveness` ↑ | Streaming Responsiveness | index | Composite of update frequency and stability against latency; defined per profile. OESB's default (used unless a profile overrides it): `(update_frequency_hz * partial_stability) / first_partial_latency_p50_s`. |
 
 ## Performance
 
