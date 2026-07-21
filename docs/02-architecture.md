@@ -49,6 +49,20 @@ The runner is open, digitally signed, reproducible, and cross-platform
 (Linux/Windows/macOS, ARM/x86). It **never executes user-provided code** — see
 §5 and [ADR-0004](adr/0004-runner-security-model.md).
 
+**Distribution model.** The runner itself is pure Python — a thin orchestration
+layer. Native/compiled ASR inference code lives inside each runtime adapter's own
+upstream dependency (`faster-whisper`'s `ctranslate2`, `whisper.cpp` bindings,
+etc.), which already publishes cross-platform wheels for Linux/Windows/macOS ×
+x86/ARM on PyPI. OESB does **not** hand-build or maintain per-platform binaries —
+it rides on that existing wheel ecosystem. Distribution is one signed Python
+package (signed release + signed PyPI artifact, e.g. via sigstore/cosign on the
+git tag), installable with `pip install oesb-runner` wherever Python 3.11+ runs.
+Standalone bundled binaries (PyInstaller/Nuitka) for users without a Python
+environment are an **optional convenience** for a curated subset of common
+targets, never the only install path and never required to satisfy FR-8.2. This
+keeps platform support bounded to "does pip install + our probes work here",
+not an open-ended per-platform build matrix.
+
 ### 2.2 API (`api/`)
 An open REST service (FastAPI). Serves read models for the website and accepts
 result submissions. Endpoints (see §6). The website never touches the database

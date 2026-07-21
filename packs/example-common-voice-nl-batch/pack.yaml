@@ -10,6 +10,12 @@ audio:
   total_duration_s: 600
   sample_rate_hz: 16000
   manifest_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  source:
+    url: "https://commonvoice.mozilla.org/nl/datasets"
+    fetch_instructions: >
+      Download the nl (Dutch) Common Voice release, extract the referenced
+      100-clip subset (see manifest), and verify against manifest_sha256
+      before running.
 metadata:
   language: nl-NL
   dialect: standard

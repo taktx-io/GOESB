@@ -21,7 +21,17 @@
         "count": { "type": "integer", "minimum": 1 },
         "total_duration_s": { "type": "number", "minimum": 0 },
         "sample_rate_hz": { "type": "integer" },
-        "manifest_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        "manifest_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "source": {
+          "type": "object",
+          "description": "Where to obtain the actual audio for open/community packs. Required for visibility=open|community; omitted for private packs (audio never leaves the machine).",
+          "properties": {
+            "url": { "type": "string", "format": "uri",
+              "description": "Upstream download location (e.g. Common Voice release page/API)." },
+            "fetch_instructions": { "type": "string",
+              "description": "Human-readable steps to obtain and lay out the audio locally, if not a simple direct download." }
+          }
+        }
       }
     },
     "metadata": {

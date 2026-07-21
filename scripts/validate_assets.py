@@ -33,12 +33,25 @@ def validate_dir(subdir: str, filename: str, schema: dict) -> list[str]:
     return errors
 
 
+def validate_file(path: Path, schema: dict) -> list[str]:
+    errors: list[str] = []
+    validator = Draft202012Validator(schema)
+    data = json.loads(path.read_text())
+    for err in validator.iter_errors(data):
+        errors.append(f"{path}: {err.message}")
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     errors += validate_dir("profiles", "profile.yaml",
                            load_schema("benchmark-profile.schema.json"))
     errors += validate_dir("packs", "pack.yaml",
                            load_schema("benchmark-pack.schema.json"))
+    errors += validate_file(
+        ROOT / "schemas" / "examples" / "benchmark-result.example.json",
+        load_schema("benchmark-result.schema.json"),
+    )
     if errors:
         print("INVALID assets:")
         for e in errors:

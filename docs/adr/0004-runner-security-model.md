@@ -31,6 +31,17 @@ detection, deduplication, and exact comparison.
 result documents are signed. Public leaderboard ingestion verifies the signature
 chains and re-checks hashes before ranking.
 
+**Signing key is runner-embedded, not per-user identity.** The key that signs a
+result document belongs to the official runner build/installation, not to a
+personal or account-linked identity. A signature therefore proves "this result
+was produced by a genuine, unmodified official runner" — not "this specific
+person submitted it." This deliberately avoids requiring user accounts/identity
+infrastructure before M3, and matches the trust claim OESB actually needs
+(genuine measurement, not attributed authorship). `POST /benchmark` submission
+itself may remain anonymous/unauthenticated as a result; abuse mitigation
+(rate-limiting, submission review) is deferred to scale-hardening (M8) rather
+than gating M3/M4.
+
 **Least privilege at run time.** The runner reads its declared inputs and writes
 its result; it does not require network access to produce a result (submission is
 a separate, explicit step). Private audio never leaves the machine.

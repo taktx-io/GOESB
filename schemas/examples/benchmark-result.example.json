@@ -1,0 +1,50 @@
+{
+  "schema_version": "0.1",
+  "profile": {
+    "id": "whisper-medium-nl-batch",
+    "version": "1.0.0",
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "pack": {
+    "id": "example-common-voice-nl-batch",
+    "version": "1.0.0",
+    "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "visibility": "open"
+  },
+  "runtime": {
+    "name": "faster-whisper",
+    "version": "1.0.3",
+    "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "model": {
+    "name": "whisper-medium",
+    "quantization": "int8",
+    "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "config_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "environment": {
+    "schema_version": "0.1",
+    "os": { "system": "Linux", "release": "6.8.0", "machine": "x86_64" },
+    "python": "3.11.9"
+  },
+  "metrics": {
+    "wer": { "value": 0.083, "unit": "ratio", "spread": { "std": 0.002, "min": 0.081, "max": 0.086, "p50": 0.083, "p95": 0.086 }, "per_repeat": [0.081, 0.086] },
+    "cer": { "value": 0.031, "unit": "ratio", "spread": { "std": 0.001, "min": 0.030, "max": 0.032, "p50": 0.031, "p95": 0.032 }, "per_repeat": [0.030, 0.032] },
+    "real_time_factor": { "value": 0.21, "unit": "ratio", "spread": { "std": 0.01, "min": 0.20, "max": 0.22, "p50": 0.21, "p95": 0.22 }, "per_repeat": [0.20, 0.22] },
+    "cpu_pct": { "value": 340.5, "unit": "%" },
+    "ram_mb": { "value": 2148.0, "unit": "MB" },
+    "energy_wh": { "value": 0.045, "unit": "Wh" }
+  },
+  "repeats": 2,
+  "timestamp": "2026-07-21T12:00:00Z",
+  "runner": {
+    "version": "0.0.1",
+    "build_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "payload_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+  "signature": {
+    "algo": "ed25519",
+    "key_id": "oesb-runner-dev-key-1",
+    "sig": "ZmFrZS1zaWduYXR1cmUtZm9yLXNjaGVtYS1maXh0dXJlLW9ubHk="
+  }
+}

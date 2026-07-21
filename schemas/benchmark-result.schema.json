@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oesb.dev/schemas/benchmark-result.schema.json",
+  "title": "OESB Benchmark Result",
+  "description": "A signed, hashed result document produced by the official runner: metric values, the environment fingerprint, and the hashes of every input (profile, pack, runtime, model, configuration) that produced them.",
+  "type": "object",
+  "required": [
+    "schema_version", "profile", "pack", "runtime", "model", "config_sha256",
+    "environment", "metrics", "repeats", "timestamp", "runner", "payload_sha256",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "0.1" },
+
+    "profile": {
+      "type": "object",
+      "required": ["id", "version", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
+          "description": "Hash over the canonical profile document used for this run." }
+      }
+    },
+
+    "pack": {
+      "type": "object",
+      "required": ["id", "version", "sha256", "visibility"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
+          "description": "Must match the pack manifest's own sha256 (FR-3.2)." },
+        "visibility": { "enum": ["open", "community", "private"],
+          "description": "Copied from the pack at run time; the ingest gate (FR-7.3) only projects open+official onto public leaderboards." }
+      }
+    },
+
+    "runtime": {
+      "type": "object",
+      "required": ["name", "version", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Runtime adapter id, e.g. 'faster-whisper'." },
+        "version": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
+          "description": "Hash identifying the exact adapter code + pinned dependency version." }
+      }
+    },
+
+    "model": {
+      "type": "object",
+      "required": ["name", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "quantization": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
+          "description": "Hash of the model weights actually loaded, so a result is tied to a specific artifact, not just a name." }
+      }
+    },
+
+    "config_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
+      "description": "Hash over the fully-resolved configuration (profile.configuration + any explicit run overrides) used for this run." },
+
+    "environment": {
+      "type": "object",
+      "description": "The reproducibility fingerprint captured by `oesb env` at run time. See docs/specs/environment-capture.md. Fields the platform cannot probe are present and null with a reason, never omitted.",
+      "required": ["schema_version"],
+      "properties": {
+        "schema_version": { "type": "string" }
+      }
+    },
+
+    "metrics": {
+      "type": "object",
+      "description": "Keyed by metric id (docs/specs/metrics.md). Every value required by the profile's `metrics` list must be present.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["value", "unit"],
+        "additionalProperties": false,
+        "properties": {
+          "value": { "type": "number", "description": "Mean/aggregate value across repeats." },
+          "unit": { "type": "string" },
+          "spread": {
+            "type": "object",
+            "description": "Required whenever repeats > 1 (FR-5.3): variance must be surfaced, never hidden.",
+            "additionalProperties": false,
+            "properties": {
+              "std": { "type": "number", "minimum": 0 },
+              "min": { "type": "number" },
+              "max": { "type": "number" },
+              "p50": { "type": "number" },
+              "p95": { "type": "number" }
+            }
+          },
+          "per_repeat": {
+            "type": "array", "items": { "type": "number" },
+            "description": "Raw per-repeat values, for tolerance/drift analysis."
+          }
+        }
+      }
+    },
+
+    "repeats": { "type": "integer", "minimum": 1 },
+
+    "timestamp": { "type": "string", "format": "date-time" },
+
+    "runner": {
+      "type": "object",
+      "required": ["version"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "string", "description": "oesb-runner package version, e.g. '0.0.1'." },
+        "build_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
+          "description": "Hash of the signed release artifact that produced this result, where available." }
+      }
+    },
+
+    "payload_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 over the canonical JSON serialization of this document with `signature` omitted. This is what `signature.sig` signs, and what ingest re-verifies (ADR-0004)." },
+
+    "signature": {
+      "type": "object",
+      "required": ["algo", "key_id", "sig"],
+      "additionalProperties": false,
+      "properties": {
+        "algo": { "type": "string", "const": "ed25519" },
+        "key_id": { "type": "string",
+          "description": "Identifies the runner-embedded signing key (see ADR-0004: the key attests to a genuine unmodified runner build, not a personal/user identity)." },
+        "sig": { "type": "string", "description": "Base64-encoded signature over payload_sha256." }
+      }
+    }
+  }
+}

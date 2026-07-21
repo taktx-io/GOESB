@@ -62,7 +62,10 @@ and its hashes verify.
 
 **Goal:** make batch numbers *portable and complete*.
 
-- Runner runs on Linux/Windows/macOS and ARM/x86; signed release artifacts.
+- Runner runs on Linux/Windows/macOS and ARM/x86; signed release artifacts
+  (signed PyPI package/git tag — see distribution model in
+  [02-architecture.md §2.1](02-architecture.md)) — not per-platform native
+  binaries.
 - Energy/thermal probes (RAPL, battery delta, hwmon; external-meter hook).
 - Second and third runtime adapters (e.g. `whisper.cpp`, `vosk`) to prove the
   adapter interface.
@@ -88,6 +91,12 @@ swap without core changes.
 **Satisfies:** FR-12.1/12.2/12.3, FR-7.3, FR-9.3, NFR-2.
 **Exit:** a locally produced result is submitted, verified, and retrievable via
 the API; tampered results are rejected.
+**Decision needed:** `POST /benchmark` is anonymous/unauthenticated (per
+[ADR-0004](adr/0004-runner-security-model.md) — trust comes from the
+runner-embedded signature, not submitter identity). Abuse mitigation
+(rate-limiting, submission review) is explicitly deferred to M8, not a blocker
+here — but must be revisited before traffic makes anonymous submission a
+liability.
 
 ## M4 — Public website & leaderboards (first live release)
 
