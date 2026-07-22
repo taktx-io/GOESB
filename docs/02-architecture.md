@@ -65,12 +65,13 @@ not an open-ended per-platform build matrix.
 
 ### 2.2 API
 A REST service (FastAPI). Serves read models for the website and accepts
-result submissions. Endpoints (see §6). The website never touches the database
-directly — it consumes the same public API third parties use. Lives in the
-separate, private `taktx-io/goesb-platform` repo (not this one) — see
-[ADR-0007](adr/0007-split-platform-repo.md) — but depends directly on this
-repo's `goesb-runner` for schema validation and result signing/verification
-(ADR-0004/0005), so the trust logic is never reimplemented.
+result submissions. The website never touches the database directly — it
+consumes the same public API third parties use. Lives in the separate,
+private `taktx-io/goesb-platform` repo (not this one) — see
+[ADR-0007](adr/0007-split-platform-repo.md), which also documents its own
+endpoint contract — but depends directly on this repo's `goesb-runner` for
+schema validation and result signing/verification (ADR-0004/0005), so the
+trust logic is never reimplemented.
 
 ### 2.3 Web
 Next.js/React public site: filterable leaderboards, profile and pack detail
@@ -151,23 +152,10 @@ appear on public leaderboards. Private results are for internal comparison and
 never surface publicly. See [ADR-0004](adr/0004-runner-security-model.md) for the
 full threat model.
 
-## 6. API surface (initial)
+## 6. API surface
 
-```
-GET  /leaderboards     ?benchmark_type&profile&language&runtime&model&hardware
-                        &max_price_eur&max_energy&min_rtf
-GET  /profiles         list official profiles
-GET  /profiles/{id}    profile incl. version + changelog
-GET  /packs            list packs (id, version, sha256, visibility)
-GET  /packs/{id}
-GET  /hardware         hardware records & fingerprints
-POST /benchmark        submit a signed result for verification & ranking
-GET  /benchmark/{id}   fetch a result
-GET  /health
-```
-
-An OpenAPI document is generated from the API and published/versioned so the
-whole platform is automatable (FR-12).
+The endpoint contract lives in `oesb-platform`'s own architecture doc, not
+here — this repo doesn't own the API.
 
 ## 7. Data flow: one benchmark run
 
@@ -184,13 +172,13 @@ whole platform is automatable (FR-12).
 
 ## 8. Deployment topology
 
-- **Web + API**: containerised, deployed behind a CDN; API is stateless and
-  horizontally scalable; leaderboard reads are cached (NFR-8).
-- **Database + object store**: managed Postgres + S3-compatible bucket.
-- **Runner**: distributed as signed binaries/wheels per platform; runs entirely
-  on the user's machine.
+- **Runner**: distributed as a signed Python package (see §2.1); runs
+  entirely on the user's machine.
+- Web/API/database deployment topology is `oesb-platform`'s own concern —
+  see that repo's architecture doc.
 
-See the [roadmap](03-roadmap.md) for how these come online iteration by iteration.
+See the [roadmap](03-roadmap.md) for how the runner's own scope comes online
+iteration by iteration.
 
 ## 9. Technology choices
 

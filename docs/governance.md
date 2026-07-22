@@ -63,7 +63,9 @@ runner already:
   with a changelog entry (FR-2.2).
 - A pack is immutable and hash-identified after publication (FR-3.2).
 - Public leaderboards accept only official-profile + open-pack + verified-
-  environment results (FR-7.3) — no manual curation of which results appear.
+  environment results — a rule `goesb-platform`'s leaderboard enforces
+  mechanically using this repo's schema/signature verification, not manual
+  curation of which results appear.
 
 ## Decision-making (current stage)
 

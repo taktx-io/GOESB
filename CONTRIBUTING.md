@@ -24,7 +24,7 @@ The leaderboard/API product (`api/`, `web/`) lives in the separate, private
 
 ## Development
 ```bash
-make setup     # install runner, api, web
+make setup     # install the runner
 make lint
 make test
 python scripts/validate_assets.py   # validate profiles/packs against schemas

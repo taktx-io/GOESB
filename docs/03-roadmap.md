@@ -13,10 +13,13 @@ goal, scope, the requirements it satisfies, and its exit criteria.
 **Repo split (after M3):** `api/`/`web/` moved out of this repo into the
 separate, private `taktx-io/goesb-platform` — see
 [ADR-0007](adr/0007-split-platform-repo.md). M0-M3 below describe what was
-built before the move (accurate history, left as-is); M4 onward is now
-executed in `goesb-platform`, which has its own roadmap picking up there.
-This repo's own remaining scope is the open method itself: more
-languages/runtimes, M6 community/private packs, M7 conversation type.
+built before the move (accurate history, left as-is). The **product**
+roadmap — the public website/leaderboards (previously M4) and scale/
+economics/commercial modules (previously M8) — now lives in
+`goesb-platform`'s own roadmap. This repo's own forward scope is the open
+**method**: the open-source flip (M4, below — this repo's own action, not
+the website build), streaming (M5), the cloud reference lane (M5b),
+community/private packs (M6), and the conversation benchmark type (M7).
 
 ---
 
@@ -165,29 +168,20 @@ distribution fix — see [ADR-0005](adr/0005-signing-token-distribution-and-trus
 for the honest trust-claim and the designed (not yet implemented) call-home
 ephemeral-token replacement.
 
-## M4 — Public website & leaderboards (first live release)
+## M4 — Open-source flip
 
-**Goal:** the **live website** — the milestone Eric asked to reach.
+**Goal:** make this repo public. (The live website/leaderboards milestone
+this used to describe is now `goesb-platform`'s own M4 — see that repo's
+roadmap; it consumes the same profiles/packs/runner this repo ships.)
 
-- Next.js site: filterable leaderboards (benchmark type, profile, language,
-  runtime, model, hardware, energy, RTF) reading only from the API. **Not
-  price** — `hardware_price_eur` (docs/specs/metrics.md) is defined but
-  nothing captures it yet; it's a manually-sourced/dated reference value
-  with no probe, scoped to M8's economics work, not M3's pipeline.
-- Profile and pack detail pages (incl. version + changelog); hardware records.
-- 2–3 curated views achievable from what M1-M3 actually measure, e.g.
-  "Lowest energy", "Best CPU-only", "Fastest Dutch STT" — **not**
-  price-based views ("Best X under €N") until hardware pricing data exists
-  (M8, or a small pulled-forward price-lookup addition before then).
-- Deploy: CDN-fronted web, stateless API, managed DB; leaderboard reads cached.
-- **Open-source flip**: publish repo under the Apache-2.0 scope decided in
-  [ADR-0003](adr/0003-open-source-strategy.md) (runner/schemas/profiles/packs;
-  `api/`/`web/` licensing revisited here at M3/M4), with the
+- Publish under the Apache-2.0 scope decided in
+  [ADR-0003](adr/0003-open-source-strategy.md)
+  (`runner/`/`schemas/`/`profiles/`/`packs/`), with the
   [governance/neutrality statement](governance.md) already in place.
 
-**Satisfies:** FR-7.1/7.2, NFR-8/10, and the public face of FR-12.
-**Exit:** a public URL shows real, verified batch results that anyone can
-reproduce with the open runner + open pack.
+**Satisfies:** NFR-10 (a newcomer can read the open method without asking).
+**Exit:** repo visibility flipped to public, CI green, governance.md and
+ADRs available for external readers.
 
 ## M5 — Streaming benchmark type
 
@@ -265,18 +259,14 @@ a specific milestone number yet — pull forward whenever a concrete TTS
 hardware-selection need arises, same reasoning as Dutch-streaming-STT
 possibly preceding M2 in strict order.
 
-## M8 — Scale, economics & commercial edges
+## M8 — (moved to `goesb-platform`)
 
-**Goal:** durability and the business model.
-
-- Economic metrics surfaced and ranked (watt/€ per stream, price/perf index).
-- Performance/scale hardening (caching, pagination) for growing result volumes.
-- Commercial modules per [ADR-0003](adr/0003-open-source-strategy.md): Enterprise
-  Edition, Hosted Service, Hardware Certification, Pack Marketplace — built
-  around the open core without compromising neutrality.
-
-**Satisfies:** FR-6.4, NFR-8/9, and the commercial-extension vision.
-**Exit:** economic leaderboards live; at least one commercial module in pilot.
+Scale/economics hardening and commercial modules (Enterprise Edition,
+Hosted Service, Hardware Certification, Pack Marketplace — per
+[ADR-0003](adr/0003-open-source-strategy.md)'s commercial-modules decision)
+are product/business milestones, tracked in `goesb-platform`'s own roadmap.
+This repo's own metric definitions they build on (FR-6.4, economic metrics)
+stay here, unchanged.
 
 ---
 
@@ -287,10 +277,3 @@ possibly preceding M2 in strict order.
 - **Testing:** unit + integration per component; a reproducibility regression
   suite that re-runs reference benchmarks and flags drift.
 - **Docs:** keep specs/ADRs current; publish methodology alongside the site.
-
-## Definition of "live website" (the M4 bar)
-
-A public URL where anyone can (a) browse filterable leaderboards of **verified**
-results, (b) open a profile/pack and see exactly how a number was produced, and
-(c) reproduce that number themselves with the open runner and an open pack. That
-is the minimum that makes GOESB a *standard* rather than a demo.

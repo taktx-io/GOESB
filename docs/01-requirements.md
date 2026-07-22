@@ -9,6 +9,14 @@ carries a priority using MoSCoW: **[M]** must, **[S]** should, **[C]** could.
 
 ## 1. Benchmark types
 
+> **Scope note:** this document covers the open runner/method only. The
+> leaderboard product (website, API) that consumes these results moved to
+> the separate, private `taktx-io/goesb-platform` repo — see
+> [ADR-0007](adr/0007-split-platform-repo.md) — which maintains its own
+> requirements for leaderboards/API/accessibility. References elsewhere in
+> this repo (ADRs, roadmap history) to FR-7/FR-12/NFR-8/9/11 predate that
+> split and are left as historical record, not dangling ids.
+
 Streaming is a fundamental benchmark *type*, not a configuration flag.
 
 - **FR-1.1 [M]** Support three benchmark types: `batch`, `streaming`,
@@ -111,12 +119,9 @@ Streaming is a fundamental benchmark *type*, not a configuration flag.
 
 ## 7. Leaderboards
 
-- **FR-7.1 [M]** Leaderboards are filterable by benchmark type, profile,
-  language, runtime, model, hardware, price, energy, and realtime factor.
-- **FR-7.2 [S]** Ship curated views, e.g. "Best Dutch under €300", "Best ARM
-  platform", "Lowest energy", "Best realtime assistant", "Best CPU-only".
-- **FR-7.3 [M]** Only results from official profiles + open packs with a verified
-  environment appear on public leaderboards.
+Leaderboard/API product requirements (filtering, curated views, what
+appears on public leaderboards) now live in `oesb-platform`'s own
+requirements doc.
 
 ## 8. Benchmark Runner
 
@@ -154,11 +159,9 @@ Streaming is a fundamental benchmark *type*, not a configuration flag.
 
 ## 12. API
 
-- **FR-12.1 [M]** Open REST API. Minimum endpoints:
-  `GET /leaderboards`, `GET /profiles`, `GET /packs`, `GET /hardware`,
-  `POST /benchmark`, `GET /benchmark/{id}`.
-- **FR-12.2 [M]** Everything the website does is automatable through the API.
-- **FR-12.3 [S]** OpenAPI schema published and versioned.
+API product requirements now live in `oesb-platform`'s own requirements
+doc — this repo's runner only needs to emit a schema-valid, signed result
+document (§8/§9 above); it doesn't define the API contract that ingests it.
 
 ---
 
@@ -175,12 +178,8 @@ Streaming is a fundamental benchmark *type*, not a configuration flag.
   sponsorship never influences results.
 - **NFR-6 Extensibility [M]** — plugin interfaces are stable and documented.
 - **NFR-7 Transparency [S]** — methodology, normalization, and scoring are public.
-- **NFR-8 Performance [S]** — API leaderboard queries respond quickly at scale
-  (target p95 < 300 ms for cached leaderboard reads).
-- **NFR-9 Scalability [S]** — storage and API handle growing result volumes.
 - **NFR-10 Usability [S]** — a newcomer can run a local benchmark and read a
   leaderboard without reading the source.
-- **NFR-11 Accessibility [C]** — the website meets WCAG 2.1 AA.
 - **NFR-12 Internationalisation [M]** — multilingual and language-agnostic by
   design. No language is privileged in the platform's mechanics; every language
   is a first-class dimension with its own pluggable normalization ruleset. The
