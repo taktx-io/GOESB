@@ -1,4 +1,4 @@
-# Open Edge Speech Benchmark (GOESB)
+# Global Open Edge Speech Benchmark (GOESB)
 
 **Objective, reproducible benchmarks for local (edge) Automatic Speech
 Recognition and realtime voice pipelines.**
