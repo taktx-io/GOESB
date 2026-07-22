@@ -1,14 +1,19 @@
-"""Result ingestion + trust gate (M3, docs/03-roadmap.md; ADR-0004).
+"""Result ingestion + trust gate (M3, docs/03-roadmap.md; ADR-0004, ADR-0005).
 
-The actual re-verification the roadmap promises: schema, then hash +
-signature (reusing the runner's own primitives — a submitted result is
-re-checked exactly the way the runner checked itself before writing the
-file, never trusted because it merely looks well-formed), then
-official-profile / open-pack membership (assets.py). Only after every check
-passes does a result get stored.
+The actual re-verification the roadmap promises: schema, then a valid
+call-home signing token (ADR-0005 — not expired, not already used), then
+hash + signature against *that token's* public key (reusing the runner's own
+primitives — a submitted result is re-checked exactly the way the runner
+checked itself before writing the file, never trusted because it merely
+looks well-formed), then official-profile / open-pack membership
+(assets.py). Only after every check passes does a result get stored, and
+only then is the token marked used — atomically with the insert, so a
+retried submission of the very same (already-accepted) result is idempotent
+rather than "token already used."
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -19,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from .assets import Assets
-from .models import Result
+from .models import Result, RunnerToken
 
 
 class IngestRejected(HTTPException):
@@ -29,13 +34,32 @@ class IngestRejected(HTTPException):
 
 
 def verify_and_ingest(body: dict[str, Any], db: Session, assets: Assets) -> Result:
+    # Idempotent short-circuit: a retry of an already-accepted submission
+    # returns the existing row without re-checking anything (including its
+    # signing token, which would otherwise correctly look "already used").
+    existing_id = body.get("payload_sha256")
+    if existing_id is not None:
+        existing = db.get(Result, existing_id)
+        if existing is not None:
+            return existing
+
     schema_errors = validate_against(body, "benchmark-result.schema.json")
     if schema_errors:
         raise IngestRejected(
             status_code=422, detail={"reason": "schema_invalid", "errors": schema_errors}
         )
 
-    if not verify_result_document(body):
+    signature = body.get("signature") or {}
+    token_id = signature.get("key_id")
+    token = db.get(RunnerToken, token_id) if token_id else None
+    if token is None:
+        raise IngestRejected(status_code=400, detail={"reason": "unknown_signing_token"})
+    if token.used_at is not None:
+        raise IngestRejected(status_code=400, detail={"reason": "signing_token_already_used"})
+    if token.expires_at < datetime.now(timezone.utc):
+        raise IngestRejected(status_code=400, detail={"reason": "signing_token_expired"})
+
+    if not verify_result_document(body, public_key_bytes=token.public_key):
         raise IngestRejected(status_code=400, detail={"reason": "hash_or_signature_invalid"})
 
     profile_ref = body["profile"]
@@ -68,10 +92,8 @@ def verify_and_ingest(body: dict[str, Any], db: Session, assets: Assets) -> Resu
         "language": profile.get("language"),
         "timestamp": body["timestamp"],
     }
-    # payload_sha256 is content-addressed: resubmitting an identical result
-    # is a no-op, not a duplicate-key error — natural idempotency, no
-    # separate dedup logic needed.
     stmt = pg_insert(Result).values(**values).on_conflict_do_nothing(index_elements=["id"])
     db.execute(stmt)
+    token.used_at = datetime.now(timezone.utc)
     db.commit()
     return db.get(Result, values["id"])

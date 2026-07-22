@@ -66,3 +66,12 @@ class LeaderboardResponse(BaseModel):
 class SubmitBenchmarkResponse(BaseModel):
     id: str
     accepted: bool
+
+
+class TokenRequest(BaseModel):
+    public_key: str  # base64-encoded raw ed25519 public key (32 bytes)
+
+
+class TokenResponse(BaseModel):
+    token_id: str
+    expires_at: str

@@ -1,6 +1,12 @@
 # ADR-0004 — Runner security model
 
-- **Status:** Accepted
+- **Status:** Accepted — **amended by [ADR-0005](0005-signing-token-distribution-and-trust-limits.md)**,
+  which corrects this ADR's claim about what a result signature proves and
+  replaces the "local keypair generated on first use" key model. Everything
+  else below (declarative inputs only, hash everything, reviewed-plugin
+  model, no arbitrary code execution) stands as originally decided. Per
+  [ADR-0001](0001-record-architecture-decisions.md), this record is left
+  intact rather than rewritten — read ADR-0005 for the current signing story.
 - **Date:** 2026-07-21
 
 ## Context

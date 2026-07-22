@@ -1,6 +1,7 @@
 """Shared fixtures: a real local Postgres (docker-compose / CI service),
 migrated once per test session, truncated between tests for isolation. No
 SQLite stand-in — see db.py's own docstring for why."""
+import base64
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +12,12 @@ import yaml
 from fastapi.testclient import TestClient
 from oesb_runner.hashing import canonical_asset_sha256
 from oesb_runner.schema_validation import validate_against
-from oesb_runner.signing import sign_payload_sha256, verify_result_document
+from oesb_runner.signing import (
+    generate_ephemeral_keypair,
+    public_key_bytes_for,
+    sign_with_key,
+    verify_result_document,
+)
 from sqlalchemy import text
 
 from oesb_api.assets import _repo_root
@@ -27,9 +33,9 @@ def _migrate_db():
 
 
 @pytest.fixture(autouse=True)
-def _clean_results_table():
+def _clean_tables():
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE results"))
+        conn.execute(text("TRUNCATE TABLE results, runner_tokens"))
     yield
 
 
@@ -38,15 +44,28 @@ def client():
     return TestClient(app)
 
 
+def issue_test_token(client: TestClient) -> tuple[str, Any]:
+    """Real call-home flow (ADR-0005): generate an ephemeral keypair, ask
+    the (test) API to vouch for its public key. Returns (token_id,
+    private_key) — the caller signs with private_key, same as `oesb submit`
+    does for real."""
+    private_key = generate_ephemeral_keypair()
+    public_key_b64 = base64.b64encode(public_key_bytes_for(private_key)).decode("ascii")
+    r = client.post("/runner-tokens", json={"public_key": public_key_b64})
+    assert r.status_code == 201, r.text
+    return r.json()["token_id"], private_key
+
+
 def make_signed_result(
+    client: TestClient,
     profile_id: str = "whisper-medium-en-batch",
     pack_id: str = "example-librispeech-en-batch",
 ) -> dict[str, Any]:
     """A real, genuinely signed result document — built from the actual
     committed profile/pack (so hashes match what ingest re-derives), signed
-    with real hashing/signing primitives (same modules the runner and the
-    API's ingest gate both use), just without running an actual ASR model.
-    This exercises the real trust-gate code path end-to-end; it isn't a mock.
+    via a real call-home token from the (test) API (ADR-0005), just without
+    running an actual ASR model. Exercises the real trust-gate code path
+    end-to-end; it isn't a mock.
     """
     root = _repo_root()
     profile = yaml.safe_load((root / "profiles" / profile_id / "profile.yaml").read_text())
@@ -76,8 +95,12 @@ def make_signed_result(
     }
     payload_sha256 = canonical_asset_sha256(result, exclude=())
     result["payload_sha256"] = payload_sha256
-    result["signature"] = sign_payload_sha256(payload_sha256)
+
+    token_id, private_key = issue_test_token(client)
+    result["signature"] = sign_with_key(payload_sha256, private_key, token_id)
 
     assert validate_against(result, "benchmark-result.schema.json") == []
-    assert verify_result_document(result) is True
+    assert verify_result_document(
+        result, public_key_bytes=public_key_bytes_for(private_key)
+    ) is True
     return result

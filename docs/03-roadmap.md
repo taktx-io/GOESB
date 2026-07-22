@@ -151,18 +151,26 @@ liability.
 the M1-era "local keypair, read from `~/.oesb/keys`" model (see
 `runner/src/oesb_runner/signing.py`'s own docstring) — ingest verifies
 against whatever key produced the result, correct for this milestone's
-"locally produced, locally ingested" exit criterion, but a real multi-key
-trust registry (mapping `key_id` → known-good public keys) is still an
-explicitly deferred cross-cutting track, not solved here.
+"locally produced, locally ingested" exit criterion. What that mechanism
+actually proves (and doesn't) turned out to need real correction, not just a
+distribution fix — see [ADR-0005](adr/0005-signing-token-distribution-and-trust-limits.md)
+for the honest trust-claim and the designed (not yet implemented) call-home
+ephemeral-token replacement.
 
 ## M4 — Public website & leaderboards (first live release)
 
 **Goal:** the **live website** — the milestone Eric asked to reach.
 
 - Next.js site: filterable leaderboards (benchmark type, profile, language,
-  runtime, model, hardware, price, energy, RTF) reading only from the API.
+  runtime, model, hardware, energy, RTF) reading only from the API. **Not
+  price** — `hardware_price_eur` (docs/specs/metrics.md) is defined but
+  nothing captures it yet; it's a manually-sourced/dated reference value
+  with no probe, scoped to M8's economics work, not M3's pipeline.
 - Profile and pack detail pages (incl. version + changelog); hardware records.
-- 2–3 curated views ("Best Dutch under €300", "Lowest energy", "Best CPU-only").
+- 2–3 curated views achievable from what M1-M3 actually measure, e.g.
+  "Lowest energy", "Best CPU-only", "Fastest Dutch STT" — **not**
+  price-based views ("Best X under €N") until hardware pricing data exists
+  (M8, or a small pulled-forward price-lookup addition before then).
 - Deploy: CDN-fronted web, stateless API, managed DB; leaderboard reads cached.
 - **Open-source flip**: publish repo under the Apache-2.0 scope decided in
   [ADR-0003](adr/0003-open-source-strategy.md) (runner/schemas/profiles/packs;

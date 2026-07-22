@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from . import __version__
-from .routes import benchmarks, hardware, leaderboards, packs, profiles
+from .routes import benchmarks, hardware, leaderboards, packs, profiles, tokens
 
 app = FastAPI(
     title="Open Edge Speech Benchmark API",
@@ -21,6 +21,7 @@ app.include_router(profiles.router)
 app.include_router(packs.router)
 app.include_router(benchmarks.router)
 app.include_router(hardware.router)
+app.include_router(tokens.router)
 
 
 @app.get("/health", tags=["meta"])

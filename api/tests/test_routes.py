@@ -44,7 +44,7 @@ def test_leaderboards_empty_before_any_ingest(client):
 
 
 def test_leaderboards_reflects_ingested_results(client):
-    result = make_signed_result()
+    result = make_signed_result(client)
     client.post("/benchmark", json=result)
 
     r = client.get("/leaderboards")
@@ -60,7 +60,7 @@ def test_hardware_empty_before_any_ingest(client):
 
 
 def test_hardware_reflects_ingested_results(client):
-    result = make_signed_result()
+    result = make_signed_result(client)
     client.post("/benchmark", json=result)
 
     r = client.get("/hardware")

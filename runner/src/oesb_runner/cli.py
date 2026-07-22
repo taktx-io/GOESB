@@ -6,9 +6,12 @@ result document on disk (docs/03-roadmap.md M1).
 """
 from __future__ import annotations
 
+import base64
 import json
 import sys
 import threading
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,7 +41,13 @@ from .metrics import energy as energy_metric
 from .normalization import normalize
 from .pack import load_pack
 from .schema_validation import validate_against
-from .signing import sign_payload_sha256, verify_result_document
+from .signing import (
+    generate_ephemeral_keypair,
+    public_key_bytes_for,
+    sign_payload_sha256,
+    sign_with_key,
+    verify_result_document,
+)
 from .stats import relative_std, summarize
 
 app = typer.Typer(help="Open Edge Speech Benchmark runner")
@@ -440,6 +449,73 @@ def run(
     for metric_id, block in metrics_block.items():
         spread = f" ± {block['spread']['std']:.4f}" if "spread" in block else ""
         typer.echo(f"  {metric_id}: {block['value']:.4f}{spread} {block['unit']}")
+
+
+def _post_json(url: str, payload: dict, timeout: int) -> dict:
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - user-supplied API URL, same trust level as any HTTP client
+        return json.loads(resp.read())
+
+
+@app.command()
+def submit(
+    result_path: str,
+    api_url: str = typer.Option(
+        "http://127.0.0.1:8000", help="Base URL of the OESB API to submit the result to."
+    ),
+) -> None:
+    """Sign a locally-produced result for public submission and POST it to
+    the API (ADR-0005).
+
+    Producing a result (`oesb run`) never requires network access; this is
+    the separate, explicit submission step. A fresh keypair is generated
+    in-memory for this submission only — the private key never touches disk
+    or leaves this machine — and the API is asked to vouch for its public
+    key with a short-lived, single-use token, which is what actually signs
+    the result. Re-uses the file's own `payload_sha256` unchanged (content,
+    and therefore the hash, doesn't depend on who signs it) after confirming
+    the file hasn't been altered since `oesb run` wrote it.
+    """
+    result = json.loads(Path(result_path).read_text())
+
+    recomputed = canonical_asset_sha256(result, exclude=("payload_sha256", "signature"))
+    if recomputed != result.get("payload_sha256"):
+        typer.echo(
+            f"{result_path} content does not match its own payload_sha256 "
+            "(edited since `oesb run` wrote it?) — refusing to submit",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    private_key = generate_ephemeral_keypair()
+    public_key_b64 = base64.b64encode(public_key_bytes_for(private_key)).decode("ascii")
+
+    try:
+        token = _post_json(f"{api_url.rstrip('/')}/runner-tokens", {"public_key": public_key_b64}, timeout=10)
+    except urllib.error.HTTPError as exc:
+        typer.echo(f"failed to obtain a submission token: {exc.code} {exc.read().decode()}", err=True)
+        raise typer.Exit(code=1) from exc
+    except urllib.error.URLError as exc:
+        typer.echo(f"could not reach {api_url}: {exc.reason}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    result["signature"] = sign_with_key(recomputed, private_key, token["token_id"])
+
+    try:
+        response = _post_json(f"{api_url.rstrip('/')}/benchmark", result, timeout=30)
+    except urllib.error.HTTPError as exc:
+        typer.echo(f"submission rejected: {exc.code} {exc.read().decode()}", err=True)
+        raise typer.Exit(code=1) from exc
+    except urllib.error.URLError as exc:
+        typer.echo(f"could not reach {api_url}: {exc.reason}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Submitted: {response}", err=True)
 
 
 if __name__ == "__main__":
