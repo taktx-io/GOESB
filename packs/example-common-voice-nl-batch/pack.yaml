@@ -1,7 +1,7 @@
 # Example open pack manifest (illustrative). Audio is NOT committed to git.
 id: example-common-voice-nl-batch
 version: 1.0.0
-sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+sha256: "8bca49fd340182ac05f9408bfeefa9aabebb9f346db22911d0a86abcf2c910f7"
 profile_id: whisper-medium-nl-batch
 visibility: open
 license: CC0-1.0

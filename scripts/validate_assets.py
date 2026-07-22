@@ -16,6 +16,12 @@ except ImportError:
     print("Install deps: pip install jsonschema pyyaml", file=sys.stderr)
     raise
 
+try:
+    from oesb_runner.hashing import canonical_asset_sha256
+except ImportError:
+    print("Install the runner package: pip install -e ./runner", file=sys.stderr)
+    raise
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -42,6 +48,28 @@ def validate_file(path: Path, schema: dict) -> list[str]:
     return errors
 
 
+def validate_pack_hashes() -> list[str]:
+    """Recompute each pack.yaml's declared `sha256` and flag mismatches.
+
+    Schema validation alone only checks shape, not content - a pack whose
+    text changed without recomputing its hash passes validate_dir() but
+    fails at runner-run time (PackIntegrityError). Catch that here instead.
+    """
+    errors: list[str] = []
+    for path in (ROOT / "packs").glob("*/pack.yaml"):
+        data = yaml.safe_load(path.read_text())
+        declared = data.get("sha256")
+        if declared is None:
+            continue
+        actual = canonical_asset_sha256(data)
+        if declared != actual:
+            errors.append(
+                f"{path}: sha256 mismatch - declared {declared}, "
+                f"actual {actual} (recompute after any content change)"
+            )
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     errors += validate_dir("profiles", "profile.yaml",
@@ -52,6 +80,7 @@ def main() -> int:
         ROOT / "schemas" / "examples" / "benchmark-result.example.json",
         load_schema("benchmark-result.schema.json"),
     )
+    errors += validate_pack_hashes()
     if errors:
         print("INVALID assets:")
         for e in errors:

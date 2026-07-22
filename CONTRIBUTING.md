@@ -27,7 +27,7 @@ The leaderboard/API product (`api/`, `web/`) lives in the separate, private
 make setup     # install the runner
 make lint
 make test
-python scripts/validate_assets.py   # validate profiles/packs against schemas
+python scripts/validate_assets.py   # validate profiles/packs against schemas + hashes
 ```
 
 ## Commit / PR
