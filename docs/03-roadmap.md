@@ -10,6 +10,14 @@ Milestones are sized in "iterations" (roughly 2-week increments), not fixed
 dates, so the plan stays honest as scope is learned. Each milestone lists its
 goal, scope, the requirements it satisfies, and its exit criteria.
 
+**Repo split (after M3):** `api/`/`web/` moved out of this repo into the
+separate, private `taktx-io/oesb-platform` — see
+[ADR-0006](adr/0006-split-platform-repo.md). M0-M3 below describe what was
+built before the move (accurate history, left as-is); M4 onward is now
+executed in `oesb-platform`, which has its own roadmap picking up there.
+This repo's own remaining scope is the open method itself: more
+languages/runtimes, M6 community/private packs, M7 conversation type.
+
 ---
 
 ## Guiding sequencing principles

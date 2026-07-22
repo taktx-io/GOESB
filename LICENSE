@@ -207,13 +207,10 @@ NOTE ON SCOPE: This Apache-2.0 license covers `runner/`, `schemas/`,
 `scripts/` — the parts of OESB that are built and that the trust/
 reproducibility claim depends on.
 
-It does NOT cover `api/` or `web/`. Those directories are unbuilt
-scaffolding as of this license's introduction; their licensing is an open
-decision, deferred to milestone M3 (see
-docs/adr/0003-open-source-strategy.md). Until that decision is made, treat
-`api/` and `web/` as All Rights Reserved — do not assume this file's grant
-extends to them by repository proximity. Each of those directories carries
-its own placeholder notice saying so.
+It does NOT cover `api/` or `web/` — those now live in the separate,
+private `taktx-io/oesb-platform` repository, not this one (see
+docs/adr/0006-split-platform-repo.md). Nothing in this repository grants
+any right to that repository's contents.
 
 Benchmark packs under `packs/` carry their own, independently declared
 licenses for their *content* (e.g. CC0-1.0, CC-BY-4.0 — see each pack's

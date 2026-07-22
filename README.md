@@ -49,14 +49,16 @@ Streaming is not a setting — it is a fundamental benchmark *type*.
 
 ```
 runner/     Python benchmark runner (CLI, environment capture, hashing)
-api/        FastAPI service: /leaderboards /profiles /packs /benchmark
-web/        Next.js public website & leaderboards
 schemas/    JSON Schemas for profiles and packs (source of truth)
 profiles/   Official benchmark profiles (per language, e.g. whisper-medium-en-batch, whisper-medium-nl-batch)
 packs/      Pack manifests & metadata (never audio)
 docs/       Vision, requirements, architecture, roadmap, ADRs, specs
 scripts/    Repo tooling (schema validation, etc.)
 ```
+
+The leaderboard product — the API and public website that consume this
+method — lives in the separate, private `taktx-io/oesb-platform` repo, not
+here. See [ADR-0006](docs/adr/0006-split-platform-repo.md) for why.
 
 ## Documentation
 
@@ -71,20 +73,21 @@ scripts/    Repo tooling (schema validation, etc.)
 ## Quick start (developers)
 
 ```bash
-make setup        # install runner, api, web
-make dev-api      # http://127.0.0.1:8000/docs
-make dev-web      # http://localhost:3000
+make setup        # install the runner
 python scripts/validate_assets.py
 ```
+
+For the leaderboard/API product (requires this repo cloned as a sibling —
+see its README), go to `taktx-io/oesb-platform`.
 
 ## Licensing
 
 **Apache-2.0** for `runner/`, `schemas/`, `profiles/`, `packs/`, and
 `scripts/` — the parts that are built and that the trust/reproducibility
-claim depends on. **`api/` and `web/` are not yet licensed** (unbuilt
-scaffolding; that decision is deferred to milestone M3 — see each
-directory's README). See [ADR-0003](docs/adr/0003-open-source-strategy.md)
-for the reasoning and [governance.md](docs/governance.md) for what actually
+claim depends on. See [ADR-0003](docs/adr/0003-open-source-strategy.md) for
+the reasoning, [ADR-0006](docs/adr/0006-split-platform-repo.md) for why
+`api/`/`web/` now live in a separate private repo rather than an unlicensed
+directory here, and [governance.md](docs/governance.md) for what actually
 keeps results neutral. Datasets/packs carry their own independent content
 licenses (e.g. CC0-1.0, CC-BY-4.0 — see each pack's `pack.yaml`). Commercial
 modules (Enterprise Edition, Hosted Service, Hardware Certification, Pack

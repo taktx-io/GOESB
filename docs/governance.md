@@ -5,6 +5,13 @@ NFR-5). Apache-2.0 ([ADR-0003](adr/0003-open-source-strategy.md)) makes the code
 inspectable; this document makes the *process* around it inspectable too —
 what actually stops a sponsor, vendor, or maintainer from tilting a result.
 
+The scoring/normalization/measurement method (this repo) and the commercial
+leaderboard product built on it (`taktx-io/oesb-platform`, private) are
+separate repositories, not just a license boundary within one —
+[ADR-0006](adr/0006-split-platform-repo.md). Anyone can inspect exactly how
+a number is produced without needing access to, or trusting claims about,
+the product built around it.
+
 ## Sponsorship never influences results
 
 If OESB accepts funding, hardware donations, or sponsorship at any point

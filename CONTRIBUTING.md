@@ -4,13 +4,15 @@ Thanks for helping build an objective, reproducible benchmark for edge speech AI
 
 ## Repository layout
 - `runner/` — Python benchmark runner (CLI, environment capture, hashing).
-- `api/` — FastAPI service exposing leaderboards, profiles, packs, benchmarks.
-- `web/` — Next.js public website & leaderboards.
 - `schemas/` — JSON Schemas for profiles and packs (the source of truth).
 - `profiles/` — official benchmark profiles.
 - `packs/` — pack manifests/metadata (never audio).
 - `docs/` — vision, requirements, architecture, roadmap, ADRs, specs.
 - `scripts/` — repo tooling (schema validation, etc.).
+
+The leaderboard/API product (`api/`, `web/`) lives in the separate, private
+`taktx-io/oesb-platform` repo — see
+[ADR-0006](docs/adr/0006-split-platform-repo.md).
 
 ## Ground rules
 1. **Reproducibility first.** Any change to how a benchmark runs or is scored

@@ -63,14 +63,19 @@ targets, never the only install path and never required to satisfy FR-8.2. This
 keeps platform support bounded to "does pip install + our probes work here",
 not an open-ended per-platform build matrix.
 
-### 2.2 API (`api/`)
-An open REST service (FastAPI). Serves read models for the website and accepts
+### 2.2 API
+A REST service (FastAPI). Serves read models for the website and accepts
 result submissions. Endpoints (see §6). The website never touches the database
-directly — it consumes the same public API third parties use.
+directly — it consumes the same public API third parties use. Lives in the
+separate, private `taktx-io/oesb-platform` repo (not this one) — see
+[ADR-0006](adr/0006-split-platform-repo.md) — but depends directly on this
+repo's `oesb-runner` for schema validation and result signing/verification
+(ADR-0004/0005), so the trust logic is never reimplemented.
 
-### 2.3 Web (`web/`)
+### 2.3 Web
 Next.js/React public site: filterable leaderboards, profile and pack detail
-pages, hardware records, and curated views. Read-only against the API.
+pages, hardware records, and curated views. Read-only against the API. Also
+in `taktx-io/oesb-platform`.
 
 ### 2.4 Storage
 Relational database (Postgres) for results, profiles, packs, hardware, and

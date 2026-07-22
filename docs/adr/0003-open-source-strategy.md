@@ -1,6 +1,12 @@
 # ADR-0003 — Open-source strategy
 
-- **Status:** Accepted
+- **Status:** Accepted — **the deferred `api/`/`web/` licensing question is
+  resolved by [ADR-0006](0006-split-platform-repo.md)**: private, and in a
+  separate repository (`taktx-io/oesb-platform`), not a same-repo license
+  split. Everything else below (Apache-2.0 scope for
+  runner/schemas/profiles/packs, no AGPL, no CLA) stands as originally
+  decided. Per [ADR-0001](0001-record-architecture-decisions.md), this
+  record is left intact rather than rewritten.
 - **Date:** 2026-07-21
 
 ## Context
