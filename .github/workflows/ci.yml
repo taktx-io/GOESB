@@ -8,14 +8,17 @@ on:
 jobs:
   # M2 exit criterion (docs/03-roadmap.md): same profile+pack runs on >=3
   # OS/arch combos. This matrix proves install + the fast unit suite across
-  # Linux/Windows/macOS x86_64/arm64 — not full real-model inference on every
-  # leg (that needs the optional runtime extras + real model downloads per
-  # leg, which CI deliberately doesn't install, same as today).
+  # Linux/Windows/macOS, x86_64/arm64 — not full real-model inference on
+  # every leg (that needs the optional runtime extras + real model downloads
+  # per leg, which CI deliberately doesn't install, same as today).
+  # Intel macOS (macos-13) deliberately excluded: 6+ year old hardware,
+  # x86_64 is already covered by ubuntu-latest/windows-latest and macOS by
+  # macos-14 (arm64) — the combination isn't a target, not a gap in FR-8.2.
   runner:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

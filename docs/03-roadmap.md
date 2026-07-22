@@ -63,11 +63,13 @@ and its hashes verify.
 **Goal:** make batch numbers *portable and complete*.
 
 - Runner runs on Linux/Windows/macOS and ARM/x86 — CI matrix across
-  `ubuntu-latest`/`windows-latest`/`macos-13`(x86_64)/`macos-14`(arm64),
-  plus a best-effort `ubuntu-24.04-arm` leg
-  (`.github/workflows/ci.yml`). Proves install + the fast unit suite on
-  every leg, not full real-model inference per leg (extras/model downloads
-  stay CI-excluded by design, same as before M2).
+  `ubuntu-latest`(x86_64)/`windows-latest`(x86_64)/`macos-14`(arm64), plus a
+  best-effort `ubuntu-24.04-arm` leg (`.github/workflows/ci.yml`). Proves
+  install + the fast unit suite on every leg, not full real-model inference
+  per leg (extras/model downloads stay CI-excluded by design, same as
+  before M2). Intel macOS deliberately not targeted — 6+ year old hardware,
+  and x86_64/macOS are each independently covered elsewhere in the matrix,
+  so this isn't a gap against FR-8.2/NFR-4, just a bounded target set.
   Signed release artifacts: `.github/workflows/release.yml` builds
   sdist+wheel and attaches a keyless GitHub-OIDC/Sigstore build-provenance
   attestation to a GitHub Release on a `runner-v*` tag (see distribution
