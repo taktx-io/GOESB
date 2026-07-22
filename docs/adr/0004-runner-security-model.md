@@ -11,7 +11,7 @@
 
 ## Context
 
-OESB's results must be trustworthy and safe to produce. Two threats dominate:
+GOESB's results must be trustworthy and safe to produce. Two threats dominate:
 (1) a malicious pack/profile/config coercing the runner into executing arbitrary
 code on a contributor's machine; (2) forged or tampered results polluting public
 leaderboards. The vision is explicit: the runner must **never execute arbitrary
@@ -27,7 +27,7 @@ unrestricted rights. The runner has no "run this hook" mechanism.
 **Capabilities ship as reviewed plugins, not runtime code.** Runtime adapters,
 metrics, and hardware probes are code that lives in the runner's repository,
 passes review + CI, and is released as part of a signed runner build. Extending
-OESB means opening a pull request, not injecting an executable into a run.
+GOESB means opening a pull request, not injecting an executable into a run.
 
 **Hash everything.** SHA-256 over profile, model, runtime, configuration,
 dataset, and result. Hashes are stored with the result, enabling tamper
@@ -42,7 +42,7 @@ result document belongs to the official runner build/installation, not to a
 personal or account-linked identity. A signature therefore proves "this result
 was produced by a genuine, unmodified official runner" — not "this specific
 person submitted it." This deliberately avoids requiring user accounts/identity
-infrastructure before M3, and matches the trust claim OESB actually needs
+infrastructure before M3, and matches the trust claim GOESB actually needs
 (genuine measurement, not attributed authorship). `POST /benchmark` submission
 itself may remain anonymous/unauthenticated as a result; abuse mitigation
 (rate-limiting, submission review) is deferred to scale-hardening (M8) rather

@@ -1,12 +1,12 @@
 # Governance & neutrality
 
-OESB's authority rests on being trustworthy, not just open ([00-vision.md](00-vision.md),
+GOESB's authority rests on being trustworthy, not just open ([00-vision.md](00-vision.md),
 NFR-5). Apache-2.0 ([ADR-0003](adr/0003-open-source-strategy.md)) makes the code
 inspectable; this document makes the *process* around it inspectable too —
 what actually stops a sponsor, vendor, or maintainer from tilting a result.
 
 The scoring/normalization/measurement method (this repo) and the commercial
-leaderboard product built on it (`taktx-io/oesb-platform`, private) are
+leaderboard product built on it (`taktx-io/goesb-platform`, private) are
 separate repositories, not just a license boundary within one —
 [ADR-0006](adr/0006-split-platform-repo.md). Anyone can inspect exactly how
 a number is produced without needing access to, or trusting claims about,
@@ -14,7 +14,7 @@ the product built around it.
 
 ## Sponsorship never influences results
 
-If OESB accepts funding, hardware donations, or sponsorship at any point
+If GOESB accepts funding, hardware donations, or sponsorship at any point
 (hosting costs, hardware for cross-platform testing, etc.), that funding:
 
 - **Never** affects which profile is "official," which pack is "open," or
@@ -67,7 +67,7 @@ runner already:
 
 ## Decision-making (current stage)
 
-OESB is pre-community: architectural and roadmap decisions are made by Eric
+GOESB is pre-community: architectural and roadmap decisions are made by Eric
 Hendriks, recorded as ADRs for traceability. As external contributors and
 users join, this section will be revisited toward a more distributed model
 (e.g. a maintainers group, an RFC process for profile/schema changes) — not

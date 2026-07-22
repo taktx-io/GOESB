@@ -10,7 +10,7 @@ from oesb_runner.schema_validation import _find_repo_schemas_dir, validate_again
 from oesb_runner.signing import verify_result_document
 
 pywhispercpp = pytest.importorskip(
-    "pywhispercpp", reason="requires `pip install oesb-runner[whisper-cpp]`"
+    "pywhispercpp", reason="requires `pip install goesb-runner[whisper-cpp]`"
 )
 
 REPO_ROOT = _find_repo_schemas_dir().parent

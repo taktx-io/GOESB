@@ -33,19 +33,19 @@ def test_number_to_dutch_words_rejects_out_of_range():
 
 
 def test_normalize_lowercase_and_punctuation():
-    out = normalize("oesb-nl-v1", "Hallo, wereld!", expand_numbers=False)
+    out = normalize("goesb-nl-v1", "Hallo, wereld!", expand_numbers=False)
     assert out == "hallo wereld"
 
 
 def test_normalize_expands_numbers():
-    out = normalize("oesb-nl-v1", "Ik heb 24 appels.", remove_punctuation=False)
+    out = normalize("goesb-nl-v1", "Ik heb 24 appels.", remove_punctuation=False)
     assert "vierentwintig" in out
     assert "24" not in out
 
 
 def test_normalize_disable_all_options_is_identity_modulo_case():
     out = normalize(
-        "oesb-nl-v1", "Hallo, 3 Wereld!",
+        "goesb-nl-v1", "Hallo, 3 Wereld!",
         lowercase=False, remove_punctuation=False, expand_numbers=False,
     )
     assert out == "Hallo, 3 Wereld!"

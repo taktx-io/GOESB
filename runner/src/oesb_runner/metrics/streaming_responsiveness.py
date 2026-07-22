@@ -2,7 +2,7 @@
 
 The spec defines this as "a composite of update frequency and stability
 against latency; defined per profile" and leaves the exact formula open.
-This is OESB's default, documented here since nothing else pins it down:
+This is GOESB's default, documented here since nothing else pins it down:
 rewards higher update rate and higher stability, penalizes higher first-
 partial latency. Profiles may define a different formula in a future
 schema revision; until then every streaming profile gets this one.

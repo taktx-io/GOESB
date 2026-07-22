@@ -1,6 +1,6 @@
 """`vosk` batch runtime adapter (docs/02-architecture.md §4).
 
-Optional dependency (`pip install oesb-runner[vosk]`) — `vosk`/`soundfile`
+Optional dependency (`pip install goesb-runner[vosk]`) — `vosk`/`soundfile`
 are only imported inside `run_batch`, matching the lazy-import pattern used
 by every other adapter.
 """
@@ -72,11 +72,11 @@ def run_batch(
         import vosk
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise RuntimeError(
-            "vosk is not installed; run `pip install oesb-runner[vosk]`"
+            "vosk is not installed; run `pip install goesb-runner[vosk]`"
         ) from exc
     vosk.SetLogLevel(-1)  # silence vosk's own stderr logging
 
-    root = Path(download_root) if download_root is not None else Path.home() / ".oesb" / "models" / model_name
+    root = Path(download_root) if download_root is not None else Path.home() / ".goesb" / "models" / model_name
     model_dir = _resolve_model_dir(model_name, root)
     model = vosk.Model(model_path=str(model_dir))
 

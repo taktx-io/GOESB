@@ -9,7 +9,7 @@ from oesb_runner.cli import app
 from oesb_runner.schema_validation import _find_repo_schemas_dir, validate_against
 from oesb_runner.signing import verify_result_document
 
-vosk = pytest.importorskip("vosk", reason="requires `pip install oesb-runner[vosk]`")
+vosk = pytest.importorskip("vosk", reason="requires `pip install goesb-runner[vosk]`")
 
 REPO_ROOT = _find_repo_schemas_dir().parent
 BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "example-librispeech-en-batch" / "audio"

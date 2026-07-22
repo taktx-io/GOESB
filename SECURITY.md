@@ -1,6 +1,6 @@
 # Security Policy
 
-OESB's credibility depends on the integrity of its benchmark results and the
+GOESB's credibility depends on the integrity of its benchmark results and the
 safety of the runner. Security reports are taken seriously.
 
 ## Reporting a vulnerability

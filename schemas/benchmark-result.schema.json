@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://oesb.dev/schemas/benchmark-result.schema.json",
-  "title": "OESB Benchmark Result",
+  "$id": "https://goesb.dev/schemas/benchmark-result.schema.json",
+  "title": "GOESB Benchmark Result",
   "description": "A signed, hashed result document produced by the official runner: metric values, the environment fingerprint, and the hashes of every input (profile, pack, runtime, model, configuration) that produced them.",
   "type": "object",
   "required": [
@@ -68,7 +68,7 @@
 
     "environment": {
       "type": "object",
-      "description": "The reproducibility fingerprint captured by `oesb env` at run time. See docs/specs/environment-capture.md. Fields the platform cannot probe are present and null with a reason, never omitted.",
+      "description": "The reproducibility fingerprint captured by `goesb env` at run time. See docs/specs/environment-capture.md. Fields the platform cannot probe are present and null with a reason, never omitted.",
       "required": ["schema_version"],
       "properties": {
         "schema_version": { "type": "string" }
@@ -125,7 +125,7 @@
       "required": ["version"],
       "additionalProperties": false,
       "properties": {
-        "version": { "type": "string", "description": "oesb-runner package version, e.g. '0.0.1'." },
+        "version": { "type": "string", "description": "goesb-runner package version, e.g. '0.0.1'." },
         "build_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
           "description": "Hash of the signed release artifact that produced this result, where available." }
       }

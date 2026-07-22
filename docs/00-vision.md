@@ -7,7 +7,7 @@ Automatic Speech Recognition and realtime voice pipelines**, so that anyone
 building on-device speech AI can choose the optimal combination of hardware,
 runtime, model, configuration, dataset, and language with confidence.
 
-OESB is fully generic — **language-agnostic and multilingual by design**. No
+GOESB is fully generic — **language-agnostic and multilingual by design**. No
 language is privileged in the platform's mechanics: language is a first-class,
 selectable dimension (a field on every profile and pack, filterable on every
 leaderboard), and normalization is a per-language pluggable ruleset. The platform
@@ -21,9 +21,9 @@ Dutch-specific.
 ## The end state
 
 When a developer asks *"which combination of hardware, model, runtime, and
-benchmark type best fits my application?"*, OESB should be the first answer.
+benchmark type best fits my application?"*, GOESB should be the first answer.
 
-Success means OESB is the worldwide reference for benchmarking edge speech AI —
+Success means GOESB is the worldwide reference for benchmarking edge speech AI —
 trusted because it combines objectivity, reproducibility, security, privacy, and
 practical relevance, so hobbyists and enterprises alike can make reliable
 choices when building local speech applications.
@@ -48,7 +48,7 @@ choices when building local speech applications.
 Today, "which edge device runs Whisper in realtime?" is answered by scattered
 blog posts with incompatible methodologies: different audio, different
 normalization, different quantization, unreported thermal throttling, no power
-numbers. None of it composes. OESB fixes this by making the *method* — profile,
+numbers. None of it composes. GOESB fixes this by making the *method* — profile,
 pack, environment, scoring — a first-class, versioned, hash-identified artifact,
 so numbers from different people, machines, and dates are directly comparable.
 
@@ -64,5 +64,5 @@ so numbers from different people, machines, and dates are directly comparable.
   of scope entirely. Expanding there would need a different name and a
   deliberate, separate bet — not a natural extension of this project.
 
-OESB benchmarks local speech processing objectively and reproducibly. That is
+GOESB benchmarks local speech processing objectively and reproducibly. That is
 the whole job.

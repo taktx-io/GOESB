@@ -18,9 +18,9 @@ out/
 *.tsbuildinfo
 .env*.local
 
-# OESB local run artifacts
+# GOESB local run artifacts
 /runs/
-/.oesb-cache/
+/.goesb-cache/
 *.local.yaml
 
 # Audio & datasets are never committed (privacy-first)

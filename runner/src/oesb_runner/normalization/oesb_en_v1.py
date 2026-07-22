@@ -1,4 +1,4 @@
-"""English (en) normalization ruleset `oesb-en-v1`.
+"""English (en) normalization ruleset `goesb-en-v1`.
 
 Mirrors oesb_nl_v1's structure exactly; only the language-specific number
 expansion differs, per the plugin boundary (docs/02-architecture.md §3).
@@ -44,7 +44,7 @@ def number_to_english_words(n: int) -> str:
     if n < 0:
         return "minus " + number_to_english_words(-n)
     if n > 999_999:
-        raise ValueError("oesb-en-v1 number expansion supports 0..999999")
+        raise ValueError("goesb-en-v1 number expansion supports 0..999999")
     if n == 0:
         return "zero"
     if n < 1000:
@@ -58,7 +58,7 @@ def _expand_numbers(text: str) -> str:
     return _DIGITS_RE.sub(lambda m: number_to_english_words(int(m.group())), text)
 
 
-@register("oesb-en-v1")
+@register("goesb-en-v1")
 def normalize(
     text: str,
     *,

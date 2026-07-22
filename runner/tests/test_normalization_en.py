@@ -27,11 +27,11 @@ def test_number_to_english_words_rejects_out_of_range():
 
 
 def test_normalize_lowercase_and_punctuation():
-    out = normalize("oesb-en-v1", "Hello, World!", expand_numbers=False)
+    out = normalize("goesb-en-v1", "Hello, World!", expand_numbers=False)
     assert out == "hello world"
 
 
 def test_normalize_expands_numbers():
-    out = normalize("oesb-en-v1", "I have 24 apples.", remove_punctuation=False)
+    out = normalize("goesb-en-v1", "I have 24 apples.", remove_punctuation=False)
     assert "twenty four" in out
     assert "24" not in out

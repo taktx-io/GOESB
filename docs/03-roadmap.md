@@ -11,10 +11,10 @@ dates, so the plan stays honest as scope is learned. Each milestone lists its
 goal, scope, the requirements it satisfies, and its exit criteria.
 
 **Repo split (after M3):** `api/`/`web/` moved out of this repo into the
-separate, private `taktx-io/oesb-platform` — see
+separate, private `taktx-io/goesb-platform` — see
 [ADR-0006](adr/0006-split-platform-repo.md). M0-M3 below describe what was
 built before the move (accurate history, left as-is); M4 onward is now
-executed in `oesb-platform`, which has its own roadmap picking up there.
+executed in `goesb-platform`, which has its own roadmap picking up there.
 This repo's own remaining scope is the open method itself: more
 languages/runtimes, M6 community/private packs, M7 conversation type.
 
@@ -57,9 +57,9 @@ server yet.
 
 - One runtime adapter (**faster-whisper**), one official profile
   (`whisper-medium-nl-batch`), one open pack wired to real audio locally.
-- Metric plugins: WER, CER, RTF, CPU, RAM; normalization ruleset `oesb-nl-v1`.
+- Metric plugins: WER, CER, RTF, CPU, RAM; normalization ruleset `goesb-nl-v1`.
 - Full **environment capture** (hardware/software/model) per the spec.
-- `oesb run` produces a signed, hashed **result document** on disk.
+- `goesb run` produces a signed, hashed **result document** on disk.
 
 **Satisfies:** FR-1.1/1.2, FR-2.1/2.2, FR-3.1/3.2, FR-5.1/5.2, FR-6.1/6.3,
 FR-8.1/8.3, FR-9.3.
@@ -88,7 +88,7 @@ and its hashes verify.
   account owner's own trusted-publisher setup — not attempted, no
   credentials held.
 - Energy/thermal probes: RAPL (`runner/src/oesb_runner/energy.py`) and hwmon
-  peak-temperature sampling, wired into `oesb run` as `energy_wh` /
+  peak-temperature sampling, wired into `goesb run` as `energy_wh` /
   `temperature_c`, plus an `--external-energy-wh` override for a manually
   read power meter (declarative input, ADR-0004). **Gap, deliberately not
   closed yet:** RAPL/hwmon are Linux-only by construction and unit-tested
@@ -156,7 +156,7 @@ runner-embedded signature, not submitter identity). Abuse mitigation
 here — but must be revisited before traffic makes anonymous submission a
 liability.
 **Known gap:** signing-key distribution across machines/deployments is still
-the M1-era "local keypair, read from `~/.oesb/keys`" model (see
+the M1-era "local keypair, read from `~/.goesb/keys`" model (see
 `runner/src/oesb_runner/signing.py`'s own docstring) — ingest verifies
 against whatever key produced the result, correct for this milestone's
 "locally produced, locally ingested" exit criterion. What that mechanism
@@ -293,4 +293,4 @@ possibly preceding M2 in strict order.
 A public URL where anyone can (a) browse filterable leaderboards of **verified**
 results, (b) open a profile/pack and see exactly how a number was produced, and
 (c) reproduce that number themselves with the open runner and an open pack. That
-is the minimum that makes OESB a *standard* rather than a demo.
+is the minimum that makes GOESB a *standard* rather than a demo.

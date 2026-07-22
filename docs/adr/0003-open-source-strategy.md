@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — **the deferred `api/`/`web/` licensing question is
   resolved by [ADR-0006](0006-split-platform-repo.md)**: private, and in a
-  separate repository (`taktx-io/oesb-platform`), not a same-repo license
+  separate repository (`taktx-io/goesb-platform`), not a same-repo license
   split. Everything else below (Apache-2.0 scope for
   runner/schemas/profiles/packs, no AGPL, no CLA) stands as originally
   decided. Per [ADR-0001](0001-record-architecture-decisions.md), this
@@ -11,7 +11,7 @@
 
 ## Context
 
-The project vision is for OESB to become the *de-facto, vendor-neutral,
+The project vision is for GOESB to become the *de-facto, vendor-neutral,
 reproducible standard* for edge speech benchmarks. Separately, the plan
 envisions commercial extensions: Enterprise Edition, a Hosted Benchmark Service,
 Hardware Certification, a Pack Marketplace, consultancy, and sponsorship.
@@ -58,18 +58,18 @@ Revisit at M3, once `api/` is actually built and there's a real read on
 whether a self-hostable-competitor risk is concrete.
 
 Rationale for Apache-2.0 (runner/schemas/profiles/packs) over AGPL-3.0(+dual license):
-- OESB's value is becoming *the* neutral standard, which needs hardware
+- GOESB's value is becoming *the* neutral standard, which needs hardware
   vendors (chip makers) and runtime maintainers comfortable contributing
   adapters/profiles. Apache-2.0's explicit patent grant is what corporate
   legal teams look for before their engineers can contribute; AGPL's
   copyleft reputation is friction most standards bodies (MLPerf, SPEC, TPC)
   deliberately avoid for exactly this reason.
 - The AGPL "hosted-clone" defense is a real pattern (Mongo, Elastic) but
-  solves a problem OESB doesn't have yet — there is no adoption to clone.
+  solves a problem GOESB doesn't have yet — there is no adoption to clone.
   Dual licensing also requires a CLA from day one, which itself repels some
   contributors, as a permanent cost against a hypothetical threat.
 - This is reversible in the direction that matters: if a concrete
-  hosted-clone threat emerges later, OESB can relicense *new* versions (as
+  hosted-clone threat emerges later, GOESB can relicense *new* versions (as
   Mongo/Elastic did), at the cost of a CLA at that point — a cost worth
   paying once the threat is real, not before.
 - What actually protects neutrality long-term is governance, not license

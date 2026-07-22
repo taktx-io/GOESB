@@ -1,4 +1,4 @@
-# Contributing to OESB
+# Contributing to GOESB
 
 Thanks for helping build an objective, reproducible benchmark for edge speech AI.
 
@@ -11,7 +11,7 @@ Thanks for helping build an objective, reproducible benchmark for edge speech AI
 - `scripts/` — repo tooling (schema validation, etc.).
 
 The leaderboard/API product (`api/`, `web/`) lives in the separate, private
-`taktx-io/oesb-platform` repo — see
+`taktx-io/goesb-platform` repo — see
 [ADR-0006](docs/adr/0006-split-platform-repo.md).
 
 ## Ground rules

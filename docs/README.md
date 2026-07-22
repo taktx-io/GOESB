@@ -1,4 +1,4 @@
-# OESB Documentation
+# GOESB Documentation
 
 Start here.
 

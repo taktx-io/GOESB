@@ -18,7 +18,7 @@ Working through the actual distribution model exposes two problems with that:
 1. **The "runner-embedded key" was never actually implemented as embedded.**
    `load_or_create_keypair()` (`runner/src/oesb_runner/signing.py`) generates
    a *new* keypair locally on first use, per install. There is no single
-   official signing key — every `pip install oesb-runner` mints its own.
+   official signing key — every `pip install goesb-runner` mints its own.
 2. **Even if a single key were embedded, it couldn't stay secret.** The
    runner's primary distribution channel is a `pip install`-able Python
    package — plain source in a wheel/sdist (docs/02-architecture.md §2.1).
@@ -56,7 +56,7 @@ single-use signing tokens — required only for public submission, not for
 producing a result.** Preserves ADR-0004's "the runner does not require
 network access to produce a result" — network is needed only at the
 submission step, same as today's `POST /benchmark` being separate from
-`oesb run`.
+`goesb run`.
 
 Flow:
 - Before submitting, the runner generates an ephemeral ed25519 keypair

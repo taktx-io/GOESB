@@ -10,7 +10,7 @@ REPO_ROOT = _find_repo_schemas_dir().parent
 def test_version_command():
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert "oesb-runner" in result.stdout
+    assert "goesb-runner" in result.stdout
 
 
 def test_env_command_prints_json():

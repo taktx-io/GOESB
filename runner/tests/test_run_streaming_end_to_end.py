@@ -10,7 +10,7 @@ from oesb_runner.schema_validation import _find_repo_schemas_dir, validate_again
 from oesb_runner.signing import verify_result_document
 
 faster_whisper = pytest.importorskip(
-    "faster_whisper", reason="requires `pip install oesb-runner[faster-whisper]`"
+    "faster_whisper", reason="requires `pip install goesb-runner[faster-whisper]`"
 )
 
 REPO_ROOT = _find_repo_schemas_dir().parent

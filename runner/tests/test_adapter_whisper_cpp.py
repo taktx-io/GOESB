@@ -6,7 +6,7 @@ from oesb_runner.normalization import normalize
 from oesb_runner.pack import load_pack
 
 pywhispercpp = pytest.importorskip(
-    "pywhispercpp", reason="requires `pip install oesb-runner[whisper-cpp]`"
+    "pywhispercpp", reason="requires `pip install goesb-runner[whisper-cpp]`"
 )
 
 from oesb_runner.adapters.whisper_cpp import run_batch  # noqa: E402
@@ -37,8 +37,8 @@ def test_run_batch_transcribes_real_audio_within_wer_tolerance(tmp_path):
     for utterance in pack.utterances:
         hypothesis = by_id[utterance.utterance_id].hypothesis_text
         pairs.append((
-            normalize("oesb-en-v1", utterance.reference_text),
-            normalize("oesb-en-v1", hypothesis),
+            normalize("goesb-en-v1", utterance.reference_text),
+            normalize("goesb-en-v1", hypothesis),
         ))
 
     result_wer = wer.compute(pairs)

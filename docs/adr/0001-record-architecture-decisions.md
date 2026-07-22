@@ -5,7 +5,7 @@
 
 ## Context
 
-OESB aims to be a long-lived, community-trusted standard. Decisions about the
+GOESB aims to be a long-lived, community-trusted standard. Decisions about the
 stack, licensing, security model, and scoring will be questioned and revisited.
 Undocumented decisions get re-litigated and erode trust.
 

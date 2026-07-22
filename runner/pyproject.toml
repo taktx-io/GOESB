@@ -1,7 +1,7 @@
 [project]
-name = "oesb-runner"
+name = "goesb-runner"
 version = "0.0.1"
-description = "Official Open Edge Speech Benchmark (OESB) runner"
+description = "Official Open Edge Speech Benchmark (GOESB) runner"
 requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
@@ -20,7 +20,7 @@ vosk = ["vosk>=0.3.44", "soundfile>=0.12"]
 whisper-cpp = ["pywhispercpp>=1.5.0", "soundfile>=0.12"]
 
 [project.scripts]
-oesb = "oesb_runner.cli:app"
+goesb = "oesb_runner.cli:app"
 
 [tool.pytest.ini_options]
 markers = ["slow: exercises a real model/network (e.g. faster-whisper inference)"]

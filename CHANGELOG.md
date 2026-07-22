@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to OESB are documented here. Format loosely follows
+All notable changes to GOESB are documented here. Format loosely follows
 Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]

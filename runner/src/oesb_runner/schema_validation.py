@@ -1,6 +1,6 @@
 """JSON Schema validation for profiles, packs, and results.
 
-Locates schemas/ by walking up from this file to the OESB monorepo root.
+Locates schemas/ by walking up from this file to the GOESB monorepo root.
 Standalone (non-monorepo) packaging of schemas is an M2 concern — not needed
 for M1's "runs on one machine locally" exit criterion.
 """
@@ -20,8 +20,8 @@ def _find_repo_schemas_dir() -> Path:
         if (candidate / "benchmark-profile.schema.json").exists():
             return candidate
     raise RuntimeError(
-        "could not locate schemas/ directory; oesb-runner's schema validation "
-        "currently requires running from within an OESB monorepo checkout "
+        "could not locate schemas/ directory; goesb-runner's schema validation "
+        "currently requires running from within an GOESB monorepo checkout "
         "(standalone schema packaging is tracked for M2)"
     )
 

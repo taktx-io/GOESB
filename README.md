@@ -1,9 +1,9 @@
-# Open Edge Speech Benchmark (OESB)
+# Open Edge Speech Benchmark (GOESB)
 
 **Objective, reproducible benchmarks for local (edge) Automatic Speech
 Recognition and realtime voice pipelines.**
 
-OESB helps developers, researchers, hardware vendors, and companies pick the
+GOESB helps developers, researchers, hardware vendors, and companies pick the
 optimal combination of **hardware × runtime × model × configuration × dataset ×
 language** for running speech AI *locally* — no cloud required. It is designed to
 become the de-facto standard for reproducible benchmarks of on-device speech
@@ -57,7 +57,7 @@ scripts/    Repo tooling (schema validation, etc.)
 ```
 
 The leaderboard product — the API and public website that consume this
-method — lives in the separate, private `taktx-io/oesb-platform` repo, not
+method — lives in the separate, private `taktx-io/goesb-platform` repo, not
 here. See [ADR-0006](docs/adr/0006-split-platform-repo.md) for why.
 
 ## Documentation
@@ -78,7 +78,7 @@ python scripts/validate_assets.py
 ```
 
 For the leaderboard/API product (requires this repo cloned as a sibling —
-see its README), go to `taktx-io/oesb-platform`.
+see its README), go to `taktx-io/goesb-platform`.
 
 ## Licensing
 
@@ -95,5 +95,5 @@ Marketplace) are separately licensed and not part of this repository.
 
 ## Non-goals
 
-OESB is **not** a transcription service and **not** an AI chat platform. It
+GOESB is **not** a transcription service and **not** an AI chat platform. It
 benchmarks local speech processing objectively and reproducibly — nothing more.

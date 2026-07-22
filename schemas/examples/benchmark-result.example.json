@@ -44,7 +44,7 @@
   "payload_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
   "signature": {
     "algo": "ed25519",
-    "key_id": "oesb-runner-dev-key-1",
+    "key_id": "goesb-runner-dev-key-1",
     "sig": "ZmFrZS1zaWduYXR1cmUtZm9yLXNjaGVtYS1maXh0dXJlLW9ubHk="
   }
 }

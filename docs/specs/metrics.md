@@ -19,7 +19,7 @@ by the profile and applied identically to reference and hypothesis **before**
 alignment, so WER/CER are comparable only within the same profile version.
 
 Normalization is **per-language and pluggable**: each language has its own
-versioned ruleset (e.g. `oesb-en-v1`, `oesb-nl-v1`, `oesb-de-v1`) handling
+versioned ruleset (e.g. `goesb-en-v1`, `goesb-nl-v1`, `goesb-de-v1`) handling
 language-specific number expansion, casing, diacritics, punctuation, and script.
 The metric implementations (WER/CER alignment) are language-agnostic; only the
 ruleset is language-aware. This keeps the core free of any language assumption
@@ -35,7 +35,7 @@ non-Latin scripts alike.
 | `end_of_speech_latency` | End-of-Speech Latency | ms | Time from the true end of speech to the final transcript being emitted. |
 | `update_frequency` ↑ | Update Frequency | Hz | Rate of partial hypothesis updates during continuous speech. |
 | `partial_stability` ↑ | Partial Stability | ratio 0–1 | Fraction of partial-hypothesis tokens that survive unchanged into the final transcript (measures "flicker"). 1.0 = partials never rewritten. |
-| `streaming_responsiveness` ↑ | Streaming Responsiveness | index | Composite of update frequency and stability against latency; defined per profile. OESB's default (used unless a profile overrides it): `(update_frequency_hz * partial_stability) / first_partial_latency_p50_s`. |
+| `streaming_responsiveness` ↑ | Streaming Responsiveness | index | Composite of update frequency and stability against latency; defined per profile. GOESB's default (used unless a profile overrides it): `(update_frequency_hz * partial_stability) / first_partial_latency_p50_s`. |
 
 ## Performance
 

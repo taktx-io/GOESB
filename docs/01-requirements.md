@@ -1,6 +1,6 @@
 # Requirements
 
-This document specifies what OESB must do (functional requirements, **FR**) and
+This document specifies what GOESB must do (functional requirements, **FR**) and
 the qualities it must have (non-functional requirements, **NFR**). Requirements
 are numbered so they can be referenced from issues, ADRs, and the roadmap. Each
 carries a priority using MoSCoW: **[M]** must, **[S]** should, **[C]** could.
@@ -52,7 +52,7 @@ Streaming is a fundamental benchmark *type*, not a configuration flag.
 - **FR-2.6 [M]** **Language is a first-class dimension.** Every profile carries a
   BCP-47 `language`; any language is supported (including low-resource
   languages), with no language hardcoded or privileged in the core. Normalization
-  is a **per-language pluggable ruleset** (e.g. `oesb-en-v1`, `oesb-nl-v1`), so
+  is a **per-language pluggable ruleset** (e.g. `goesb-en-v1`, `goesb-nl-v1`), so
   language-specific text handling (numbers, casing, diacritics, punctuation,
   script) never leaks into the core. Results are only comparable within the same
   profile version, which fixes the language and its normalization.

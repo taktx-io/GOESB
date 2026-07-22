@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://oesb.dev/schemas/benchmark-profile.schema.json",
-  "title": "OESB Benchmark Profile",
+  "$id": "https://goesb.dev/schemas/benchmark-profile.schema.json",
+  "title": "GOESB Benchmark Profile",
   "description": "An official, versioned definition of exactly how a benchmark is run and scored.",
   "type": "object",
   "required": ["id", "version", "benchmark_type", "runtime", "model", "scoring", "metrics"],

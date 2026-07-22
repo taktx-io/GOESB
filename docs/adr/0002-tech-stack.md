@@ -7,7 +7,7 @@
 
 ## Context
 
-OESB has three code surfaces with different demands: a **runner** that must hook
+GOESB has three code surfaces with different demands: a **runner** that must hook
 into the ASR/ML ecosystem and measure resource use precisely; an **API** serving
 leaderboards; and a **website**. The stack must be approachable for
 open-source contributors and portable across Linux/Windows/macOS and ARM/x86.

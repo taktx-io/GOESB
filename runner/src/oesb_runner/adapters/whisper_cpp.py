@@ -1,7 +1,7 @@
 """`whisper.cpp` (via `pywhispercpp`) batch runtime adapter
 (docs/02-architecture.md §4).
 
-Optional dependency (`pip install oesb-runner[whisper-cpp]`) —
+Optional dependency (`pip install goesb-runner[whisper-cpp]`) —
 `pywhispercpp`/`soundfile` are only imported inside `run_batch`, matching the
 lazy-import pattern used by every other adapter.
 """
@@ -16,7 +16,7 @@ from . import Transcription, register
 
 
 def _resolve_model_id(model_name: str) -> str:
-    """Translate OESB's runtime-agnostic model name ('whisper-base.en') into
+    """Translate GOESB's runtime-agnostic model name ('whisper-base.en') into
     the ggml model id pywhispercpp/whisper.cpp expects ('base.en') — same
     translation role as faster_whisper._resolve_model_id; each adapter
     carries its own runtime's naming convention rather than the profile."""
@@ -52,7 +52,7 @@ def run_batch(
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise RuntimeError(
             "pywhispercpp is not installed; run "
-            "`pip install oesb-runner[whisper-cpp]`"
+            "`pip install goesb-runner[whisper-cpp]`"
         ) from exc
 
     model = Model(

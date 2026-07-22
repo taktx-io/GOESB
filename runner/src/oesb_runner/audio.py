@@ -48,7 +48,7 @@ def decode_pcm(path: str | Path, dtype: str = "int16") -> "np.ndarray":
 
     `dtype` is `"int16"` (what vosk's `AcceptWaveform` expects as raw bytes)
     or `"float32"` (what pywhispercpp's `transcribe()` accepts directly).
-    Every OESB pack shipped so far is already mono at the profile's target
+    Every GOESB pack shipped so far is already mono at the profile's target
     rate (see each pack's `pack.yaml` `audio.sample_rate_hz`), so this does
     not resample — a documented assumption, not a silent one.
     """
@@ -56,8 +56,8 @@ def decode_pcm(path: str | Path, dtype: str = "int16") -> "np.ndarray":
         import soundfile as sf
     except ImportError as exc:  # pragma: no cover - exercised only without an extra
         raise RuntimeError(
-            "soundfile is not installed; run `pip install oesb-runner[vosk]` "
-            "or `pip install oesb-runner[whisper-cpp]`"
+            "soundfile is not installed; run `pip install goesb-runner[vosk]` "
+            "or `pip install goesb-runner[whisper-cpp]`"
         ) from exc
 
     samples, _sample_rate = sf.read(str(path), dtype=dtype, always_2d=False)

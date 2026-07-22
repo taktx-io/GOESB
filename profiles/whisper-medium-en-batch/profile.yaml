@@ -21,7 +21,7 @@ normalization:
   lowercase: true
   remove_punctuation: true
   expand_numbers: true
-  ruleset_id: oesb-en-v1
+  ruleset_id: goesb-en-v1
 scoring:
   primary_metric: wer
   tie_breakers: [real_time_factor, energy_wh]

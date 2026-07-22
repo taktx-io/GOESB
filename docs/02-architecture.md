@@ -1,18 +1,18 @@
 # Architecture
 
-This document describes the OESB system: its components, how data flows through a
+This document describes the GOESB system: its components, how data flows through a
 benchmark, the plugin model, and the trust/integrity model that makes public
 results believable. It is the technical companion to the
 [requirements](01-requirements.md).
 
 ## 1. System overview
 
-OESB is a small set of cooperating components around three durable artifacts —
+GOESB is a small set of cooperating components around three durable artifacts —
 **Profile**, **Pack**, and **Result** — each versioned and hash-identified.
 
 ```
                          ┌──────────────────────────────────────┐
-                         │              OESB Cloud               │
+                         │              GOESB Cloud               │
    local machine         │                                      │
  ┌───────────────┐  signed result   ┌──────────┐   ┌──────────┐ │
  │  Benchmark    │ ───────────────► │   API    │──►│ Postgres │ │
@@ -53,10 +53,10 @@ The runner is open, digitally signed, reproducible, and cross-platform
 layer. Native/compiled ASR inference code lives inside each runtime adapter's own
 upstream dependency (`faster-whisper`'s `ctranslate2`, `whisper.cpp` bindings,
 etc.), which already publishes cross-platform wheels for Linux/Windows/macOS ×
-x86/ARM on PyPI. OESB does **not** hand-build or maintain per-platform binaries —
+x86/ARM on PyPI. GOESB does **not** hand-build or maintain per-platform binaries —
 it rides on that existing wheel ecosystem. Distribution is one signed Python
 package (signed release + signed PyPI artifact, e.g. via sigstore/cosign on the
-git tag), installable with `pip install oesb-runner` wherever Python 3.11+ runs.
+git tag), installable with `pip install goesb-runner` wherever Python 3.11+ runs.
 Standalone bundled binaries (PyInstaller/Nuitka) for users without a Python
 environment are an **optional convenience** for a curated subset of common
 targets, never the only install path and never required to satisfy FR-8.2. This
@@ -67,15 +67,15 @@ not an open-ended per-platform build matrix.
 A REST service (FastAPI). Serves read models for the website and accepts
 result submissions. Endpoints (see §6). The website never touches the database
 directly — it consumes the same public API third parties use. Lives in the
-separate, private `taktx-io/oesb-platform` repo (not this one) — see
+separate, private `taktx-io/goesb-platform` repo (not this one) — see
 [ADR-0006](adr/0006-split-platform-repo.md) — but depends directly on this
-repo's `oesb-runner` for schema validation and result signing/verification
+repo's `goesb-runner` for schema validation and result signing/verification
 (ADR-0004/0005), so the trust logic is never reimplemented.
 
 ### 2.3 Web
 Next.js/React public site: filterable leaderboards, profile and pack detail
 pages, hardware records, and curated views. Read-only against the API. Also
-in `taktx-io/oesb-platform`.
+in `taktx-io/goesb-platform`.
 
 ### 2.4 Storage
 Relational database (Postgres) for results, profiles, packs, hardware, and
@@ -123,7 +123,7 @@ The core defines stable, versioned interfaces; capabilities are plugins:
 | Runtime adapter | how a model is driven | faster-whisper, whisper.cpp, vosk, coqui |
 | Model descriptor | how a model is identified/loaded | whisper-medium int8 |
 | Metric | a measurement + reducer | WER, RTF, First Partial Latency, energy |
-| Normalization ruleset | per-language text handling for scoring | `oesb-en-v1`, `oesb-nl-v1`, `oesb-de-v1`, ... |
+| Normalization ruleset | per-language text handling for scoring | `goesb-en-v1`, `goesb-nl-v1`, `goesb-de-v1`, ... |
 | Hardware probe | how a device is fingerprinted | x86 RAPL, ARM sysfs, NVIDIA NVML |
 | Exporter | how results leave the system | JSON, CSV, OpenTelemetry, leaderboard |
 

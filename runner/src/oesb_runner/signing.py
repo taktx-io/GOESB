@@ -40,8 +40,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from .hashing import canonical_asset_sha256
 
 ALGO = "ed25519"
-DEFAULT_KEY_DIR = Path.home() / ".oesb" / "keys"
-DEFAULT_KEY_ID = "oesb-runner-dev-key-1"
+DEFAULT_KEY_DIR = Path.home() / ".goesb" / "keys"
+DEFAULT_KEY_ID = "goesb-runner-dev-key-1"
 # These two fields didn't exist yet when payload_sha256 was first computed
 # (they're added to the document afterward), so re-verification must exclude
 # them before recomputing the hash it was actually signed over.

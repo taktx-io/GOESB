@@ -1,6 +1,6 @@
 """`faster-whisper` batch runtime adapter (docs/02-architecture.md §4).
 
-Optional dependency (`pip install oesb-runner[faster-whisper]`) — the actual
+Optional dependency (`pip install goesb-runner[faster-whisper]`) — the actual
 `faster_whisper` package is only imported inside `run_batch`, so importing
 `oesb_runner.adapters` never requires it, matching the normalization plugin
 pattern.
@@ -16,7 +16,7 @@ from . import Transcription, register
 
 
 def _resolve_model_id(model_name: str) -> str:
-    """Translate OESB's runtime-agnostic model name (profiles say
+    """Translate GOESB's runtime-agnostic model name (profiles say
     'whisper-medium') into the identifier faster-whisper's own API expects
     ('medium') — this translation belongs in the adapter, not the profile,
     so profiles stay independent of any one runtime's naming convention."""
@@ -52,7 +52,7 @@ def run_batch(
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise RuntimeError(
             "faster-whisper is not installed; run "
-            "`pip install oesb-runner[faster-whisper]`"
+            "`pip install goesb-runner[faster-whisper]`"
         ) from exc
 
     model = WhisperModel(
@@ -107,7 +107,7 @@ def run_streaming(
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise RuntimeError(
             "faster-whisper is not installed; run "
-            "`pip install oesb-runner[faster-whisper]`"
+            "`pip install goesb-runner[faster-whisper]`"
         ) from exc
 
     sample_rate = 16000

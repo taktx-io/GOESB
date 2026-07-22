@@ -5,7 +5,7 @@ import pytest
 from oesb_runner.normalization import normalize
 from oesb_runner.pack import load_pack
 
-vosk = pytest.importorskip("vosk", reason="requires `pip install oesb-runner[vosk]`")
+vosk = pytest.importorskip("vosk", reason="requires `pip install goesb-runner[vosk]`")
 
 from oesb_runner.adapters.vosk import run_batch  # noqa: E402
 from oesb_runner.metrics import rtf, wer  # noqa: E402
@@ -37,8 +37,8 @@ def test_run_batch_transcribes_real_audio_within_wer_tolerance(tmp_path):
     for utterance in pack.utterances:
         hypothesis = by_id[utterance.utterance_id].hypothesis_text
         pairs.append((
-            normalize("oesb-en-v1", utterance.reference_text),
-            normalize("oesb-en-v1", hypothesis),
+            normalize("goesb-en-v1", utterance.reference_text),
+            normalize("goesb-en-v1", hypothesis),
         ))
 
     result_wer = wer.compute(pairs)

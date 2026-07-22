@@ -1,6 +1,6 @@
 # Environment capture specification
 
-Reproducibility is OESB's defining quality (NFR-1). The runner captures a
+Reproducibility is GOESB's defining quality (NFR-1). The runner captures a
 structured **environment fingerprint** with every result. This spec lists what is
 captured, why it matters, and how it is used.
 
@@ -60,7 +60,7 @@ a common cause of drift, which is why cooling and temperature are first-class.
 
 ## Roadmap
 
-The scaffolded `oesb env` command returns a partial fingerprint (OS + Python).
+The scaffolded `goesb env` command returns a partial fingerprint (OS + Python).
 Full hardware/thermal/power capture lands in **M1**; cross-platform energy/
 thermal probes landed in **M2**: RAPL (`intel-rapl` sysfs) for `energy_wh`
 and hwmon for `temperature_c`/the `cooling` fingerprint field

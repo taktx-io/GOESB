@@ -10,7 +10,7 @@ from oesb_runner.pack import load_pack
 # faster-whisper isn't installed, which would wrongly skip a pure-string-logic
 # test that has nothing to do with the actual package being present.
 faster_whisper = pytest.importorskip(
-    "faster_whisper", reason="requires `pip install oesb-runner[faster-whisper]`"
+    "faster_whisper", reason="requires `pip install goesb-runner[faster-whisper]`"
 )
 
 from oesb_runner.adapters.faster_whisper import run_batch, run_streaming  # noqa: E402
@@ -41,8 +41,8 @@ def test_run_batch_transcribes_real_audio_within_wer_tolerance():
     for utterance in pack.utterances:
         hypothesis = by_id[utterance.utterance_id].hypothesis_text
         pairs.append((
-            normalize("oesb-en-v1", utterance.reference_text),
-            normalize("oesb-en-v1", hypothesis),
+            normalize("goesb-en-v1", utterance.reference_text),
+            normalize("goesb-en-v1", hypothesis),
         ))
 
     result_wer = wer.compute(pairs)
@@ -81,7 +81,7 @@ def test_run_streaming_transcribes_real_audio_in_chunks():
     for utterance in pack.utterances:
         hypothesis = by_id[utterance.utterance_id].final_text
         pairs.append((
-            normalize("oesb-en-v1", utterance.reference_text),
-            normalize("oesb-en-v1", hypothesis),
+            normalize("goesb-en-v1", utterance.reference_text),
+            normalize("goesb-en-v1", hypothesis),
         ))
     assert wer.compute(pairs) < 0.25

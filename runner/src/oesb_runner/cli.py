@@ -1,4 +1,4 @@
-"""OESB runner command-line interface.
+"""GOESB runner command-line interface.
 
 See docs/02-architecture.md and the roadmap for context. `run` implements the
 M1 slice: local batch run -> normalized WER/CER/RTF/CPU/RAM -> signed, hashed
@@ -86,7 +86,7 @@ _METRIC_UNITS = {
 @app.command()
 def version() -> None:
     """Print the runner version."""
-    typer.echo(f"oesb-runner {__version__}")
+    typer.echo(f"goesb-runner {__version__}")
 
 
 @app.command()
@@ -231,7 +231,7 @@ def run(
     }
     configuration = profile.get("configuration", {})
 
-    models_root_path = Path(models_root) if models_root else Path.home() / ".oesb" / "models" / model_name
+    models_root_path = Path(models_root) if models_root else Path.home() / ".goesb" / "models" / model_name
     models_root_path.mkdir(parents=True, exist_ok=True)
 
     scalar_metrics = [m for m in profile["metrics"] if m not in LATENCY_METRIC_IDS]
@@ -466,20 +466,20 @@ def _post_json(url: str, payload: dict, timeout: int) -> dict:
 def submit(
     result_path: str,
     api_url: str = typer.Option(
-        "http://127.0.0.1:8000", help="Base URL of the OESB API to submit the result to."
+        "http://127.0.0.1:8000", help="Base URL of the GOESB API to submit the result to."
     ),
 ) -> None:
     """Sign a locally-produced result for public submission and POST it to
     the API (ADR-0005).
 
-    Producing a result (`oesb run`) never requires network access; this is
+    Producing a result (`goesb run`) never requires network access; this is
     the separate, explicit submission step. A fresh keypair is generated
     in-memory for this submission only — the private key never touches disk
     or leaves this machine — and the API is asked to vouch for its public
     key with a short-lived, single-use token, which is what actually signs
     the result. Re-uses the file's own `payload_sha256` unchanged (content,
     and therefore the hash, doesn't depend on who signs it) after confirming
-    the file hasn't been altered since `oesb run` wrote it.
+    the file hasn't been altered since `goesb run` wrote it.
     """
     result = json.loads(Path(result_path).read_text())
 
@@ -487,7 +487,7 @@ def submit(
     if recomputed != result.get("payload_sha256"):
         typer.echo(
             f"{result_path} content does not match its own payload_sha256 "
-            "(edited since `oesb run` wrote it?) — refusing to submit",
+            "(edited since `goesb run` wrote it?) — refusing to submit",
             err=True,
         )
         raise typer.Exit(code=1)

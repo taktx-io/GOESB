@@ -186,7 +186,7 @@
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright 2026 Eric Hendriks / OESB contributors
+   Copyright 2026 Eric Hendriks / GOESB contributors
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -204,11 +204,11 @@
 
 NOTE ON SCOPE: This Apache-2.0 license covers `runner/`, `schemas/`,
 `profiles/`, `packs/` (manifests/metadata — not the audio itself), and
-`scripts/` — the parts of OESB that are built and that the trust/
+`scripts/` — the parts of GOESB that are built and that the trust/
 reproducibility claim depends on.
 
 It does NOT cover `api/` or `web/` — those now live in the separate,
-private `taktx-io/oesb-platform` repository, not this one (see
+private `taktx-io/goesb-platform` repository, not this one (see
 docs/adr/0006-split-platform-repo.md). Nothing in this repository grants
 any right to that repository's contents.
 

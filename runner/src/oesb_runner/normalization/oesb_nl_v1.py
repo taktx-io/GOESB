@@ -1,4 +1,4 @@
-"""Dutch (nl) normalization ruleset `oesb-nl-v1`.
+"""Dutch (nl) normalization ruleset `goesb-nl-v1`.
 
 The only place Dutch-specific text handling lives (docs/02-architecture.md
 §3 Profile). WER/CER alignment itself stays language-agnostic; this module
@@ -57,7 +57,7 @@ def number_to_dutch_words(n: int) -> str:
     if n < 0:
         return "min " + number_to_dutch_words(-n)
     if n > 999_999:
-        raise ValueError("oesb-nl-v1 number expansion supports 0..999999")
+        raise ValueError("goesb-nl-v1 number expansion supports 0..999999")
     if n == 0:
         return "nul"
     if n < 1000:
@@ -71,7 +71,7 @@ def _expand_numbers(text: str) -> str:
     return _DIGITS_RE.sub(lambda m: number_to_dutch_words(int(m.group())), text)
 
 
-@register("oesb-nl-v1")
+@register("goesb-nl-v1")
 def normalize(
     text: str,
     *,

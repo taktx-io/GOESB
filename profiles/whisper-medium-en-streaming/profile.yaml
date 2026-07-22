@@ -22,7 +22,7 @@ normalization:
   lowercase: true
   remove_punctuation: true
   expand_numbers: true
-  ruleset_id: oesb-en-v1
+  ruleset_id: goesb-en-v1
 scoring:
   primary_metric: first_partial_latency
   tie_breakers: [streaming_responsiveness, real_time_factor]
