@@ -1,12 +1,24 @@
+import sys
+
 import pytest
 
 from oesb_runner import energy
+
+# Real RAPL sysfs domain directories are literally named "intel-rapl:N" — a
+# colon is reserved in Windows paths (drive-letter separator), so a fixture
+# tree using the real naming convention cannot be materialized there at all.
+# RAPL is Linux-only regardless (see energy.py's own docstring), so skipping
+# on Windows loses no real coverage.
+_requires_colon_paths = pytest.mark.skipif(
+    sys.platform == "win32", reason="RAPL's 'intel-rapl:N' directory naming is invalid on Windows"
+)
 
 
 def test_read_rapl_uj_missing_root_returns_none(tmp_path):
     assert energy.read_rapl_uj(root=tmp_path / "no-such-powercap") is None
 
 
+@_requires_colon_paths
 def test_read_rapl_uj_sums_domains(tmp_path):
     root = tmp_path / "powercap"
     for domain, value in [("intel-rapl:0", "1000000"), ("intel-rapl:1", "500000")]:
@@ -16,6 +28,7 @@ def test_read_rapl_uj_sums_domains(tmp_path):
     assert energy.read_rapl_uj(root=root) == pytest.approx(1_500_000.0)
 
 
+@_requires_colon_paths
 def test_read_rapl_uj_ignores_unreadable_domain(tmp_path):
     root = tmp_path / "powercap"
     good = root / "intel-rapl:0"

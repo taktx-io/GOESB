@@ -48,7 +48,15 @@ def _capture_cpu(unavailable: dict[str, str]) -> dict[str, Any]:
     if model is None:
         unavailable["cpu.model"] = f"no CPU model probe implemented for {system!r}"
 
-    freq = psutil.cpu_freq()
+    try:
+        freq = psutil.cpu_freq()
+    except (AttributeError, NotImplementedError):
+        # psutil.cpu_freq() is not implemented on every platform/arch combo
+        # it otherwise supports (e.g. observed missing on macOS arm64 in
+        # GitHub's hosted runner image) — same "probe, don't assume" stance
+        # as every other field here, just via exception rather than a `None`
+        # return.
+        freq = None
     return {
         "model": model,
         "physical_cores": psutil.cpu_count(logical=False),
