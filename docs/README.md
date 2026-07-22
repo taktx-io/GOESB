@@ -18,6 +18,7 @@ Start here.
 - [ADR-0005 — Signing-token distribution and trust limits](adr/0005-signing-token-distribution-and-trust-limits.md)
 - [ADR-0006 — Cloud-API benchmarks as a reference lane](adr/0006-cloud-api-benchmarks.md)
 - [ADR-0007 — Split the leaderboard product into a separate private repo](adr/0007-split-platform-repo.md)
+- [ADR-0008 — Compute backend is explicit, captured, and never auto-selected](adr/0008-explicit-compute-backend.md)
 
 ### Specs
 - [Metrics](specs/metrics.md) — precise, reproducible definitions.
