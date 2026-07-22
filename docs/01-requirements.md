@@ -24,6 +24,14 @@ Streaming is a fundamental benchmark *type*, not a configuration flag.
   Time-To-First-Audio, End-to-End Latency, Interrupt/Barge-in Latency, and
   Streaming Responsiveness, plus CPU/GPU/NPU/RAM and energy.
 - **FR-1.5 [C]** New benchmark types can be added as plugins without core changes.
+- **FR-1.6 [S] Deployment target** is an orthogonal axis — `local` (edge) vs
+  `cloud` (API) — applying across all benchmark types. Cloud is a **separated
+  reference lane**, never merged into edge leaderboards: metrics that cannot apply
+  to cloud (energy, hardware, thermals, certification) are marked N/A;
+  cloud-native metrics (cost per minute, network round-trip, data-residency,
+  "audio leaves device" flag) are added; and cloud results are labelled as
+  weaker-reproducibility timestamped snapshots. Edge remains the platform's
+  identity. See [ADR-0005](adr/0005-cloud-api-benchmarks.md).
 
 ## 2. Benchmark Profiles
 
