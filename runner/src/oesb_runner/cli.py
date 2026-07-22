@@ -17,6 +17,7 @@ import typer
 import yaml
 
 from . import __version__
+from . import energy as energy_probe
 from .adapters import get_adapter
 from .environment import capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
@@ -29,9 +30,11 @@ from .metrics import (
     partial_stability,
     rtf,
     streaming_responsiveness,
+    temperature,
     update_frequency,
     wer,
 )
+from .metrics import energy as energy_metric
 from .normalization import normalize
 from .pack import load_pack
 from .schema_validation import validate_against
@@ -60,7 +63,8 @@ _METRIC_UNITS = {
     rtf.METRIC_ID: rtf.UNIT,
     cpu_ram.CPU_METRIC_ID: cpu_ram.CPU_UNIT,
     cpu_ram.RAM_METRIC_ID: cpu_ram.RAM_UNIT,
-    "energy_wh": "Wh",
+    energy_metric.METRIC_ID: energy_metric.UNIT,
+    temperature.METRIC_ID: temperature.UNIT,
     first_partial_latency.METRIC_ID: first_partial_latency.UNIT,
     first_final_latency.METRIC_ID: first_final_latency.UNIT,
     end_of_speech_latency.METRIC_ID: end_of_speech_latency.UNIT,
@@ -104,8 +108,17 @@ def _load_yaml(path: Path) -> dict:
 
 
 def _sample_during(fn, interval_s: float = 0.2):
-    """Run `fn()` while sampling CPU/RAM in the background; return (result, samples)."""
+    """Run `fn()` while sampling CPU/RAM/temperature in the background, and
+    RAPL energy once before and once after (a monotonic counter, so a single
+    before/after delta is what's needed, not periodic sampling — see
+    energy.py). Returns (result, cpu_ram_samples, temp_samples_c,
+    rapl_uj_delta). `temp_samples_c` is empty and `rapl_uj_delta` is `None`
+    on platforms without hwmon/RAPL (macOS, Windows, RAPL-less Linux) —
+    callers treat that exactly like any other "not yet implemented" metric
+    gap, never a fabricated zero.
+    """
     samples: list[cpu_ram.Sample] = []
+    temp_samples_c: list[float] = []
     stop = threading.Event()
     proc = psutil.Process()
     proc.cpu_percent(interval=None)  # prime baseline
@@ -113,17 +126,31 @@ def _sample_during(fn, interval_s: float = 0.2):
     def sampler() -> None:
         while not stop.is_set():
             samples.append(cpu_ram.sample_process_tree(proc))
+            temp_c = energy_probe.sample_hwmon_temp_c()
+            if temp_c is not None:
+                temp_samples_c.append(temp_c)
             stop.wait(interval_s)
 
     thread = threading.Thread(target=sampler, daemon=True)
     thread.start()
+    rapl_start_uj = energy_probe.read_rapl_uj()
     try:
         result = fn()
     finally:
         stop.set()
         thread.join()
+    rapl_end_uj = energy_probe.read_rapl_uj()
     samples.append(cpu_ram.sample_process_tree(proc))
-    return result, samples
+    temp_c = energy_probe.sample_hwmon_temp_c()
+    if temp_c is not None:
+        temp_samples_c.append(temp_c)
+
+    rapl_uj_delta = (
+        rapl_end_uj - rapl_start_uj
+        if rapl_start_uj is not None and rapl_end_uj is not None
+        else None
+    )
+    return result, samples, temp_samples_c, rapl_uj_delta
 
 
 @app.command()
@@ -140,6 +167,13 @@ def run(
     ),
     models_root: str = typer.Option(
         None, help="Where the runtime adapter downloads/caches model weights."
+    ),
+    external_energy_wh: float = typer.Option(
+        None,
+        help="Manually-read external power-meter energy (Wh) for this run, "
+        "overriding RAPL where RAPL is unavailable (e.g. non-Linux) or "
+        "simply preferred — a declarative user-supplied value, not code "
+        "(ADR-0004).",
     ),
 ) -> None:
     """Run a benchmark for a profile + pack and emit a signed result document."""
@@ -214,7 +248,7 @@ def run(
                     download_root=models_root_path,
                 )
 
-            transcriptions, samples = _sample_during(_do_transcribe)
+            transcriptions, samples, temp_samples_c, rapl_uj_delta = _sample_during(_do_transcribe)
             by_id = {t.utterance_id: t for t in transcriptions}
 
             pairs = []
@@ -233,6 +267,12 @@ def run(
                 "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
                 "ram_mb": cpu_ram.reduce_peak_ram_mb(samples),
             }
+            if external_energy_wh is not None:
+                computed["energy_wh"] = external_energy_wh
+            elif rapl_uj_delta is not None:
+                computed["energy_wh"] = energy_metric.compute(rapl_uj_delta)
+            if temp_samples_c:
+                computed["temperature_c"] = temperature.reduce_peak_temp_c(temp_samples_c)
             for metric_id in per_repeat_metrics:
                 if metric_id in computed:
                     per_repeat_metrics[metric_id].append(computed[metric_id])
@@ -252,7 +292,7 @@ def run(
                     download_root=models_root_path,
                 )
 
-            traces, samples = _sample_during(_do_transcribe)
+            traces, samples, temp_samples_c, rapl_uj_delta = _sample_during(_do_transcribe)
             by_id = {t.utterance_id: t for t in traces}
 
             pairs = []
@@ -287,6 +327,12 @@ def run(
                     )["p50"],
                 ),
             }
+            if external_energy_wh is not None:
+                computed["energy_wh"] = external_energy_wh
+            elif rapl_uj_delta is not None:
+                computed["energy_wh"] = energy_metric.compute(rapl_uj_delta)
+            if temp_samples_c:
+                computed["temperature_c"] = temperature.reduce_peak_temp_c(temp_samples_c)
             for metric_id in per_repeat_metrics:
                 if metric_id in computed:
                     per_repeat_metrics[metric_id].append(computed[metric_id])
@@ -300,7 +346,8 @@ def run(
     metrics_block = {}
     for metric_id, values in per_repeat_metrics.items():
         if not values:
-            continue  # not yet implemented (e.g. energy_wh) — known M1/M2 gap
+            continue  # e.g. energy_wh/temperature_c on a platform with no
+            # RAPL/hwmon (macOS, Windows) and no --external-energy-wh given
         summary = summarize(values)
         metrics_block[metric_id] = {"value": summary["value"], "unit": _METRIC_UNITS[metric_id]}
         if len(values) > 1:

@@ -1,0 +1,40 @@
+name: Release runner
+
+# Builds the runner's sdist+wheel and attaches a keyless, GitHub-OIDC-signed
+# Sigstore build-provenance attestation to a GitHub Release — the "signed
+# release... via sigstore/cosign on the git tag" distribution model described
+# in docs/02-architecture.md §2.1, without needing a stored private signing
+# key. PyPI publish is intentionally NOT part of this workflow: it needs a
+# PyPI project + trusted-publisher OIDC config only the account owner can set
+# up (see docs/03-roadmap.md M2) — tracked as a follow-on, not attempted here.
+
+on:
+  push:
+    tags: [ "runner-v*" ]
+
+permissions:
+  contents: write    # create the GitHub Release
+  id-token: write    # OIDC token for keyless Sigstore signing
+  attestations: write
+
+jobs:
+  build-and-attest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - run: pip install build
+      - run: cd runner && python -m build --outdir ../dist .
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/*
+          generate_release_notes: true

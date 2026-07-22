@@ -6,7 +6,19 @@ requires it to be installed.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
+
+
+@dataclass(frozen=True)
+class Transcription:
+    """One utterance's batch-adapter output — shared shape every batch
+    adapter (faster-whisper, vosk, whisper.cpp, ...) returns, so the CLI's
+    batch run loop stays adapter-agnostic."""
+    utterance_id: str
+    hypothesis_text: str
+    processing_time_s: float
+
 
 # Keyed by (runtime_name, benchmark_type) — a runtime can implement more than
 # one benchmark type (e.g. faster-whisper's "batch" and "streaming" loops are
@@ -35,4 +47,4 @@ def get_adapter(runtime_name: str, benchmark_type: str = "batch") -> Callable:
 
 
 # Built-in adapters register themselves on import.
-from . import faster_whisper  # noqa: E402,F401
+from . import faster_whisper, vosk, whisper_cpp  # noqa: E402,F401

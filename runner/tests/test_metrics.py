@@ -3,7 +3,7 @@ import os
 import psutil
 import pytest
 
-from oesb_runner.metrics import cer, cpu_ram, rtf, wer
+from oesb_runner.metrics import cer, cpu_ram, energy, rtf, temperature, wer
 from oesb_runner.metrics._align import edit_distance
 
 
@@ -76,3 +76,22 @@ def test_cpu_ram_reducers_reject_empty():
         cpu_ram.reduce_cpu_pct([])
     with pytest.raises(ValueError):
         cpu_ram.reduce_peak_ram_mb([])
+
+
+def test_energy_compute_converts_uj_to_wh():
+    # 3600 * 1e6 uJ == 1 Wh, by construction
+    assert energy.compute(3_600_000_000.0) == pytest.approx(1.0)
+
+
+def test_energy_compute_rejects_negative_delta():
+    with pytest.raises(ValueError):
+        energy.compute(-1.0)
+
+
+def test_temperature_reduce_peak_returns_max():
+    assert temperature.reduce_peak_temp_c([42.0, 55.5, 30.0]) == pytest.approx(55.5)
+
+
+def test_temperature_reduce_peak_rejects_empty():
+    with pytest.raises(ValueError):
+        temperature.reduce_peak_temp_c([])

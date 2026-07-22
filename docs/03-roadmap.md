@@ -58,23 +58,48 @@ FR-8.1/8.3, FR-9.3.
 **Exit:** two runs on the same machine agree within tolerance; result validates
 and its hashes verify.
 
-## M2 — Cross-platform + energy + more runtimes
+## M2 — Cross-platform + energy + more runtimes *(done)*
 
 **Goal:** make batch numbers *portable and complete*.
 
-- Runner runs on Linux/Windows/macOS and ARM/x86; signed release artifacts
-  (signed PyPI package/git tag — see distribution model in
-  [02-architecture.md §2.1](02-architecture.md)) — not per-platform native
-  binaries.
-- Energy/thermal probes (RAPL, battery delta, hwmon; external-meter hook).
-- Second and third runtime adapters (e.g. `whisper.cpp`, `vosk`) to prove the
-  adapter interface.
-- Characterise runner overhead so it does not bias RTF/latency
-  ([ADR-0002](adr/0002-tech-stack.md)).
+- Runner runs on Linux/Windows/macOS and ARM/x86 — CI matrix across
+  `ubuntu-latest`/`windows-latest`/`macos-13`(x86_64)/`macos-14`(arm64),
+  plus a best-effort `ubuntu-24.04-arm` leg
+  (`.github/workflows/ci.yml`). Proves install + the fast unit suite on
+  every leg, not full real-model inference per leg (extras/model downloads
+  stay CI-excluded by design, same as before M2).
+  Signed release artifacts: `.github/workflows/release.yml` builds
+  sdist+wheel and attaches a keyless GitHub-OIDC/Sigstore build-provenance
+  attestation to a GitHub Release on a `runner-v*` tag (see distribution
+  model in [02-architecture.md §2.1](02-architecture.md)) — not
+  per-platform native binaries. **Gap, deliberately not closed yet:** no
+  tag has been pushed / no real release cut (a visible, semi-irreversible
+  action held for explicit go-ahead), and PyPI publish itself needs the
+  account owner's own trusted-publisher setup — not attempted, no
+  credentials held.
+- Energy/thermal probes: RAPL (`runner/src/oesb_runner/energy.py`) and hwmon
+  peak-temperature sampling, wired into `oesb run` as `energy_wh` /
+  `temperature_c`, plus an `--external-energy-wh` override for a manually
+  read power meter (declarative input, ADR-0004). **Gap, deliberately not
+  closed yet:** RAPL/hwmon are Linux-only by construction and unit-tested
+  against synthetic sysfs fixtures only — not yet proven against real Linux
+  hardware (this session's dev machine is macOS/arm64; the external-meter
+  override path *is* proven end-to-end). Battery-delta sampling remains
+  unimplemented (only instantaneous battery percent/source is captured, via
+  M1's `environment.py`).
+- Second and third runtime adapters — `vosk` and `whisper.cpp` (via
+  `pywhispercpp`) — proving the adapter interface: both registered and
+  proven end-to-end (real LibriSpeech audio, schema-valid + signed results)
+  with zero changes to `cli.py`'s dispatch logic.
+- Runner overhead characterised
+  ([ADR-0002](adr/0002-tech-stack.md), detail in
+  [runner-overhead.md](specs/runner-overhead.md)): not material at
+  production sampling settings on the one machine measured so far.
 
 **Satisfies:** FR-8.2, FR-6.3 (energy/temp), FR-11.1 (runtime plugins), NFR-4.
-**Exit:** same profile+pack runs on ≥3 OS/arch combos; energy reported; adapters
-swap without core changes.
+**Exit:** same profile+pack runs on ≥3 OS/arch combos (✅ CI matrix); energy
+reported (✅ via RAPL where present, or `--external-energy-wh`); adapters swap
+without core changes (✅ vosk + whisper.cpp, no `cli.py` dispatch changes).
 
 ## M3 — API + result ingestion + verification
 

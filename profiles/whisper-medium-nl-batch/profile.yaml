@@ -1,7 +1,7 @@
 # Example official profile (illustrative). Validated against
 # schemas/benchmark-profile.schema.json.
 id: whisper-medium-nl-batch
-version: 1.0.0
+version: 1.0.1
 title: Whisper Medium Dutch (Batch)
 benchmark_type: batch
 language: nl-NL
@@ -24,7 +24,9 @@ normalization:
 scoring:
   primary_metric: wer
   tie_breakers: [real_time_factor, energy_wh]
-metrics: [wer, cer, real_time_factor, cpu_pct, ram_mb, energy_wh]
+metrics: [wer, cer, real_time_factor, cpu_pct, ram_mb, energy_wh, temperature_c]
 changelog:
   - version: 1.0.0
     notes: Initial profile.
+  - version: 1.0.1
+    notes: Added temperature_c (M2) now that the hwmon probe exists.

@@ -1,13 +1,20 @@
-"""Minimal, dependency-free audio introspection.
+"""Minimal audio introspection and decoding.
 
-Only what the runner needs before it ever hands audio to a runtime adapter:
-FLAC duration, parsed straight from the STREAMINFO metadata block (no ffmpeg/
-libsndfile required just to know how long a pack's clips are).
+`flac_duration_s` is dependency-free by design: FLAC duration, parsed straight
+from the STREAMINFO metadata block (no ffmpeg/libsndfile required just to know
+how long a pack's clips are). `decode_pcm` is the one exception — adapters
+that need actual PCM samples (vosk, whisper.cpp) lazy-import `soundfile` for
+it, same optional-dependency pattern as the runtime adapters themselves, so
+importing this module never requires it.
 """
 from __future__ import annotations
 
 import struct
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def flac_duration_s(path: str | Path) -> float:
@@ -34,3 +41,26 @@ def flac_duration_s(path: str | Path) -> float:
                 return total_samples / sample_rate
             if is_last:
                 raise ValueError(f"FLAC file has no STREAMINFO block: {path}")
+
+
+def decode_pcm(path: str | Path, dtype: str = "int16") -> "np.ndarray":
+    """Decode an audio file to a 1-D mono PCM array at its native sample rate.
+
+    `dtype` is `"int16"` (what vosk's `AcceptWaveform` expects as raw bytes)
+    or `"float32"` (what pywhispercpp's `transcribe()` accepts directly).
+    Every OESB pack shipped so far is already mono at the profile's target
+    rate (see each pack's `pack.yaml` `audio.sample_rate_hz`), so this does
+    not resample — a documented assumption, not a silent one.
+    """
+    try:
+        import soundfile as sf
+    except ImportError as exc:  # pragma: no cover - exercised only without an extra
+        raise RuntimeError(
+            "soundfile is not installed; run `pip install oesb-runner[vosk]` "
+            "or `pip install oesb-runner[whisper-cpp]`"
+        ) from exc
+
+    samples, _sample_rate = sf.read(str(path), dtype=dtype, always_2d=False)
+    if samples.ndim > 1:  # collapse stereo to mono by averaging channels
+        samples = samples.mean(axis=1).astype(samples.dtype)
+    return samples

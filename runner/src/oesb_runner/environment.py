@@ -13,6 +13,8 @@ from typing import Any
 
 import psutil
 
+from . import energy
+
 SCHEMA_VERSION = "0.2"
 
 
@@ -80,6 +82,16 @@ def _capture_power(unavailable: dict[str, str]) -> dict[str, Any] | None:
     }
 
 
+def _capture_cooling(unavailable: dict[str, str]) -> dict[str, Any] | None:
+    """Best-effort cooling/thermal-sensor presence signal (M2) — hwmon is
+    Linux-only, so this is `null` with a reason on macOS/Windows, same
+    convention as every other unprobed field here."""
+    if not energy.hwmon_available():
+        unavailable["cooling"] = "no hwmon thermal sensors found on this platform"
+        return None
+    return {"active_sensor_present": True}
+
+
 def capture_environment() -> dict[str, Any]:
     """Return the best-effort environment fingerprint for this machine."""
     unavailable: dict[str, str] = {}
@@ -99,14 +111,16 @@ def capture_environment() -> dict[str, Any]:
         "npu": None,
         "storage": None,
         "firmware": None,
-        "cooling": None,
+        "cooling": _capture_cooling(unavailable),
         "power": _capture_power(unavailable),
     }
 
     unavailable.setdefault("npu", "no NPU probe implemented")
     unavailable.setdefault("storage", "storage type/model probe not implemented")
     unavailable.setdefault("firmware", "no BIOS/firmware version probe implemented")
-    unavailable.setdefault("cooling", "no cooling/fan-state probe implemented")
+    # "cooling" is set by _capture_cooling itself when unavailable — no
+    # setdefault needed (and one would wrongly overwrite a real reading with
+    # a stale "not implemented" reason once it is implemented).
 
     fingerprint["unavailable"] = dict(sorted(unavailable.items()))
     return fingerprint

@@ -13,14 +13,17 @@ def test_capture_environment_never_silently_omits_unprobed_fields():
     env = capture_environment()
     # Fields with no probe on this platform must be null, not missing, and
     # explained in `unavailable` (docs/specs/environment-capture.md).
-    for field in ("npu", "storage", "firmware", "cooling"):
+    for field in ("npu", "storage", "firmware"):
         assert field in env
         assert field in env["unavailable"]
 
-    if env["gpu"] is None:
-        assert "gpu" in env["unavailable"]
-    if env["power"] is None:
-        assert "power" in env["unavailable"]
+    # gpu/power/cooling have real probes and may or may not fire depending on
+    # the machine (NVIDIA GPU present, on battery, hwmon sensors present) —
+    # null must always come with a reason, but non-null is equally valid.
+    for field in ("gpu", "power", "cooling"):
+        assert field in env
+        if env[field] is None:
+            assert field in env["unavailable"]
 
 
 def test_capture_environment_is_json_serializable():

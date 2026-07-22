@@ -1,7 +1,8 @@
 # ADR-0002 — Technology stack
 
-- **Status:** Accepted (revisit at M2 if the runner's performance overhead is
-  material)
+- **Status:** Accepted. M2 overhead characterization complete — not material
+  at production settings (see [Consequences](#consequences)); no revisit
+  triggered.
 - **Date:** 2026-07-21
 
 ## Context
@@ -41,4 +42,10 @@ open-source contributors and portable across Linux/Windows/macOS and ARM/x86.
   less drift, easier validation parity.
 - Measurement overhead of Python must be characterised (M2) so it does not bias
   RTF/latency numbers; if it does, isolate hot paths (native ext / subprocess) or
-  reconsider a Rust harness.
+  reconsider a Rust harness. **Done**: see
+  [docs/specs/runner-overhead.md](../specs/runner-overhead.md) and
+  `runner/tests/test_overhead.py`. Verdict: at the sampler's production
+  interval, overhead is noise-level (measured trials straddle zero) — not
+  material, no correction applied, Rust harness not warranted by this
+  evidence. Caveat: measured on one machine (macOS/arm64) only so far: not
+  yet re-verified on Linux/Windows or under real RAPL/hwmon sampling load.

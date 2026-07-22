@@ -1,0 +1,35 @@
+# Example open pack — English (LibriSpeech dev-clean subset), scored against
+# the vosk profile. Same utterances/manifest as example-librispeech-en-batch;
+# no new audio: point --audio-dir at ../example-librispeech-en-batch/audio.
+id: example-librispeech-en-vosk-batch
+version: 1.0.0
+sha256: af2a867e8957b06f41b5e73e7939670a769408c7ebe5a9db927ef959cb82fb7a
+profile_id: vosk-small-en-batch
+visibility: open
+license: CC-BY-4.0
+audio:
+  count: 15
+  total_duration_s: 145.195
+  sample_rate_hz: 16000
+  manifest_sha256: 6b9cdcf81a565496b7d4ef4881b035d98593eb941e61d87780591f0aba5852d9
+  source:
+    fetch_instructions: >-
+      Identical audio to example-librispeech-en-batch: run
+      scripts/fetch_librispeech_subset.py for that pack, then pass
+      `--audio-dir packs/example-librispeech-en-batch/audio` to `oesb run`.
+metadata:
+  language: en-US
+  dialect: general-american
+  age_group: mixed
+  recording_environment: quiet
+  microphone: consumer usb
+  sample_rate_hz: 16000
+  background_noise: none
+  num_speakers: 100
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - librispeech
+  - english
+  - clean
+  - vosk

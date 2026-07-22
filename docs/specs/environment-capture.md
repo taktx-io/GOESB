@@ -61,5 +61,13 @@ a common cause of drift, which is why cooling and temperature are first-class.
 ## Roadmap
 
 The scaffolded `oesb env` command returns a partial fingerprint (OS + Python).
-Full hardware/thermal/power capture lands in **M1**; cross-platform probes
-(RAPL on x86, sysfs/hwmon on ARM, NVML for NVIDIA) are tracked there.
+Full hardware/thermal/power capture lands in **M1**; cross-platform energy/
+thermal probes landed in **M2**: RAPL (`intel-rapl` sysfs) for `energy_wh`
+and hwmon for `temperature_c`/the `cooling` fingerprint field
+(`runner/src/oesb_runner/energy.py`), both Linux-only by construction
+(macOS/Windows have no equivalent userspace interface without elevated
+privileges) and unit-tested against synthetic sysfs fixtures. **Not yet
+proven against real Linux hardware** — M2 was implemented and CI-verified
+from a macOS/arm64 dev machine; a real-hardware Linux run is a tracked
+follow-up, not silently assumed working. NVML for NVIDIA GPU energy/thermal
+remains unimplemented.

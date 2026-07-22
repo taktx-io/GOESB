@@ -1,0 +1,50 @@
+"""M2 exit criterion (docs/03-roadmap.md): a second runtime adapter proves
+the plugin interface — swaps in without any core-code change."""
+import json
+
+import pytest
+from typer.testing import CliRunner
+
+from oesb_runner.cli import app
+from oesb_runner.schema_validation import _find_repo_schemas_dir, validate_against
+from oesb_runner.signing import verify_result_document
+
+vosk = pytest.importorskip("vosk", reason="requires `pip install oesb-runner[vosk]`")
+
+REPO_ROOT = _find_repo_schemas_dir().parent
+BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "example-librispeech-en-batch" / "audio"
+
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.skipif(
+        not BATCH_AUDIO_DIR.exists(),
+        reason="requires fetched audio: run scripts/fetch_librispeech_subset.py first",
+    ),
+]
+
+runner = CliRunner()
+
+
+def test_vosk_run_produces_valid_signed_result(tmp_path):
+    results_dir = tmp_path / "results"
+    result = runner.invoke(app, [
+        "run", "vosk-small-en-batch", "example-librispeech-en-vosk-batch",
+        "--repeats", "1",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(REPO_ROOT / "packs"),
+        "--audio-dir", str(BATCH_AUDIO_DIR),
+        "--results-dir", str(results_dir),
+        "--models-root", str(tmp_path / "models"),
+    ])
+    assert result.exit_code == 0, result.stdout
+
+    written = list(results_dir.glob("*.json"))
+    assert len(written) == 1
+    doc = json.loads(written[0].read_text())
+
+    assert validate_against(doc, "benchmark-result.schema.json") == []
+    assert verify_result_document(doc) is True
+    assert doc["runtime"]["name"] == "vosk"
+
+    for metric_id in ("wer", "cer", "real_time_factor", "cpu_pct", "ram_mb"):
+        assert metric_id in doc["metrics"]

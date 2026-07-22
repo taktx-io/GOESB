@@ -8,19 +8,11 @@ pattern.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 from ..pack import Utterance
 from ..streaming import PartialUpdate, StreamTrace
-from . import register
-
-
-@dataclass(frozen=True)
-class Transcription:
-    utterance_id: str
-    hypothesis_text: str
-    processing_time_s: float
+from . import Transcription, register
 
 
 def _resolve_model_id(model_name: str) -> str:

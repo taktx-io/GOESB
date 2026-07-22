@@ -6,8 +6,30 @@ on:
   pull_request:
 
 jobs:
+  # M2 exit criterion (docs/03-roadmap.md): same profile+pack runs on >=3
+  # OS/arch combos. This matrix proves install + the fast unit suite across
+  # Linux/Windows/macOS x86_64/arm64 — not full real-model inference on every
+  # leg (that needs the optional runtime extras + real model downloads per
+  # leg, which CI deliberately doesn't install, same as today).
   runner:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -e "./runner[dev]"
+      - run: cd runner && ruff check . && pytest -q
+
+  # Best-effort bonus leg: GitHub-hosted Linux ARM64 runner availability
+  # depends on the org's plan tier, unconfirmed from a local dev machine —
+  # continue-on-error keeps this from blocking CI if it's unavailable.
+  runner-linux-arm:
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
