@@ -39,3 +39,6 @@ out/
 
 # transfer artifact (safe to delete)
 _to_delete/
+
+# Local agent/editor settings
+.claude/settings.local.json

@@ -31,7 +31,7 @@ Streaming is a fundamental benchmark *type*, not a configuration flag.
   cloud-native metrics (cost per minute, network round-trip, data-residency,
   "audio leaves device" flag) are added; and cloud results are labelled as
   weaker-reproducibility timestamped snapshots. Edge remains the platform's
-  identity. See [ADR-0005](adr/0005-cloud-api-benchmarks.md).
+  identity. See [ADR-0006](adr/0006-cloud-api-benchmarks.md).
 
 ## 2. Benchmark Profiles
 

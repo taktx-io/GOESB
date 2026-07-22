@@ -1,4 +1,4 @@
-# ADR-0005 — Cloud-API benchmarks as a reference lane
+# ADR-0006 — Cloud-API benchmarks as a reference lane
 
 - **Status:** Accepted
 - **Date:** 2026-07-22
