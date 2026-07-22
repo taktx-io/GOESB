@@ -12,7 +12,7 @@ Thanks for helping build an objective, reproducible benchmark for edge speech AI
 
 The leaderboard/API product (`api/`, `web/`) lives in the separate, private
 `taktx-io/goesb-platform` repo — see
-[ADR-0006](docs/adr/0006-split-platform-repo.md).
+[ADR-0007](docs/adr/0007-split-platform-repo.md).
 
 ## Ground rules
 1. **Reproducibility first.** Any change to how a benchmark runs or is scored

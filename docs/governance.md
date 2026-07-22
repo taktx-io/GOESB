@@ -8,7 +8,7 @@ what actually stops a sponsor, vendor, or maintainer from tilting a result.
 The scoring/normalization/measurement method (this repo) and the commercial
 leaderboard product built on it (`taktx-io/goesb-platform`, private) are
 separate repositories, not just a license boundary within one —
-[ADR-0006](adr/0006-split-platform-repo.md). Anyone can inspect exactly how
+[ADR-0007](adr/0007-split-platform-repo.md). Anyone can inspect exactly how
 a number is produced without needing access to, or trusting claims about,
 the product built around it.
 

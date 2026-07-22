@@ -1,4 +1,4 @@
-# ADR-0006 — Split the leaderboard product into a separate private repo
+# ADR-0007 — Split the leaderboard product into a separate private repo
 
 - **Status:** Accepted
 - **Date:** 2026-07-22

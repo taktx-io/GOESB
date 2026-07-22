@@ -68,7 +68,7 @@ A REST service (FastAPI). Serves read models for the website and accepts
 result submissions. Endpoints (see §6). The website never touches the database
 directly — it consumes the same public API third parties use. Lives in the
 separate, private `taktx-io/goesb-platform` repo (not this one) — see
-[ADR-0006](adr/0006-split-platform-repo.md) — but depends directly on this
+[ADR-0007](adr/0007-split-platform-repo.md) — but depends directly on this
 repo's `goesb-runner` for schema validation and result signing/verification
 (ADR-0004/0005), so the trust logic is never reimplemented.
 

@@ -6,7 +6,7 @@
 # profile_id and pack id differ.
 id: example-librispeech-en-streaming
 version: 1.0.0
-sha256: 4001d6a253890f2a24af9a527d981af051b294425430924a7b6e274f542facea
+sha256: 6c9a333883a622b0018ea501d6a39407b15f0db2bf3f0833f25d269042f1aa2d
 profile_id: whisper-medium-en-streaming
 visibility: open
 license: CC-BY-4.0

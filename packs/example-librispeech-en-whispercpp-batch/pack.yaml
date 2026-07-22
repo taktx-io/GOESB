@@ -4,7 +4,7 @@
 # ../example-librispeech-en-batch/audio.
 id: example-librispeech-en-whispercpp-batch
 version: 1.0.0
-sha256: c36ce03189fe444f7b0bb9c06fcb6b8d9bbbb6853248331000888255e9445718
+sha256: 7ace81a90ce4d749c201334c673cddd83d56364407a32e46df9e4394adc350dc
 profile_id: whispercpp-base-en-batch
 visibility: open
 license: CC-BY-4.0

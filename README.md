@@ -58,7 +58,7 @@ scripts/    Repo tooling (schema validation, etc.)
 
 The leaderboard product — the API and public website that consume this
 method — lives in the separate, private `taktx-io/goesb-platform` repo, not
-here. See [ADR-0006](docs/adr/0006-split-platform-repo.md) for why.
+here. See [ADR-0007](docs/adr/0007-split-platform-repo.md) for why.
 
 ## Documentation
 
@@ -85,7 +85,7 @@ see its README), go to `taktx-io/goesb-platform`.
 **Apache-2.0** for `runner/`, `schemas/`, `profiles/`, `packs/`, and
 `scripts/` — the parts that are built and that the trust/reproducibility
 claim depends on. See [ADR-0003](docs/adr/0003-open-source-strategy.md) for
-the reasoning, [ADR-0006](docs/adr/0006-split-platform-repo.md) for why
+the reasoning, [ADR-0007](docs/adr/0007-split-platform-repo.md) for why
 `api/`/`web/` now live in a separate private repo rather than an unlicensed
 directory here, and [governance.md](docs/governance.md) for what actually
 keeps results neutral. Datasets/packs carry their own independent content

@@ -3,7 +3,7 @@
 # no new audio: point --audio-dir at ../example-librispeech-en-batch/audio.
 id: example-librispeech-en-vosk-batch
 version: 1.0.0
-sha256: af2a867e8957b06f41b5e73e7939670a769408c7ebe5a9db927ef959cb82fb7a
+sha256: 98ccfc8b1abc2f1f26f6f62b4c652d1281d534487005998eb4b3f5f4b3233266
 profile_id: vosk-small-en-batch
 visibility: open
 license: CC-BY-4.0

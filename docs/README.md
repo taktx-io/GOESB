@@ -17,6 +17,7 @@ Start here.
 - [ADR-0004 — Runner security model](adr/0004-runner-security-model.md)
 - [ADR-0005 — Signing-token distribution and trust limits](adr/0005-signing-token-distribution-and-trust-limits.md)
 - [ADR-0006 — Cloud-API benchmarks as a reference lane](adr/0006-cloud-api-benchmarks.md)
+- [ADR-0007 — Split the leaderboard product into a separate private repo](adr/0007-split-platform-repo.md)
 
 ### Specs
 - [Metrics](specs/metrics.md) — precise, reproducible definitions.
