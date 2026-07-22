@@ -103,27 +103,57 @@ and its hashes verify.
 reported (✅ via RAPL where present, or `--external-energy-wh`); adapters swap
 without core changes (✅ vosk + whisper.cpp, no `cli.py` dispatch changes).
 
-## M3 — API + result ingestion + verification
+## M3 — API + result ingestion + verification *(done)*
 
 **Goal:** stand up the backend and the **trust gate**.
 
-- FastAPI service with `GET /profiles`, `GET /packs`, `GET /hardware`,
-  `POST /benchmark`, `GET /benchmark/{id}`, `GET /leaderboards` (unfiltered).
-- Postgres + object storage; ingest **re-verifies** signatures and hashes before
-  accepting a result (the [ADR-0004](adr/0004-runner-security-model.md) gate).
-- Official-profile / open-pack / verified-environment enforcement for public
-  results; private results never ingested publicly.
-- Published, versioned OpenAPI.
+- FastAPI service with `GET /profiles[/{id}]`, `GET /packs[/{id}]`,
+  `GET /hardware`, `POST /benchmark`, `GET /benchmark/{id}`,
+  `GET /leaderboards` (unfiltered — real filtering is M4). All served with
+  typed Pydantic response models (list/summary endpoints) or the
+  schema-validated document itself (detail endpoints), so `/openapi.json` is
+  real, not stub shapes (FR-12.3).
+- Postgres (real, via `docker-compose.yml`, migrated with Alembic —
+  `api/src/oesb_api/{db,models}.py`); ingest **re-verifies** hashes and
+  signatures before accepting a result, reusing the runner's own
+  `schema_validation`/`signing` primitives rather than reimplementing them
+  (`api/src/oesb_api/ingest.py`, the [ADR-0004](adr/0004-runner-security-model.md)
+  gate). `benchmark_id` = `payload_sha256` — content-addressed, naturally
+  idempotent on resubmission.
+- Official-profile / open-pack enforcement: every `profile.yaml`/`pack.yaml`
+  in the monorepo is loaded + schema-validated at startup
+  (`api/src/oesb_api/assets.py`) and a submission's declared id/version/hash
+  is checked against that set — not a separate DB table, since these are
+  static, git-reviewed data. "Verified environment" (FR-7.3) is read as "the
+  environment fingerprint is present and covered by the already-verified
+  signature" — there's no separate environment-attestation mechanism
+  documented anywhere, so none was invented.
+- **Object storage: deliberately not wired.** Architecture doc's "Postgres +
+  object storage" bullet is for large immutable artifacts; a result document
+  is a few KB, stored directly in a `JSONB` column. Revisit when something
+  actually needs it (e.g. M6 pack audio bundling).
+- `GET /hardware` is *derived* from ingested results' environment
+  fingerprints (distinct CPU/OS/arch combos + counts), not a separately
+  curated table yet — no write path needed for this thin slice.
 
 **Satisfies:** FR-12.1/12.2/12.3, FR-7.3, FR-9.3, NFR-2.
 **Exit:** a locally produced result is submitted, verified, and retrievable via
-the API; tampered results are rejected.
+the API (✅ proven on a real signed result, byte-identical round-trip);
+tampered results are rejected (✅ proven — a post-signing metric mutation and
+a corrupted signature both rejected with `400`, never stored).
 **Decision needed:** `POST /benchmark` is anonymous/unauthenticated (per
 [ADR-0004](adr/0004-runner-security-model.md) — trust comes from the
 runner-embedded signature, not submitter identity). Abuse mitigation
 (rate-limiting, submission review) is explicitly deferred to M8, not a blocker
 here — but must be revisited before traffic makes anonymous submission a
 liability.
+**Known gap:** signing-key distribution across machines/deployments is still
+the M1-era "local keypair, read from `~/.oesb/keys`" model (see
+`runner/src/oesb_runner/signing.py`'s own docstring) — ingest verifies
+against whatever key produced the result, correct for this milestone's
+"locally produced, locally ingested" exit criterion, but a real multi-key
+trust registry (mapping `key_id` → known-good public keys) is still an
+explicitly deferred cross-cutting track, not solved here.
 
 ## M4 — Public website & leaderboards (first live release)
 

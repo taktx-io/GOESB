@@ -40,13 +40,32 @@ jobs:
       - run: pip install -e "./runner[dev]"
       - run: cd runner && ruff check . && pytest -q
 
+  # M3 exit criterion (docs/03-roadmap.md): ingest re-verifies against a
+  # real Postgres, not a mocked/SQLite stand-in — see api/src/oesb_api/db.py.
   api:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: oesb
+          POSTGRES_PASSWORD: oesb
+          POSTGRES_DB: oesb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oesb"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://oesb:oesb@localhost:5432/oesb
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -e "./api[dev]"
+      - run: pip install -e "./runner" -e "./api[dev]"
+      - run: cd api && alembic upgrade head
       - run: cd api && ruff check . && pytest -q
 
   web:

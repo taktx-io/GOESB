@@ -9,6 +9,15 @@ dependencies = [
   "uvicorn[standard]>=0.29",
   "pydantic>=2.6",
   "sqlalchemy>=2.0",
+  "psycopg[binary]>=3.1",
+  "alembic>=1.13",
+  "pyyaml>=6.0",
+  "jsonschema>=4.21",
+  # oesb-runner (trust primitives: schema_validation, signing, hashing) is
+  # NOT listed here — a plain PEP 508 relative-path dependency isn't
+  # portable across install locations. Install it as a sibling editable
+  # package instead: `pip install -e ./runner -e ./api[dev]` (see
+  # .github/workflows/ci.yml and README.md).
 ]
 
 [project.optional-dependencies]

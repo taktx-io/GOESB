@@ -11,9 +11,21 @@ is automatable through this API.
 
 See docs/specs and docs/02-architecture.md for the endpoint contract.
 
-## Quick start (placeholder)
+## Quick start
+
+Ingest re-verifies every submitted result's hash and signature (ADR-0004)
+using the runner's own primitives, so `oesb-runner` is installed alongside
+this package — not a separate reimplementation.
+
 ```bash
-pip install -e ".[dev]"
+# from the repo root
+docker compose up -d postgres
+pip install -e ./runner -e "./api[dev]"
+cd api
+alembic upgrade head
 uvicorn oesb_api.main:app --reload
 # open http://127.0.0.1:8000/docs
 ```
+
+Run the tests the same way (`DATABASE_URL` defaults to the docker-compose
+Postgres above): `cd api && pytest -q`.
