@@ -1,7 +1,14 @@
-import numpy as np
 import pytest
 
+# numpy/soundfile are only pulled in by the vosk/whisper-cpp extras (CI's
+# base `pip install -e ".[dev]"` doesn't install either) — gate collection
+# of this whole module on them the same way test_adapter_vosk.py etc. do,
+# rather than importing numpy unconditionally at module top level (that
+# broke CI on every OS: bare ModuleNotFoundError before this importorskip
+# line ever ran).
+numpy = pytest.importorskip("numpy", reason="requires `pip install goesb-runner[vosk]` (for numpy)")
 soundfile = pytest.importorskip("soundfile", reason="requires `pip install goesb-runner[vosk]` (for soundfile)")
+np = numpy
 
 from oesb_runner.audio import decode_pcm
 
