@@ -41,4 +41,11 @@ def normalize(ruleset_id: str, text: str, **options: object) -> str:
 
 
 # Built-in rulesets register themselves on import.
-from . import oesb_en_v1, oesb_nl_v1  # noqa: F401
+from . import (  # noqa: F401
+    oesb_de_v1,
+    oesb_en_v1,
+    oesb_es_v1,
+    oesb_fr_v1,
+    oesb_nl_v1,
+    oesb_pt_v1,
+)

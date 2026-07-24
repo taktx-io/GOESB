@@ -1,0 +1,28 @@
+id: fleurs-es-whispercpp-large-v3-batch
+version: 1.0.0
+sha256: 0e2b17f858d2ce88dd59594fcc38dacbad5f3f780a6fb8e4a66c77db2e39286c
+profile_id: whispercpp-large-v3-es-batch
+visibility: open
+license: CC-BY-4.0
+audio:
+  count: 15
+  total_duration_s: 169.56
+  sample_rate_hz: 16000
+  manifest_sha256: ac2ed74c576bdaa319a5ba27e6e36d5ad2504ff43d9c089a7903cec569b42d48
+  source:
+    type: fleurs
+    params:
+      language: es_419
+      split: dev
+    fetch_instructions: 'Identical audio to fleurs-es-batch — auto-fetched the same
+      way. Manual fallback: run `python scripts/fetch_fleurs_subset.py --language
+      es_419 --pack-dir packs/fleurs-es-batch`, then pass `--audio-dir packs/fleurs-es-batch/audio`
+      to `goesb run`.'
+metadata:
+  language: es-419
+  recording_environment: studio
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - fleurs
+  - es

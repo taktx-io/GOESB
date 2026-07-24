@@ -18,6 +18,7 @@ except ImportError:
 
 try:
     from oesb_runner.hashing import canonical_asset_sha256
+    from oesb_runner.normalization import get_normalizer
     from oesb_runner.schema_validation import load_schema
 except ImportError:
     print("Install the runner package: pip install -e ./runner", file=sys.stderr)
@@ -67,6 +68,39 @@ def validate_pack_hashes() -> list[str]:
     return errors
 
 
+def validate_ruleset_ids() -> list[str]:
+    """Every profile's normalization.ruleset_id must actually be registered.
+
+    Schema validation alone treats ruleset_id as an opaque string - a
+    profile naming an unregistered ruleset passes schema validation but
+    raises ValueError the first time anyone actually runs a benchmark
+    against it. Catch that here instead, at generation/CI time.
+    """
+    errors: list[str] = []
+    for path in (ROOT / "profiles").glob("*/profile.yaml"):
+        data = yaml.safe_load(path.read_text())
+        ruleset_id = data.get("normalization", {}).get("ruleset_id")
+        if ruleset_id is None:
+            continue
+        try:
+            get_normalizer(ruleset_id)
+        except ValueError as exc:
+            errors.append(f"{path}: {exc}")
+    return errors
+
+
+def validate_pack_profile_refs() -> list[str]:
+    """Every pack's profile_id must resolve to an actual committed profile."""
+    profile_ids = {p.parent.name for p in (ROOT / "profiles").glob("*/profile.yaml")}
+    errors: list[str] = []
+    for path in (ROOT / "packs").glob("*/pack.yaml"):
+        data = yaml.safe_load(path.read_text())
+        profile_id = data.get("profile_id")
+        if profile_id is not None and profile_id not in profile_ids:
+            errors.append(f"{path}: profile_id {profile_id!r} has no matching profiles/{profile_id!r}/profile.yaml")
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     errors += validate_dir("profiles", "profile.yaml",
@@ -78,6 +112,8 @@ def main() -> int:
         load_schema("benchmark-result.schema.json"),
     )
     errors += validate_pack_hashes()
+    errors += validate_ruleset_ids()
+    errors += validate_pack_profile_refs()
     if errors:
         print("INVALID assets:")
         for e in errors:
