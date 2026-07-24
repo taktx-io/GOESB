@@ -1,12 +1,21 @@
 name: Release runner
 
-# Builds the runner's sdist+wheel and attaches a keyless, GitHub-OIDC-signed
-# Sigstore build-provenance attestation to a GitHub Release — the "signed
+# Builds the runner's sdist+wheel, attaches a keyless, GitHub-OIDC-signed
+# Sigstore build-provenance attestation to a GitHub Release, and publishes
+# to PyPI via Trusted Publishing (OIDC — no stored API token) — the "signed
 # release... via sigstore/cosign on the git tag" distribution model described
-# in docs/02-architecture.md §2.1, without needing a stored private signing
-# key. PyPI publish is intentionally NOT part of this workflow: it needs a
-# PyPI project + trusted-publisher OIDC config only the account owner can set
-# up (see docs/03-roadmap.md M2) — tracked as a follow-on, not attempted here.
+# in docs/02-architecture.md §2.1.
+#
+# The PyPI publish job needs a one-time, account-owner-only setup before it
+# can run (this workflow can't do it — it's PyPI-side, not repo-side):
+#   1. https://pypi.org/manage/account/publishing/ -> add a pending publisher
+#      for project "goesb-runner", owner "taktx-io", repo "GOESB",
+#      workflow "release.yml", environment "pypi".
+#   2. In this repo's Settings -> Environments, create an environment named
+#      "pypi" (optionally with required reviewers, the same gate pattern
+#      used for oesb-platform's production deploys).
+# Until that's done, publish-pypi will fail at the OIDC exchange step —
+# build-and-attest (the GitHub Release) is unaffected either way.
 
 on:
   push:
@@ -29,6 +38,11 @@ jobs:
       - run: pip install build
       - run: cd runner && python -m build --outdir ../dist .
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: "dist/*"
@@ -38,3 +52,17 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: dist/*
           generate_release_notes: true
+
+  publish-pypi:
+    needs: build-and-attest
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # Trusted Publishing OIDC exchange — no API token stored anywhere
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
