@@ -1,7 +1,7 @@
 """End-of-Speech Latency (docs/specs/metrics.md: `end_of_speech_latency`)."""
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from ..streaming import StreamTrace
 

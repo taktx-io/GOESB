@@ -21,7 +21,7 @@ def _resolve_model_id(model_name: str) -> str:
     ('medium') — this translation belongs in the adapter, not the profile,
     so profiles stay independent of any one runtime's naming convention."""
     prefix = "whisper-"
-    return model_name[len(prefix):] if model_name.startswith(prefix) else model_name
+    return model_name.removeprefix(prefix)
 
 
 @register("faster-whisper", benchmark_type="batch")

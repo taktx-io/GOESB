@@ -1,7 +1,7 @@
 """Shared edit-distance alignment used by WER (word) and CER (character)."""
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 
 def edit_distance(reference: Sequence[object], hypothesis: Sequence[object]) -> int:

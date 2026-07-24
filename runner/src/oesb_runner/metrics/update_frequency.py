@@ -1,7 +1,7 @@
 """Update Frequency (docs/specs/metrics.md: `update_frequency`)."""
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from ..streaming import StreamTrace
 

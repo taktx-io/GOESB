@@ -14,7 +14,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.4", "mypy>=1.9"]
+# ruff pinned to a minor version, not left floating: an unpinned >=0.4 let
+# CI silently pick up a newer ruff whose default rule set changed, breaking
+# a previously-green build with no repo change at all.
+dev = ["pytest>=8.0", "ruff~=0.16.0", "mypy>=1.9"]
 faster-whisper = ["faster-whisper>=1.0.0"]
 vosk = ["vosk>=0.3.44", "soundfile>=0.12"]
 whisper-cpp = ["pywhispercpp>=1.5.0", "soundfile>=0.12"]

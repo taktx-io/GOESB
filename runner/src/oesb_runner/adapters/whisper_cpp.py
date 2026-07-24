@@ -21,7 +21,7 @@ def _resolve_model_id(model_name: str) -> str:
     translation role as faster_whisper._resolve_model_id; each adapter
     carries its own runtime's naming convention rather than the profile."""
     prefix = "whisper-"
-    return model_name[len(prefix):] if model_name.startswith(prefix) else model_name
+    return model_name.removeprefix(prefix)
 
 
 @register("whisper-cpp", benchmark_type="batch")

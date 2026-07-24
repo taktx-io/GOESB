@@ -6,8 +6,8 @@ requires it to be installed.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 
 @dataclass(frozen=True)
@@ -47,4 +47,4 @@ def get_adapter(runtime_name: str, benchmark_type: str = "batch") -> Callable:
 
 
 # Built-in adapters register themselves on import.
-from . import faster_whisper, vosk, whisper_cpp  # noqa: E402,F401
+from . import faster_whisper, vosk, whisper_cpp  # noqa: F401

@@ -43,7 +43,7 @@ def flac_duration_s(path: str | Path) -> float:
                 raise ValueError(f"FLAC file has no STREAMINFO block: {path}")
 
 
-def decode_pcm(path: str | Path, dtype: str = "int16") -> "np.ndarray":
+def decode_pcm(path: str | Path, dtype: str = "int16") -> np.ndarray:
     """Decode an audio file to a 1-D mono PCM array at its native sample rate.
 
     `dtype` is `"int16"` (what vosk's `AcceptWaveform` expects as raw bytes)

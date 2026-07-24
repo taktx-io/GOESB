@@ -42,7 +42,7 @@ def _resolve_model_dir(model_name: str, download_root: Path) -> Path:
 
     download_root.mkdir(parents=True, exist_ok=True)
     zip_path = download_root / f"{model_name}.zip"
-    urllib.request.urlretrieve(url, zip_path)  # noqa: S310 - fixed, pinned https URL
+    urllib.request.urlretrieve(url, zip_path)
     with zipfile.ZipFile(zip_path) as zf:
         zf.extractall(download_root)
     zip_path.unlink()

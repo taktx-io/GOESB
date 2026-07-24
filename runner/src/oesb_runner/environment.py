@@ -20,7 +20,7 @@ SCHEMA_VERSION = "0.2"
 
 def _run(cmd: list[str]) -> str | None:
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     if out.returncode != 0:
@@ -79,7 +79,7 @@ def _capture_gpu(unavailable: dict[str, str]) -> dict[str, Any] | None:
 def _capture_power(unavailable: dict[str, str]) -> dict[str, Any] | None:
     try:
         battery = psutil.sensors_battery()
-    except Exception:  # pragma: no cover - platform-dependent
+    except Exception:  # noqa: BLE001 - pragma: no cover - platform-dependent, unpredictable raise shape
         battery = None
     if battery is None:
         unavailable["power"] = "no battery present or no power-source probe on this platform"

@@ -2,7 +2,7 @@
 character granularity, over already-normalized text."""
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from ._align import edit_distance
 

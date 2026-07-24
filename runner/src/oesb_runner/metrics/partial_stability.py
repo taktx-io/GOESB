@@ -1,7 +1,7 @@
 """Partial Stability (docs/specs/metrics.md: `partial_stability`)."""
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from ..streaming import StreamTrace
 

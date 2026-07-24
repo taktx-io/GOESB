@@ -9,8 +9,8 @@ pywhispercpp = pytest.importorskip(
     "pywhispercpp", reason="requires `pip install goesb-runner[whisper-cpp]`"
 )
 
-from oesb_runner.adapters.whisper_cpp import run_batch  # noqa: E402
-from oesb_runner.metrics import rtf, wer  # noqa: E402
+from oesb_runner.adapters.whisper_cpp import run_batch
+from oesb_runner.metrics import rtf, wer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "packs" / "example-librispeech-en-batch"

@@ -12,7 +12,7 @@ import sys
 import threading
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import psutil
@@ -282,9 +282,9 @@ def run(
                 computed["energy_wh"] = energy_metric.compute(rapl_uj_delta)
             if temp_samples_c:
                 computed["temperature_c"] = temperature.reduce_peak_temp_c(temp_samples_c)
-            for metric_id in per_repeat_metrics:
+            for metric_id, values in per_repeat_metrics.items():
                 if metric_id in computed:
-                    per_repeat_metrics[metric_id].append(computed[metric_id])
+                    values.append(computed[metric_id])
 
         elif benchmark_type == "streaming":
 
@@ -342,11 +342,11 @@ def run(
                 computed["energy_wh"] = energy_metric.compute(rapl_uj_delta)
             if temp_samples_c:
                 computed["temperature_c"] = temperature.reduce_peak_temp_c(temp_samples_c)
-            for metric_id in per_repeat_metrics:
+            for metric_id, values in per_repeat_metrics.items():
                 if metric_id in computed:
-                    per_repeat_metrics[metric_id].append(computed[metric_id])
-            for metric_id in latency_samples_ms:
-                latency_samples_ms[metric_id].extend(this_repeat_latency[metric_id])
+                    values.append(computed[metric_id])
+            for metric_id, values in latency_samples_ms.items():
+                values.extend(this_repeat_latency[metric_id])
 
         else:
             typer.echo(f"unsupported benchmark_type: {benchmark_type!r}", err=True)
@@ -420,7 +420,7 @@ def run(
         "environment": environment,
         "metrics": metrics_block,
         "repeats": repeats,
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "runner": {"version": __version__},
     }
 
@@ -458,7 +458,7 @@ def _post_json(url: str, payload: dict, timeout: int) -> dict:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - user-supplied API URL, same trust level as any HTTP client
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 
 

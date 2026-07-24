@@ -6,7 +6,8 @@ handling lives in ruleset modules like `oesb_nl_v1`, never here.
 """
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from collections.abc import Callable
+from typing import Protocol
 
 
 class Normalizer(Protocol):
@@ -40,4 +41,4 @@ def normalize(ruleset_id: str, text: str, **options: object) -> str:
 
 
 # Built-in rulesets register themselves on import.
-from . import oesb_en_v1, oesb_nl_v1  # noqa: E402,F401
+from . import oesb_en_v1, oesb_nl_v1  # noqa: F401
