@@ -1,19 +1,20 @@
 """M2 exit criterion (docs/03-roadmap.md): a third runtime adapter proves
 the plugin interface — swaps in without any core-code change."""
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from oesb_runner.cli import app
-from oesb_runner.schema_validation import _find_repo_schemas_dir, validate_against
+from oesb_runner.schema_validation import validate_against
 from oesb_runner.signing import verify_result_document
 
 pywhispercpp = pytest.importorskip(
     "pywhispercpp", reason="requires `pip install goesb-runner[whisper-cpp]`"
 )
 
-REPO_ROOT = _find_repo_schemas_dir().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "example-librispeech-en-batch" / "audio"
 
 pytestmark = [

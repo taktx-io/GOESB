@@ -1,19 +1,20 @@
 """M5 exit criterion (docs/03-roadmap.md): streaming results validate, verify,
 and report tail latency (p50/p95, never mean alone)."""
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from oesb_runner.cli import app
-from oesb_runner.schema_validation import _find_repo_schemas_dir, validate_against
+from oesb_runner.schema_validation import validate_against
 from oesb_runner.signing import verify_result_document
 
 faster_whisper = pytest.importorskip(
     "faster_whisper", reason="requires `pip install goesb-runner[faster-whisper]`"
 )
 
-REPO_ROOT = _find_repo_schemas_dir().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "example-librispeech-en-batch" / "audio"
 
 pytestmark = [

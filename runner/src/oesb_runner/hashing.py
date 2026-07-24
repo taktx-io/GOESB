@@ -39,10 +39,37 @@ def sha256_dir(path: str | Path) -> str:
 
 def sha256_module_source(module: Any) -> str:
     """Hash of a Python module's own source file — used to identify exactly
-    which reviewed, in-tree adapter/plugin code produced a result (ADR-0004)."""
+    which reviewed, in-tree adapter/plugin code produced a result (ADR-0004).
+
+    Frozen builds (PyInstaller etc.) never extract plain .py source to disk
+    — modules import straight out of the bundled archive, so there's no live
+    file to hash. Falls back to a manifest precomputed at build time and
+    bundled as package data (see scripts/generate_frozen_adapter_hashes.py,
+    run before freezing) — normal and editable installs never need it, since
+    a real source file exists on disk either way."""
     import inspect
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return _frozen_module_hash(module)
 
     source_file = inspect.getsourcefile(module)
     if source_file is None:
         raise ValueError(f"module has no source file to hash: {module!r}")
     return sha256_file(source_file)
+
+
+def _frozen_module_hash(module: Any) -> str:
+    import json
+    from importlib import resources
+
+    manifest = json.loads(
+        resources.files("oesb_runner").joinpath("_frozen_adapter_hashes.json").read_text()
+    )
+    try:
+        return manifest[module.__name__]
+    except KeyError:
+        raise ValueError(
+            f"no precomputed hash for {module.__name__!r} in the frozen build's "
+            "manifest — regenerate it with scripts/generate_frozen_adapter_hashes.py"
+        ) from None

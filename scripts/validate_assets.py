@@ -18,15 +18,12 @@ except ImportError:
 
 try:
     from oesb_runner.hashing import canonical_asset_sha256
+    from oesb_runner.schema_validation import load_schema
 except ImportError:
     print("Install the runner package: pip install -e ./runner", file=sys.stderr)
     raise
 
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def load_schema(name: str) -> dict:
-    return json.loads((ROOT / "schemas" / name).read_text())
 
 
 def validate_dir(subdir: str, filename: str, schema: dict) -> list[str]:

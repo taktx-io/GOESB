@@ -1,10 +1,11 @@
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from oesb_runner.cli import app
-from oesb_runner.schema_validation import _find_repo_schemas_dir
 
 runner = CliRunner()
-REPO_ROOT = _find_repo_schemas_dir().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_version_command():

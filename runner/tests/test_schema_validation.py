@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import yaml
 
-from oesb_runner.schema_validation import _find_repo_schemas_dir, validate_against
+from oesb_runner.schema_validation import validate_against
 
-REPO_ROOT = _find_repo_schemas_dir().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_finds_valid_profile():

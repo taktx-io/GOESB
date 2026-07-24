@@ -10,6 +10,10 @@ venv/
 .ruff_cache/
 dist/
 build/
+*.spec
+
+# Generated fresh at each frozen-binary build (scripts/generate_frozen_adapter_hashes.py)
+runner/src/oesb_runner/_frozen_adapter_hashes.json
 
 # Node / Next.js
 node_modules/
