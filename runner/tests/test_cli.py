@@ -174,6 +174,103 @@ def test_wizard_run_builds_expected_run_args(monkeypatch):
     ]]
 
 
+def test_wizard_batch_dispatch_calls_wizard_run_batch(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    called = []
+    monkeypatch.setattr(cli_module, "_wizard_run_batch", lambda: called.append(True))
+
+    responses = iter(["Run multiple benchmarks (batch)", "Exit"])
+    monkeypatch.setattr(
+        cli_module.questionary, "select", lambda *a, **k: _FakeAsk(next(responses))
+    )
+
+    cli_module._run_wizard()
+
+    assert called == [True]
+
+
+def test_wizard_run_batch_builds_combos_and_continues_past_failures(monkeypatch, capsys):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [
+            {"id": "profile-a", "language": "en-US", "benchmark_type": "batch"},
+            {"id": "profile-b", "language": "fr-FR", "benchmark_type": "batch"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [
+            {"id": "pack-a", "visibility": "open", "profile_id": "profile-a"},
+            {"id": "pack-b", "visibility": "open", "profile_id": "profile-b"},
+            {"id": "unrelated-pack", "visibility": "open", "profile_id": "some-other-profile"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module.questionary, "checkbox",
+        lambda *a, **k: _FakeAsk(["profile-a", "profile-b"]),
+    )
+
+    select_responses = iter(["pack-a", "pack-b"])
+
+    def fake_select(_prompt, choices):
+        wanted = next(select_responses)
+        for c in choices:
+            value = getattr(c, "value", c)
+            if value == wanted:
+                return _FakeAsk(wanted)
+        raise AssertionError(f"{wanted!r} not offered: {choices}")
+
+    monkeypatch.setattr(cli_module.questionary, "select", fake_select)
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+
+    reexec_calls = []
+
+    def fake_reexec(args):
+        reexec_calls.append(args)
+        if args[1] == "profile-a":
+            raise typer.Exit(code=1)
+
+    monkeypatch.setattr(cli_module, "_reexec", fake_reexec)
+
+    cli_module._wizard_run_batch()
+
+    assert reexec_calls == [
+        ["run", "profile-a", "pack-a", "--repeats", "1"],
+        ["run", "profile-b", "pack-b", "--repeats", "1"],
+    ]
+    out = capsys.readouterr().out
+    assert "✗ profile-a  x  pack-a" in out
+    assert "✓ profile-b  x  pack-b" in out
+
+
+def test_wizard_run_batch_declines_confirmation_runs_nothing(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "profile-a", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "profile-a"}],
+    )
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk(["profile-a"]))
+    monkeypatch.setattr(cli_module.questionary, "select", lambda *a, **k: _FakeAsk("pack-a"))
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("2"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+
+    calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
+
+    cli_module._wizard_run_batch()
+
+    assert calls == []
+
+
 class _FakeAsk:
     """Stands in for whatever questionary.select/.text(...) returns — real
     code only ever calls .ask() on it."""

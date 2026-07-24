@@ -84,6 +84,13 @@ def _reexec(args: list[str]) -> None:
         raise typer.Exit(code=result.returncode)
 
 
+def _matching_packs(packs: list[dict], profile_id: str) -> list[dict]:
+    """Packs targeting `profile_id`, or every pack if none do — same
+    fallback the wizard has always used so an unmatched profile still lets
+    you pick something rather than dead-ending."""
+    return [p for p in packs if p["profile_id"] == profile_id] or packs
+
+
 def _wizard_run() -> None:
     profiles = _profile_rows(DEFAULT_API_URL, "profiles", offline=False)
     if not profiles:
@@ -100,7 +107,7 @@ def _wizard_run() -> None:
         return
 
     packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
-    matching_packs = [p for p in packs if p["profile_id"] == profile_id] or packs
+    matching_packs = _matching_packs(packs, profile_id)
     if not matching_packs:
         typer.echo("no packs found (checked the API and ./packs)", err=True)
         return
@@ -127,6 +134,69 @@ def _wizard_run() -> None:
     _reexec(args)
 
 
+def _wizard_run_batch() -> None:
+    """Multi-select variant of _wizard_run for the bulk profile/pack
+    generation case (100+ combos) — one pack pick per selected profile, one
+    shared repeats value, then a single confirmed queue. A bad combo (e.g. a
+    missing model download) must not abort the rest of the queue, so each
+    `_reexec` is run in isolation and reported rather than propagated."""
+    profiles = _profile_rows(DEFAULT_API_URL, "profiles", offline=False)
+    if not profiles:
+        typer.echo("no profiles found (checked the API and ./profiles)", err=True)
+        return
+    profile_ids = questionary.checkbox(
+        "Pick profiles (space to select, enter to confirm):",
+        choices=[
+            questionary.Choice(f"{p['id']}  ({p['language']}, {p['benchmark_type']})", value=p["id"])
+            for p in profiles
+        ],
+    ).ask()
+    if not profile_ids:
+        return
+
+    packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
+    combos: list[tuple[str, str]] = []
+    for profile_id in profile_ids:
+        matching_packs = _matching_packs(packs, profile_id)
+        if not matching_packs:
+            typer.echo(f"no packs found for {profile_id!r} — skipping", err=True)
+            continue
+        pack_id = questionary.select(
+            f"Pick a pack for {profile_id}:",
+            choices=[
+                questionary.Choice(f"{p['id']}  ({p['visibility']})", value=p["id"])
+                for p in matching_packs
+            ],
+        ).ask()
+        if pack_id is None:
+            return
+        combos.append((profile_id, pack_id))
+    if not combos:
+        return
+
+    repeats = questionary.text("Repeats (applied to every run in the batch):", default="2").ask()
+    if repeats is None:
+        return
+
+    typer.echo(f"About to run {len(combos)} benchmark(s):")
+    for profile_id, pack_id in combos:
+        typer.echo(f"  {profile_id}  x  {pack_id}")
+    if not questionary.confirm("Proceed?", default=True).ask():
+        return
+
+    outcomes: list[tuple[str, str, bool]] = []
+    for profile_id, pack_id in combos:
+        try:
+            _reexec(["run", profile_id, pack_id, "--repeats", repeats])
+            outcomes.append((profile_id, pack_id, True))
+        except typer.Exit:
+            outcomes.append((profile_id, pack_id, False))
+
+    typer.echo("Batch summary:")
+    for profile_id, pack_id, ok in outcomes:
+        typer.echo(f"  {'✓' if ok else '✗'} {profile_id}  x  {pack_id}")
+
+
 def _wizard_validate() -> None:
     path = questionary.path("Path to a profile.yaml or pack.yaml:").ask()
     if path:
@@ -150,6 +220,7 @@ def _wizard_submit() -> None:
 def _run_wizard() -> None:
     actions = {
         "Run a benchmark": _wizard_run,
+        "Run multiple benchmarks (batch)": _wizard_run_batch,
         "List available profiles": lambda: _reexec(["list-profiles"]),
         "List available packs": lambda: _reexec(["list-packs"]),
         "Validate a profile/pack file": _wizard_validate,

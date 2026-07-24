@@ -41,6 +41,7 @@ markers = ["slow: exercises a real model/network (e.g. faster-whisper inference)
 "tests/test_adapter_faster_whisper.py" = ["E402"]
 "tests/test_adapter_vosk.py" = ["E402"]
 "tests/test_adapter_whisper_cpp.py" = ["E402"]
+"tests/test_audio.py" = ["E402"]
 
 [build-system]
 requires = ["hatchling"]
