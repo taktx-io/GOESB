@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ..audio import decode_pcm
 from ..pack import Utterance
-from . import Transcription, register
+from . import Transcription, log_progress, register
 
 
 def _resolve_model_id(model_name: str) -> str:
@@ -65,12 +65,13 @@ def run_batch(
     )
 
     results: list[Transcription] = []
-    for utterance in utterances:
+    for i, utterance in enumerate(utterances, start=1):
         samples = decode_pcm(utterance.audio_path, dtype="float32")
         start = time.perf_counter()
         segments = model.transcribe(samples)
         hypothesis_text = " ".join(segment.text.strip() for segment in segments).strip()
         elapsed = time.perf_counter() - start
+        log_progress(i, len(utterances), utterance.utterance_id, elapsed)
         results.append(Transcription(
             utterance_id=utterance.utterance_id,
             hypothesis_text=hypothesis_text,

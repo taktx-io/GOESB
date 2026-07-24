@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ..pack import Utterance
 from ..streaming import PartialUpdate, StreamTrace
-from . import Transcription, register
+from . import Transcription, log_progress, register
 
 
 def _resolve_model_id(model_name: str) -> str:
@@ -63,7 +63,7 @@ def run_batch(
     )
 
     results: list[Transcription] = []
-    for utterance in utterances:
+    for i, utterance in enumerate(utterances, start=1):
         start = time.perf_counter()
         segments, _info = model.transcribe(
             str(utterance.audio_path),
@@ -73,6 +73,7 @@ def run_batch(
         )
         hypothesis_text = " ".join(segment.text.strip() for segment in segments).strip()
         elapsed = time.perf_counter() - start
+        log_progress(i, len(utterances), utterance.utterance_id, elapsed)
         results.append(Transcription(
             utterance_id=utterance.utterance_id,
             hypothesis_text=hypothesis_text,
@@ -121,7 +122,7 @@ def run_streaming(
     )
 
     traces: list[StreamTrace] = []
-    for utterance in utterances:
+    for i, utterance in enumerate(utterances, start=1):
         samples = decode_audio(str(utterance.audio_path), sampling_rate=sample_rate)
         total_samples = len(samples)
         audio_duration_s = total_samples / sample_rate
@@ -159,6 +160,7 @@ def run_streaming(
                 committed_word_count=committed_word_count,
             ))
 
+        log_progress(i, len(utterances), utterance.utterance_id, processing_time_s)
         traces.append(StreamTrace(
             utterance_id=utterance.utterance_id,
             audio_duration_s=audio_duration_s,

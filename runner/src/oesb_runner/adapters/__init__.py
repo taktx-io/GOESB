@@ -6,8 +6,16 @@ requires it to be installed.
 """
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+
+
+def log_progress(index: int, total: int, utterance_id: str, elapsed_s: float) -> None:
+    """One line per finished utterance, to stderr. Batch/streaming loops are
+    otherwise silent for an entire repeat — on anything past a handful of
+    short clips that reads as a hang rather than progress."""
+    print(f"  [{index}/{total}] {utterance_id} ({elapsed_s:.2f}s)", file=sys.stderr)
 
 
 @dataclass(frozen=True)

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..audio import decode_pcm
 from ..pack import Utterance
-from . import Transcription, register
+from . import Transcription, log_progress, register
 
 _MODEL_URLS = {
     "vosk-model-small-en-us-0.15":
@@ -81,7 +81,7 @@ def run_batch(
     model = vosk.Model(model_path=str(model_dir))
 
     results: list[Transcription] = []
-    for utterance in utterances:
+    for i, utterance in enumerate(utterances, start=1):
         samples = decode_pcm(utterance.audio_path, dtype="int16")
         recognizer = vosk.KaldiRecognizer(model, _SAMPLE_RATE)
 
@@ -90,6 +90,7 @@ def run_batch(
         hypothesis_text = json.loads(recognizer.FinalResult()).get("text", "")
         elapsed = time.perf_counter() - start
 
+        log_progress(i, len(utterances), utterance.utterance_id, elapsed)
         results.append(Transcription(
             utterance_id=utterance.utterance_id,
             hypothesis_text=hypothesis_text,
