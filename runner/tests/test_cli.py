@@ -68,14 +68,19 @@ def test_list_profiles_offline_no_local_dir_fails(tmp_path):
     assert result.exit_code == 1
 
 
-def test_run_prints_fetch_instructions_for_a_pack_with_no_manifest_yet(tmp_path):
+def test_run_prints_fetch_instructions_for_a_pack_with_no_manifest_yet(tmp_path, monkeypatch):
     # A pack that declares fetch_instructions but no auto-fetchable
     # source.type, and has no manifest.jsonl on disk at all (e.g. a
     # not-yet-completed contribution) — `run` must fail cleanly with those
     # instructions, not crash trying to read a manifest.jsonl that was
     # never written (regression: this used to raise an uncaught
-    # FileNotFoundError).
+    # FileNotFoundError). Not what this test is about, so stub out the
+    # engine-install check — CI machines don't have any engine extra
+    # installed, and this test's profile just needs to validate, not run.
+    from oesb_runner import cli as cli_module
     from oesb_runner.hashing import canonical_asset_sha256
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
 
     pack = {
         "id": "incomplete-pack",
