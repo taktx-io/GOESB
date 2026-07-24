@@ -763,7 +763,7 @@ def _get_json(url: str, timeout: int) -> dict:
 def submit(
     result_path: str,
     api_url: str = typer.Option(
-        "http://127.0.0.1:8000", help="Base URL of the GOESB API to submit the result to."
+        DEFAULT_API_URL, help="Base URL of the GOESB API to submit the result to."
     ),
 ) -> None:
     """Sign a locally-produced result for public submission and POST it to
