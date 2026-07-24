@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+import typer
 import yaml
 from typer.testing import CliRunner
 
@@ -176,3 +178,80 @@ class _FakeAsk:
 
     def ask(self):
         return self._value
+
+
+def test_ensure_engine_installed_noop_if_already_importable(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    calls = []
+    monkeypatch.setattr(cli_module.subprocess, "run", lambda *a, **k: calls.append(a))
+
+    cli_module._ensure_engine_installed("vosk")
+
+    assert calls == []
+
+
+def test_ensure_engine_installed_non_tty_refuses_without_prompting(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: False)
+    asked = []
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: asked.append(a) or _FakeAsk(True))
+
+    with pytest.raises(typer.Exit):
+        cli_module._ensure_engine_installed("vosk")
+
+    assert asked == []  # never even prompted
+
+
+def test_ensure_engine_installed_declines_prompt_exits(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+    calls = []
+    monkeypatch.setattr(cli_module.subprocess, "run", lambda *a, **k: calls.append(a))
+
+    with pytest.raises(typer.Exit):
+        cli_module._ensure_engine_installed("vosk")
+
+    assert calls == []  # declined -> never installs
+
+
+def test_ensure_engine_installed_confirms_and_installs(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+
+    calls = []
+
+    class _FakeResult:
+        returncode = 0
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return _FakeResult()
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+
+    cli_module._ensure_engine_installed("vosk")
+
+    assert calls == [[
+        cli_module.sys.executable, "-m", "pip", "install",
+        f"goesb-runner[vosk]=={cli_module.__version__}",
+    ]]
+
+
+def test_ensure_engine_installed_frozen_binary_refuses(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(cli_module.sys, "frozen", True, raising=False)
+
+    with pytest.raises(typer.Exit):
+        cli_module._ensure_engine_installed("vosk")

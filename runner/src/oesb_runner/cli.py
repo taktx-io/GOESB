@@ -7,6 +7,7 @@ result document on disk (docs/03-roadmap.md M1).
 from __future__ import annotations
 
 import base64
+import importlib.util
 import json
 import subprocess
 import sys
@@ -228,6 +229,57 @@ def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
+# runtime.name in a profile IS the pip extra name (see pyproject.toml
+# [project.optional-dependencies]) — this only maps it to the actual
+# importable module name, since that's the one thing pip's own naming
+# doesn't tell us.
+_ENGINE_MODULE_NAMES = {
+    "faster-whisper": "faster_whisper",
+    "vosk": "vosk",
+    "whisper-cpp": "pywhispercpp",
+}
+
+
+def _ensure_engine_installed(runtime_name: str) -> None:
+    """If `runtime_name`'s adapter dependency isn't importable yet, offer to
+    pip-install its extra on the spot — pinned to this exact goesb-runner
+    version, so it can never silently upgrade the runner itself — instead
+    of just telling the user to do it by hand and re-run. Standalone
+    PyInstaller binaries already bundle exactly one engine each; this
+    doesn't apply to them."""
+    module_name = _ENGINE_MODULE_NAMES.get(runtime_name)
+    if module_name is None or importlib.util.find_spec(module_name) is not None:
+        return  # unknown engine (let the adapter itself raise) or already installed
+
+    if getattr(sys, "frozen", False):
+        typer.echo(
+            f"Engine {runtime_name!r} isn't available in this standalone binary — "
+            f"download goesb-{runtime_name}-<platform> from the latest release instead.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Engine {runtime_name!r} isn't installed yet.", err=True)
+    if not sys.stdin.isatty():
+        typer.echo(f'Install it: pip install "goesb-runner[{runtime_name}]"', err=True)
+        raise typer.Exit(code=1)
+
+    if not questionary.confirm(f"Install goesb-runner[{runtime_name}] now?", default=True).ask():
+        typer.echo(f'Install it yourself: pip install "goesb-runner[{runtime_name}]"', err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Installing goesb-runner[{runtime_name}]=={__version__} ...", err=True)
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", f"goesb-runner[{runtime_name}]=={__version__}"],
+        check=False,
+    )
+    if result.returncode != 0:
+        typer.echo("Install failed — install it yourself and retry.", err=True)
+        raise typer.Exit(code=result.returncode)
+    importlib.invalidate_caches()
+    typer.echo("Installed.", err=True)
+
+
 def _profile_rows(api_url: str, profiles_dir: str, offline: bool) -> list[dict]:
     """Each row: id, language, benchmark_type, version. API first (unless
     --offline), local --profiles-dir as fallback — shared by list-profiles
@@ -430,6 +482,8 @@ def run(
     if profile_errors:
         typer.echo(f"profile {profile_id} failed validation: {profile_errors}", err=True)
         raise typer.Exit(code=1)
+
+    _ensure_engine_installed(profile["runtime"]["name"])
 
     if not (pack_dir / "pack.yaml").exists():
         if offline:
