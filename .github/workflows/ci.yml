@@ -27,12 +27,13 @@ jobs:
       - run: pip install -e "./runner[dev]"
       - run: cd runner && ruff check . && pytest -q
 
-  # Best-effort bonus leg: GitHub-hosted Linux ARM64 runner availability
-  # depends on the org's plan tier, unconfirmed from a local dev machine —
-  # continue-on-error keeps this from blocking CI if it's unavailable.
+  # GitHub-hosted Linux ARM64 runners: confirmed available and green here
+  # (GA on the free tier since Jan 2026) — this covers 64-bit Raspberry Pi
+  # OS (aarch64) natively, no self-hosted runner needed for that target.
+  # Not continue-on-error anymore: a real failure here should actually fail
+  # CI, not be silently swallowed.
   runner-linux-arm:
     runs-on: ubuntu-24.04-arm
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -17,6 +17,44 @@ if TYPE_CHECKING:
     import numpy as np
 
 
+def wav_duration_s(path: str | Path) -> float:
+    """Duration in seconds, read straight from a WAV file's RIFF chunks —
+    no extra dependency, same spirit as `flac_duration_s` below. Parsed by
+    hand rather than via the stdlib `wave` module: `wave` only understands
+    integer-PCM format tag 1 and raises on anything else, but datasets
+    published as 32-bit float WAV (format tag 3 — e.g. FLEURS) are common
+    and don't need decoding just to know their length."""
+    with open(path, "rb") as f:
+        if f.read(4) != b"RIFF":
+            raise ValueError(f"not a RIFF/WAV file: {path}")
+        f.read(4)  # overall chunk size, unused
+        if f.read(4) != b"WAVE":
+            raise ValueError(f"not a WAVE file: {path}")
+
+        sample_rate: int | None = None
+        block_align: int | None = None
+        while True:
+            header = f.read(8)
+            if len(header) < 8:
+                break
+            chunk_id, chunk_size = header[:4], int.from_bytes(header[4:8], "little")
+            if chunk_id == b"fmt ":
+                fmt = f.read(chunk_size)
+                # channels(2)@2, sample_rate(4)@4, block_align(2)@12
+                sample_rate = struct.unpack("<I", fmt[4:8])[0]
+                block_align = struct.unpack("<H", fmt[12:14])[0]
+            elif chunk_id == b"data":
+                if sample_rate is None or block_align is None:
+                    raise ValueError(f"WAV data chunk came before fmt chunk: {path}")
+                frames = chunk_size / block_align
+                return frames / sample_rate
+            else:
+                f.seek(chunk_size, 1)
+            if chunk_size % 2:
+                f.seek(1, 1)  # RIFF chunks are word-aligned; skip the pad byte
+        raise ValueError(f"WAV file has no data chunk: {path}")
+
+
 def flac_duration_s(path: str | Path) -> float:
     """Duration in seconds, read from a FLAC file's STREAMINFO block."""
     with open(path, "rb") as f:
