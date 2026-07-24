@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import tarfile
 import urllib.request
 from pathlib import Path
 
@@ -38,6 +37,7 @@ FLEURS_BASE_URL = "https://huggingface.co/datasets/google/fleurs/resolve/main/da
 
 sys.path.insert(0, str(ROOT / "runner" / "src"))
 from oesb_runner.audio import wav_duration_s  # noqa: E402
+from oesb_runner.audio_sources import fetch_fleurs_audio  # noqa: E402
 from oesb_runner.hashing import canonical_asset_sha256, sha256_file  # noqa: E402
 
 
@@ -63,25 +63,8 @@ def fetch_tsv_rows(language: str, split: str, count: int) -> list[dict]:
 
 
 def fetch_audio(language: str, split: str, wanted_filenames: set[str], audio_dir: Path) -> None:
-    url = f"{FLEURS_BASE_URL}/{language}/audio/{split}.tar.gz"
-    audio_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"Streaming {url} looking for {len(wanted_filenames)} clips ...", file=sys.stderr)
-    collected: set[str] = set()
-    with urllib.request.urlopen(url) as resp:  # nosec B310 - fixed HF Hub URL
-        with tarfile.open(fileobj=resp, mode="r|gz") as tar:
-            for member in tar:
-                name = Path(member.name).name
-                if name not in wanted_filenames or not member.isfile():
-                    continue
-                extracted = tar.extractfile(member)
-                if extracted is None:
-                    continue
-                (audio_dir / name).write_bytes(extracted.read())
-                collected.add(name)
-                if collected == wanted_filenames:
-                    break  # every requested clip found - stop reading the archive
-
+    print(f"Streaming FLEURS {language}/{split} looking for {len(wanted_filenames)} clips ...", file=sys.stderr)
+    collected = fetch_fleurs_audio({"language": language, "split": split}, wanted_filenames, audio_dir)
     missing = wanted_filenames - collected
     if missing:
         raise SystemExit(f"never found {len(missing)} requested clip(s) in the archive: {sorted(missing)}")
@@ -108,7 +91,9 @@ def write_manifest(pack_dir: Path, entries: list[dict]) -> Path:
     return manifest_path
 
 
-def update_pack_yaml(pack_dir: Path, manifest_path: Path, entries: list[dict]) -> None:
+def update_pack_yaml(
+    pack_dir: Path, manifest_path: Path, entries: list[dict], language: str, split: str
+) -> None:
     pack_path = pack_dir / "pack.yaml"
     if not pack_path.exists():
         raise SystemExit(
@@ -126,6 +111,14 @@ def update_pack_yaml(pack_dir: Path, manifest_path: Path, entries: list[dict]) -
     pack["audio"]["total_duration_s"] = total_duration_s
     pack["audio"]["sample_rate_hz"] = 16000  # FLEURS is published at 16kHz throughout
     pack["audio"]["manifest_sha256"] = manifest_sha256
+    pack["audio"]["source"] = {
+        "type": "fleurs",
+        "params": {"language": language, "split": split},
+        "fetch_instructions": (
+            f"python scripts/fetch_fleurs_subset.py --language {language} "
+            f"--pack-dir {pack_dir.as_posix()}"
+        ),
+    }
     pack["sha256"] = canonical_asset_sha256(pack)
 
     pack_path.write_text(yaml.safe_dump(pack, sort_keys=False, allow_unicode=True))
@@ -160,7 +153,7 @@ def main() -> int:
 
     entries = build_manifest(rows, audio_dir)
     manifest_path = write_manifest(args.pack_dir, entries)
-    update_pack_yaml(args.pack_dir, manifest_path, entries)
+    update_pack_yaml(args.pack_dir, manifest_path, entries, args.language, args.split)
     print(f"Wrote {manifest_path} ({len(entries)} utterances).", file=sys.stderr)
     return 0
 

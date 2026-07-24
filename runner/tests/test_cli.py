@@ -39,3 +39,27 @@ def test_validate_invalid_file_exits_nonzero(tmp_path):
     bad.write_text("id: not-enough-fields\n")
     result = runner.invoke(app, ["validate", str(bad)])
     assert result.exit_code == 1
+
+
+def test_list_profiles_offline_lists_local_profiles():
+    result = runner.invoke(
+        app, ["list-profiles", "--offline", "--profiles-dir", str(REPO_ROOT / "profiles")]
+    )
+    assert result.exit_code == 0
+    assert "whisper-medium-en-batch" in result.stdout
+
+
+def test_list_packs_offline_lists_local_packs():
+    result = runner.invoke(
+        app, ["list-packs", "--offline", "--packs-dir", str(REPO_ROOT / "packs")]
+    )
+    assert result.exit_code == 0
+    assert "example-librispeech-en-batch" in result.stdout
+    assert "open" in result.stdout
+
+
+def test_list_profiles_offline_no_local_dir_fails(tmp_path):
+    result = runner.invoke(
+        app, ["list-profiles", "--offline", "--profiles-dir", str(tmp_path / "nope")]
+    )
+    assert result.exit_code == 1

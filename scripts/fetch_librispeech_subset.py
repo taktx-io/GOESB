@@ -25,7 +25,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 import tarfile
@@ -108,7 +107,7 @@ def write_manifest(entries: list[dict]) -> Path:
     return manifest_path
 
 
-def update_pack_yaml(manifest_path: Path, entries: list[dict]) -> None:
+def update_pack_yaml(manifest_path: Path, entries: list[dict], speaker: str, chapter: str) -> None:
     pack_path = PACK_DIR / "pack.yaml"
     pack = yaml.safe_load(pack_path.read_text())
 
@@ -118,6 +117,13 @@ def update_pack_yaml(manifest_path: Path, entries: list[dict]) -> None:
     pack["audio"]["count"] = len(entries)
     pack["audio"]["total_duration_s"] = total_duration_s
     pack["audio"]["manifest_sha256"] = manifest_sha256
+    pack["audio"]["source"] = {
+        "type": "librispeech",
+        "params": {"speaker": speaker, "chapter": chapter, "split": "dev-clean"},
+        "fetch_instructions": (
+            f"python scripts/fetch_librispeech_subset.py --speaker {speaker} --chapter {chapter}"
+        ),
+    }
     pack["sha256"] = canonical_asset_sha256(pack)
 
     pack_path.write_text(
@@ -152,7 +158,7 @@ def main() -> int:
 
     entries = build_manifest(args.speaker, args.chapter, args.audio_dir)
     manifest_path = write_manifest(entries)
-    update_pack_yaml(manifest_path, entries)
+    update_pack_yaml(manifest_path, entries, args.speaker, args.chapter)
     print(f"Wrote {manifest_path} ({len(entries)} utterances).", file=sys.stderr)
     return 0
 

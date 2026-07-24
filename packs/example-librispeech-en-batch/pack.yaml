@@ -3,7 +3,7 @@
 # scripts/fetch_librispeech_subset.py, verified against manifest.jsonl.
 id: example-librispeech-en-batch
 version: 1.0.0
-sha256: 1a6146e2fb61aff41a251f329ae6c255f59a74bedde4fc76f03858e1d2f32847
+sha256: 8d4dcc2134553d4795746fb5ce9ef7af34dc021b1f8a0c56d302a7eb83ff61fe
 profile_id: whisper-medium-en-batch
 visibility: open
 license: CC-BY-4.0
@@ -12,6 +12,14 @@ audio:
   total_duration_s: 145.195
   sample_rate_hz: 16000
   manifest_sha256: 6b9cdcf81a565496b7d4ef4881b035d98593eb941e61d87780591f0aba5852d9
+  source:
+    type: librispeech
+    params:
+      speaker: '1272'
+      chapter: '128104'
+      split: dev-clean
+    fetch_instructions: python scripts/fetch_librispeech_subset.py --speaker 1272
+      --chapter 128104
 metadata:
   language: en-US
   dialect: general-american

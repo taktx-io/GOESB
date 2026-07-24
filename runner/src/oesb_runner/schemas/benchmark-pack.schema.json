@@ -26,6 +26,10 @@
           "type": "object",
           "description": "Where to obtain the actual audio for open/community packs. Required for visibility=open|community; omitted for private packs (audio never leaves the machine).",
           "properties": {
+            "type": { "enum": ["fleurs", "librispeech", "manual"],
+              "description": "Which built-in provider `goesb run` can use to auto-fetch this pack's audio. 'manual' (or omitted) means fetch_instructions is the only path." },
+            "params": { "type": "object",
+              "description": "Provider-specific parameters, e.g. {language, split} for fleurs; {speaker, chapter} for librispeech." },
             "url": { "type": "string", "format": "uri",
               "description": "Upstream download location (e.g. Common Voice release page/API)." },
             "fetch_instructions": { "type": "string",

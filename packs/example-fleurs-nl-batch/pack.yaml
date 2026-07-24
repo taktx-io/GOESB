@@ -1,6 +1,6 @@
 id: example-fleurs-nl-batch
 version: 1.0.0
-sha256: 1db579ed074656850b5c74e24c9a8865b54a0259a6b7c9f4b49494e612876228
+sha256: 48df1575bc460cc983fc91e779fb9979af649d390ed77608851074b3d88d16c5
 profile_id: whisper-medium-nl-batch
 visibility: open
 license: CC-BY-4.0
@@ -17,3 +17,10 @@ audio:
   total_duration_s: 119.52
   sample_rate_hz: 16000
   manifest_sha256: 4118daa0793b5a2b70fb37fa7ce1b4e33243fa4d1e6918e668d95d848499b17f
+  source:
+    type: fleurs
+    params:
+      language: nl_nl
+      split: dev
+    fetch_instructions: python scripts/fetch_fleurs_subset.py --language nl_nl --pack-dir
+      packs/example-fleurs-nl-batch

@@ -23,6 +23,7 @@ from packaging.version import Version
 from . import __version__
 from . import energy as energy_probe
 from .adapters import get_adapter
+from .audio_sources import auto_fetch_audio
 from .environment import capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
 from .metrics import (
@@ -116,6 +117,79 @@ def validate(path: str) -> None:
 
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
+
+
+@app.command("list-profiles")
+def list_profiles_cmd(
+    api_url: str = typer.Option(DEFAULT_API_URL, help="Where to list official profiles from."),
+    profiles_dir: str = typer.Option(
+        "profiles", help="Also used as a fallback (or with --offline) to list local profiles."
+    ),
+    offline: bool = typer.Option(False, "--offline", help="List local profiles only, skip the API call."),
+) -> None:
+    """List profile ids you can pass to `goesb run` (id, language, type, version)."""
+    rows: list[tuple[str, str, str, str]] = []
+    if not offline:
+        try:
+            data = _get_json(f"{api_url.rstrip('/')}/profiles", timeout=10)
+            rows = [
+                (p["id"], p.get("language") or "-", p["benchmark_type"], p["version"])
+                for p in data["profiles"]
+            ]
+        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+            typer.echo(f"could not reach {api_url} ({exc}) — falling back to local {profiles_dir!r}", err=True)
+
+    if not rows:
+        local_dir = Path(profiles_dir)
+        if local_dir.exists():
+            for entry in sorted(local_dir.iterdir()):
+                yaml_path = entry / "profile.yaml"
+                if yaml_path.exists():
+                    prof = _load_yaml(yaml_path)
+                    rows.append((prof["id"], prof.get("language") or "-", prof["benchmark_type"], prof["version"]))
+
+    if not rows:
+        typer.echo("no profiles found", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"{'ID':<32} {'LANGUAGE':<10} {'TYPE':<10} VERSION")
+    for id_, language, benchmark_type, version in rows:
+        typer.echo(f"{id_:<32} {language:<10} {benchmark_type:<10} {version}")
+
+
+@app.command("list-packs")
+def list_packs_cmd(
+    api_url: str = typer.Option(DEFAULT_API_URL, help="Where to list official packs from."),
+    packs_dir: str = typer.Option(
+        "packs", help="Also used as a fallback (or with --offline) to list local packs."
+    ),
+    offline: bool = typer.Option(False, "--offline", help="List local packs only, skip the API call."),
+) -> None:
+    """List pack ids you can pass to `goesb run` (id, visibility, version)."""
+    rows: list[tuple[str, str, str]] = []
+    if not offline:
+        try:
+            data = _get_json(f"{api_url.rstrip('/')}/packs", timeout=10)
+            rows = [(p["id"], p["visibility"], p["version"]) for p in data["packs"]]
+        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+            typer.echo(f"could not reach {api_url} ({exc}) — falling back to local {packs_dir!r}", err=True)
+
+    if not rows:
+        local_dir = Path(packs_dir)
+        if local_dir.exists():
+            for entry in sorted(local_dir.iterdir()):
+                yaml_path = entry / "pack.yaml"
+                if yaml_path.exists():
+                    pack = _load_yaml(yaml_path)
+                    rows.append((pack["id"], pack["visibility"], pack["version"]))
+
+    if not rows:
+        typer.echo("no packs found", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"{'ID':<36} {'VISIBILITY':<12} VERSION")
+    for id_, visibility, version in rows:
+        typer.echo(f"{id_:<36} {visibility:<12} {version}")
 
 
 def _sample_during(fn, interval_s: float = 0.2):
@@ -249,9 +323,42 @@ def run(
 
     resolved_audio_dir = Path(audio_dir) if audio_dir else (pack_dir / "audio")
     if not resolved_audio_dir.exists():
-        fetch_instructions = pack_yaml.get("audio", {}).get("source", {}).get("fetch_instructions")
-        if fetch_instructions:
-            typer.echo(f"No audio at {resolved_audio_dir} yet. To fetch it:\n{fetch_instructions}", err=True)
+        source = pack_yaml.get("audio", {}).get("source", {})
+        fetch_instructions = source.get("fetch_instructions")
+        if offline:
+            typer.echo(f"No audio at {resolved_audio_dir} and --offline was given", err=True)
+            if fetch_instructions:
+                typer.echo(f"To fetch it:\n{fetch_instructions}", err=True)
+            raise typer.Exit(code=1)
+
+        wanted_names = {
+            json.loads(line)["relative_path"]
+            for line in (pack_dir / "manifest.jsonl").read_text().splitlines()
+            if line.strip()
+        }
+        typer.echo(
+            f"No audio at {resolved_audio_dir} yet — attempting auto-fetch "
+            f"(source type: {source.get('type', 'none declared')}) ...",
+            err=True,
+        )
+        fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
+        if fetched is None:
+            typer.echo(
+                "Don't know how to auto-fetch audio for this pack" +
+                (f" — to fetch it manually:\n{fetch_instructions}" if fetch_instructions
+                 else " and no fetch_instructions were provided either."),
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        missing = wanted_names - fetched
+        if missing:
+            typer.echo(
+                f"auto-fetch only found {len(fetched)}/{len(wanted_names)} clips — "
+                f"missing: {sorted(missing)}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        typer.echo(f"Fetched {len(fetched)} audio files into {resolved_audio_dir}", err=True)
 
     pack = load_pack(pack_dir, audio_dir=Path(audio_dir) if audio_dir else None)
 
