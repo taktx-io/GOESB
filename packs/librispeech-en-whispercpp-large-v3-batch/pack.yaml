@@ -1,0 +1,29 @@
+id: librispeech-en-whispercpp-large-v3-batch
+version: 1.0.0
+sha256: 4544c5335c25e0e358338f6353798c17c297446d30eaefbb0a669b06f274e9d0
+profile_id: whispercpp-large-v3-en-batch
+visibility: open
+license: CC-BY-4.0
+audio:
+  count: 15
+  total_duration_s: 145.195
+  sample_rate_hz: 16000
+  manifest_sha256: 6b9cdcf81a565496b7d4ef4881b035d98593eb941e61d87780591f0aba5852d9
+  source:
+    type: librispeech
+    params:
+      speaker: '1272'
+      chapter: '128104'
+      split: dev-clean
+    fetch_instructions: 'Identical audio to librispeech-en-batch — auto-fetched the
+      same way. Manual fallback: run `python scripts/fetch_librispeech_subset.py --speaker
+      1272 --chapter 128104`, then pass `--audio-dir packs/librispeech-en-batch/audio`
+      to `goesb run`.'
+metadata:
+  language: en-US
+  recording_environment: studio
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - librispeech
+  - en

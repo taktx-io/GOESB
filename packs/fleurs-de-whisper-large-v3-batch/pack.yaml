@@ -1,0 +1,28 @@
+id: fleurs-de-whisper-large-v3-batch
+version: 1.0.0
+sha256: f27faabe0ab66a6c5de55a2520182503980c24e43833f56e6503c194993be10b
+profile_id: whisper-large-v3-de-batch
+visibility: open
+license: CC-BY-4.0
+audio:
+  count: 15
+  total_duration_s: 166.44
+  sample_rate_hz: 16000
+  manifest_sha256: 6a24e87d7876018ba67f1a021af3d46b712169e1c5a9b303e3fc583301616d8d
+  source:
+    type: fleurs
+    params:
+      language: de_de
+      split: dev
+    fetch_instructions: 'Identical audio to fleurs-de-batch — auto-fetched the same
+      way. Manual fallback: run `python scripts/fetch_fleurs_subset.py --language
+      de_de --pack-dir packs/fleurs-de-batch`, then pass `--audio-dir packs/fleurs-de-batch/audio`
+      to `goesb run`.'
+metadata:
+  language: de-DE
+  recording_environment: studio
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - fleurs
+  - de

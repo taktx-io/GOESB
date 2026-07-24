@@ -1,0 +1,28 @@
+id: fleurs-pt-vosk-small-batch
+version: 1.0.0
+sha256: c900ec910461e7ee76f0215ad6b147c774cc48ee54e3b558d07dff092e623ed7
+profile_id: vosk-small-pt-batch
+visibility: open
+license: CC-BY-4.0
+audio:
+  count: 15
+  total_duration_s: 189.66
+  sample_rate_hz: 16000
+  manifest_sha256: bade120d2b4919388c5143299c9f4a9e983efa172ac9673579a418e4801bbd18
+  source:
+    type: fleurs
+    params:
+      language: pt_br
+      split: dev
+    fetch_instructions: 'Identical audio to fleurs-pt-batch — auto-fetched the same
+      way. Manual fallback: run `python scripts/fetch_fleurs_subset.py --language
+      pt_br --pack-dir packs/fleurs-pt-batch`, then pass `--audio-dir packs/fleurs-pt-batch/audio`
+      to `goesb run`.'
+metadata:
+  language: pt-BR
+  recording_environment: studio
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - fleurs
+  - pt
