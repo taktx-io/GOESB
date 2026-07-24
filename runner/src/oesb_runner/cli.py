@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import subprocess
 import sys
 import threading
 import urllib.error
@@ -16,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import psutil
+import questionary
 import typer
 import yaml
 from packaging.version import Version
@@ -54,6 +56,113 @@ from .signing import (
 from .stats import relative_std, summarize
 
 app = typer.Typer(help="Open Edge Speech Benchmark runner")
+
+
+@app.callback(invoke_without_command=True)
+def _main(ctx: typer.Context) -> None:
+    """Open Edge Speech Benchmark runner. Run with no command for an
+    interactive wizard."""
+    if ctx.invoked_subcommand is not None:
+        return
+    if not sys.stdin.isatty():
+        # Piped/scripted/CI invocation with no subcommand - show help
+        # instead of hanging on a prompt nothing will ever answer.
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+    _run_wizard()
+
+
+def _reexec(args: list[str]) -> None:
+    """Re-run this same `goesb` invocation as a fresh process with real argv
+    — reuses Click's own argument parsing/defaults for whichever subcommand
+    the wizard picked instead of duplicating its logic, and streams output
+    live instead of capturing it (unlike calling the command function
+    in-process)."""
+    result = subprocess.run([sys.argv[0], *args])
+    if result.returncode != 0:
+        raise typer.Exit(code=result.returncode)
+
+
+def _wizard_run() -> None:
+    profiles = _profile_rows(DEFAULT_API_URL, "profiles", offline=False)
+    if not profiles:
+        typer.echo("no profiles found (checked the API and ./profiles)", err=True)
+        return
+    profile_id = questionary.select(
+        "Pick a profile:",
+        choices=[
+            questionary.Choice(f"{p['id']}  ({p['language']}, {p['benchmark_type']})", value=p["id"])
+            for p in profiles
+        ],
+    ).ask()
+    if profile_id is None:
+        return
+
+    packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
+    matching_packs = [p for p in packs if p["profile_id"] == profile_id] or packs
+    if not matching_packs:
+        typer.echo("no packs found (checked the API and ./packs)", err=True)
+        return
+    pack_id = questionary.select(
+        "Pick a pack:",
+        choices=[
+            questionary.Choice(f"{p['id']}  ({p['visibility']})", value=p["id"])
+            for p in matching_packs
+        ],
+    ).ask()
+    if pack_id is None:
+        return
+
+    model_override = questionary.text("Model override (blank = use the profile's default):").ask()
+    if model_override is None:
+        return
+    repeats = questionary.text("Repeats:", default="2").ask()
+    if repeats is None:
+        return
+
+    args = ["run", profile_id, pack_id, "--repeats", repeats]
+    if model_override:
+        args += ["--model-override", model_override]
+    _reexec(args)
+
+
+def _wizard_validate() -> None:
+    path = questionary.path("Path to a profile.yaml or pack.yaml:").ask()
+    if path:
+        _reexec(["validate", path])
+
+
+def _wizard_submit() -> None:
+    results_dir = Path("runs/results")
+    result_files = sorted(results_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not result_files:
+        typer.echo(f"no result files found under {results_dir}", err=True)
+        return
+    result_path = questionary.select(
+        "Pick a result to submit:",
+        choices=[questionary.Choice(str(p), value=str(p)) for p in result_files],
+    ).ask()
+    if result_path:
+        _reexec(["submit", result_path])
+
+
+def _run_wizard() -> None:
+    actions = {
+        "Run a benchmark": _wizard_run,
+        "List available profiles": lambda: _reexec(["list-profiles"]),
+        "List available packs": lambda: _reexec(["list-packs"]),
+        "Validate a profile/pack file": _wizard_validate,
+        "Submit a result": _wizard_submit,
+        "Show environment fingerprint": lambda: _reexec(["env"]),
+        "Print version": lambda: typer.echo(f"goesb-runner {__version__}"),
+        "Exit": None,
+    }
+    while True:
+        choice = questionary.select("What would you like to do?", choices=list(actions)).ask()
+        if choice is None or choice == "Exit":
+            break
+        actions[choice]()
+
 
 # FR-5.3: deviations must be surfaced, not hidden. This is the documented
 # default tolerance on the primary metric's relative std across repeats
@@ -119,21 +228,19 @@ def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-@app.command("list-profiles")
-def list_profiles_cmd(
-    api_url: str = typer.Option(DEFAULT_API_URL, help="Where to list official profiles from."),
-    profiles_dir: str = typer.Option(
-        "profiles", help="Also used as a fallback (or with --offline) to list local profiles."
-    ),
-    offline: bool = typer.Option(False, "--offline", help="List local profiles only, skip the API call."),
-) -> None:
-    """List profile ids you can pass to `goesb run` (id, language, type, version)."""
-    rows: list[tuple[str, str, str, str]] = []
+def _profile_rows(api_url: str, profiles_dir: str, offline: bool) -> list[dict]:
+    """Each row: id, language, benchmark_type, version. API first (unless
+    --offline), local --profiles-dir as fallback — shared by list-profiles
+    and the interactive wizard."""
+    rows: list[dict] = []
     if not offline:
         try:
             data = _get_json(f"{api_url.rstrip('/')}/profiles", timeout=10)
             rows = [
-                (p["id"], p.get("language") or "-", p["benchmark_type"], p["version"])
+                {
+                    "id": p["id"], "language": p.get("language") or "-",
+                    "benchmark_type": p["benchmark_type"], "version": p["version"],
+                }
                 for p in data["profiles"]
             ]
         except (urllib.error.URLError, urllib.error.HTTPError) as exc:
@@ -146,15 +253,61 @@ def list_profiles_cmd(
                 yaml_path = entry / "profile.yaml"
                 if yaml_path.exists():
                     prof = _load_yaml(yaml_path)
-                    rows.append((prof["id"], prof.get("language") or "-", prof["benchmark_type"], prof["version"]))
+                    rows.append({
+                        "id": prof["id"], "language": prof.get("language") or "-",
+                        "benchmark_type": prof["benchmark_type"], "version": prof["version"],
+                    })
+    return rows
 
+
+def _pack_rows(api_url: str, packs_dir: str, offline: bool) -> list[dict]:
+    """Each row: id, visibility, version, profile_id — shared by list-packs
+    and the interactive wizard (which filters by profile_id)."""
+    rows: list[dict] = []
+    if not offline:
+        try:
+            data = _get_json(f"{api_url.rstrip('/')}/packs", timeout=10)
+            rows = [
+                {
+                    "id": p["id"], "visibility": p["visibility"],
+                    "version": p["version"], "profile_id": p["profile_id"],
+                }
+                for p in data["packs"]
+            ]
+        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+            typer.echo(f"could not reach {api_url} ({exc}) — falling back to local {packs_dir!r}", err=True)
+
+    if not rows:
+        local_dir = Path(packs_dir)
+        if local_dir.exists():
+            for entry in sorted(local_dir.iterdir()):
+                yaml_path = entry / "pack.yaml"
+                if yaml_path.exists():
+                    pack = _load_yaml(yaml_path)
+                    rows.append({
+                        "id": pack["id"], "visibility": pack["visibility"],
+                        "version": pack["version"], "profile_id": pack["profile_id"],
+                    })
+    return rows
+
+
+@app.command("list-profiles")
+def list_profiles_cmd(
+    api_url: str = typer.Option(DEFAULT_API_URL, help="Where to list official profiles from."),
+    profiles_dir: str = typer.Option(
+        "profiles", help="Also used as a fallback (or with --offline) to list local profiles."
+    ),
+    offline: bool = typer.Option(False, "--offline", help="List local profiles only, skip the API call."),
+) -> None:
+    """List profile ids you can pass to `goesb run` (id, language, type, version)."""
+    rows = _profile_rows(api_url, profiles_dir, offline)
     if not rows:
         typer.echo("no profiles found", err=True)
         raise typer.Exit(code=1)
 
     typer.echo(f"{'ID':<32} {'LANGUAGE':<10} {'TYPE':<10} VERSION")
-    for id_, language, benchmark_type, version in rows:
-        typer.echo(f"{id_:<32} {language:<10} {benchmark_type:<10} {version}")
+    for r in rows:
+        typer.echo(f"{r['id']:<32} {r['language']:<10} {r['benchmark_type']:<10} {r['version']}")
 
 
 @app.command("list-packs")
@@ -166,30 +319,14 @@ def list_packs_cmd(
     offline: bool = typer.Option(False, "--offline", help="List local packs only, skip the API call."),
 ) -> None:
     """List pack ids you can pass to `goesb run` (id, visibility, version)."""
-    rows: list[tuple[str, str, str]] = []
-    if not offline:
-        try:
-            data = _get_json(f"{api_url.rstrip('/')}/packs", timeout=10)
-            rows = [(p["id"], p["visibility"], p["version"]) for p in data["packs"]]
-        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-            typer.echo(f"could not reach {api_url} ({exc}) — falling back to local {packs_dir!r}", err=True)
-
-    if not rows:
-        local_dir = Path(packs_dir)
-        if local_dir.exists():
-            for entry in sorted(local_dir.iterdir()):
-                yaml_path = entry / "pack.yaml"
-                if yaml_path.exists():
-                    pack = _load_yaml(yaml_path)
-                    rows.append((pack["id"], pack["visibility"], pack["version"]))
-
+    rows = _pack_rows(api_url, packs_dir, offline)
     if not rows:
         typer.echo("no packs found", err=True)
         raise typer.Exit(code=1)
 
     typer.echo(f"{'ID':<36} {'VISIBILITY':<12} VERSION")
-    for id_, visibility, version in rows:
-        typer.echo(f"{id_:<36} {visibility:<12} {version}")
+    for r in rows:
+        typer.echo(f"{r['id']:<36} {r['visibility']:<12} {r['version']}")
 
 
 def _sample_during(fn, interval_s: float = 0.2):

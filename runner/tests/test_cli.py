@@ -63,3 +63,81 @@ def test_list_profiles_offline_no_local_dir_fails(tmp_path):
         app, ["list-profiles", "--offline", "--profiles-dir", str(tmp_path / "nope")]
     )
     assert result.exit_code == 1
+
+
+def test_bare_invocation_shows_help_instead_of_hanging():
+    # CliRunner's stdin isn't a tty, same as any piped/scripted invocation —
+    # exercises the non-interactive fallback path, not the wizard itself.
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0
+    assert "Usage:" in result.stdout
+
+
+def test_wizard_list_profiles_reexecs_the_subcommand(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
+
+    # First select() call picks the action; loop must then see "Exit" or it spins forever.
+    responses = iter(["List available profiles", "Exit"])
+    monkeypatch.setattr(
+        cli_module.questionary, "select", lambda *a, **k: _FakeAsk(next(responses))
+    )
+
+    cli_module._run_wizard()
+
+    assert calls == [["list-profiles"]]
+
+
+def test_wizard_run_builds_expected_run_args(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [
+            {"id": "example-librispeech-en-batch", "visibility": "open", "profile_id": "whisper-medium-en-batch"},
+            {"id": "unrelated-pack", "visibility": "open", "profile_id": "some-other-profile"},
+        ],
+    )
+
+    text_responses = iter(["tiny", "1"])  # model override, then repeats
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(next(text_responses)))
+
+    select_responses = iter(["whisper-medium-en-batch", "example-librispeech-en-batch"])
+
+    def fake_select(_prompt, choices):
+        # Choice objects carry .value; a plain string choice is its own value.
+        wanted = next(select_responses)
+        for c in choices:
+            value = getattr(c, "value", c)
+            if value == wanted:
+                return _FakeAsk(wanted)
+        raise AssertionError(f"{wanted!r} not offered: {choices}")
+
+    monkeypatch.setattr(cli_module.questionary, "select", fake_select)
+
+    calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert calls == [[
+        "run", "whisper-medium-en-batch", "example-librispeech-en-batch",
+        "--repeats", "1", "--model-override", "tiny",
+    ]]
+
+
+class _FakeAsk:
+    """Stands in for whatever questionary.select/.text(...) returns — real
+    code only ever calls .ask() on it."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def ask(self):
+        return self._value
