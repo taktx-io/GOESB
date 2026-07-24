@@ -40,6 +40,7 @@ from .metrics import (
 from .metrics import energy as energy_metric
 from .normalization import normalize
 from .pack import load_pack
+from .remote import DEFAULT_API_URL, fetch_pack, fetch_profile
 from .schema_validation import validate_against
 from .signing import (
     generate_ephemeral_keypair,
@@ -184,16 +185,54 @@ def run(
         "simply preferred — a declarative user-supplied value, not code "
         "(ADR-0004).",
     ),
+    api_url: str = typer.Option(
+        DEFAULT_API_URL,
+        help="Where to fetch an official profile/pack from when it isn't found "
+        "under --profiles-dir/--packs-dir. Fetched profiles/packs are cached "
+        "under ~/.goesb/cache — offline after the first fetch, same as model "
+        "weights already work.",
+    ),
+    offline: bool = typer.Option(
+        False, "--offline",
+        help="Never fetch a profile/pack over the network; fail if not found locally.",
+    ),
 ) -> None:
     """Run a benchmark for a profile + pack and emit a signed result document."""
     profile_path = Path(profiles_dir) / profile_id / "profile.yaml"
     pack_dir = Path(packs_dir) / pack_id
 
-    profile = _load_yaml(profile_path)
+    if profile_path.exists():
+        profile = _load_yaml(profile_path)
+    elif offline:
+        typer.echo(f"profile {profile_id!r} not found under {profiles_dir!r} and --offline was given", err=True)
+        raise typer.Exit(code=1)
+    else:
+        typer.echo(f"profile {profile_id!r} not found locally, fetching from {api_url} ...", err=True)
+        try:
+            profile = fetch_profile(profile_id, api_url)
+        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+            typer.echo(f"could not fetch profile {profile_id!r} from {api_url}: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
     profile_errors = validate_against(profile, "benchmark-profile.schema.json")
     if profile_errors:
         typer.echo(f"profile {profile_id} failed validation: {profile_errors}", err=True)
         raise typer.Exit(code=1)
+
+    if not (pack_dir / "pack.yaml").exists():
+        if offline:
+            typer.echo(f"pack {pack_id!r} not found under {packs_dir!r} and --offline was given", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(
+            f"pack {pack_id!r} not found locally, fetching metadata from {api_url} "
+            "(audio still needs its own fetch step — see the pack's fetch_instructions) ...",
+            err=True,
+        )
+        try:
+            pack_dir = fetch_pack(pack_id, api_url)
+        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+            typer.echo(f"could not fetch pack {pack_id!r}: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
 
     pack_yaml = _load_yaml(pack_dir / "pack.yaml")
     pack_errors = validate_against(pack_yaml, "benchmark-pack.schema.json")
@@ -206,6 +245,12 @@ def run(
             err=True,
         )
         raise typer.Exit(code=1)
+
+    resolved_audio_dir = Path(audio_dir) if audio_dir else (pack_dir / "audio")
+    if not resolved_audio_dir.exists():
+        fetch_instructions = pack_yaml.get("audio", {}).get("source", {}).get("fetch_instructions")
+        if fetch_instructions:
+            typer.echo(f"No audio at {resolved_audio_dir} yet. To fetch it:\n{fetch_instructions}", err=True)
 
     pack = load_pack(pack_dir, audio_dir=Path(audio_dir) if audio_dir else None)
 
