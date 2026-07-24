@@ -1,12 +1,12 @@
-# Example open pack — English (LibriSpeech dev-clean subset), streaming.
-# Same utterances/manifest as example-librispeech-en-batch; scored against
+# Open pack — English (LibriSpeech dev-clean subset), streaming.
+# Same utterances/manifest as librispeech-en-batch; scored against
 # the streaming profile instead of batch. No new audio: point --audio-dir at
-# ../example-librispeech-en-batch/audio (or fetch again with
+# ../librispeech-en-batch/audio (or fetch again with
 # scripts/fetch_librispeech_subset.py) — audio bytes are identical, only the
 # profile_id and pack id differ.
-id: example-librispeech-en-streaming
+id: librispeech-en-streaming
 version: 1.0.0
-sha256: 6c9a333883a622b0018ea501d6a39407b15f0db2bf3f0833f25d269042f1aa2d
+sha256: 648493072e46e345f7e7575ddba68716e86182f1f9b9ee9894403424d5b2e87b
 profile_id: whisper-medium-en-streaming
 visibility: open
 license: CC-BY-4.0
@@ -16,11 +16,9 @@ audio:
   sample_rate_hz: 16000
   manifest_sha256: 6b9cdcf81a565496b7d4ef4881b035d98593eb941e61d87780591f0aba5852d9
   source:
-    fetch_instructions: >-
-      Identical audio to example-librispeech-en-batch: run
-      scripts/fetch_librispeech_subset.py for that pack, then pass
-      `--audio-dir packs/example-librispeech-en-batch/audio` to `goesb run`,
-      or symlink/copy that pack's audio/ directory here.
+    fetch_instructions: 'Identical audio to librispeech-en-batch: run scripts/fetch_librispeech_subset.py
+      for that pack, then pass `--audio-dir packs/librispeech-en-batch/audio` to `goesb
+      run`, or symlink/copy that pack''s audio/ directory here.'
 metadata:
   language: en-US
   dialect: general-american

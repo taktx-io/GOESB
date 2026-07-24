@@ -1,9 +1,9 @@
-# Example open pack manifest — English (LibriSpeech dev-clean subset).
+# Open pack manifest — English (LibriSpeech dev-clean subset).
 # Audio bytes are NOT committed (FR-3.5); fetch them locally with
 # scripts/fetch_librispeech_subset.py, verified against manifest.jsonl.
-id: example-librispeech-en-batch
+id: librispeech-en-batch
 version: 1.0.0
-sha256: 8d4dcc2134553d4795746fb5ce9ef7af34dc021b1f8a0c56d302a7eb83ff61fe
+sha256: d51fad1961713996f72a43bcd6fa91d5b08b17665152ecc66f47595c0c36c67c
 profile_id: whisper-medium-en-batch
 visibility: open
 license: CC-BY-4.0

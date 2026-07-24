@@ -17,7 +17,7 @@ from oesb_runner.adapters.faster_whisper import run_batch, run_streaming
 from oesb_runner.metrics import rtf, wer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PACK_DIR = REPO_ROOT / "packs" / "example-librispeech-en-batch"
+PACK_DIR = REPO_ROOT / "packs" / "librispeech-en-batch"
 
 pytestmark = pytest.mark.skipif(
     not (PACK_DIR / "audio").exists(),

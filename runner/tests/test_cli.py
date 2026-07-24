@@ -29,7 +29,7 @@ def test_validate_valid_profile():
 
 
 def test_validate_valid_pack():
-    path = REPO_ROOT / "packs" / "example-librispeech-en-batch" / "pack.yaml"
+    path = REPO_ROOT / "packs" / "librispeech-en-batch" / "pack.yaml"
     result = runner.invoke(app, ["validate", str(path)])
     assert result.exit_code == 0
     assert "valid" in result.stdout
@@ -55,7 +55,7 @@ def test_list_packs_offline_lists_local_packs():
         app, ["list-packs", "--offline", "--packs-dir", str(REPO_ROOT / "packs")]
     )
     assert result.exit_code == 0
-    assert "example-librispeech-en-batch" in result.stdout
+    assert "librispeech-en-batch" in result.stdout
     assert "open" in result.stdout
 
 
@@ -135,7 +135,7 @@ def test_wizard_run_builds_expected_run_args(monkeypatch):
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "example-librispeech-en-batch", "visibility": "open", "profile_id": "whisper-medium-en-batch"},
+            {"id": "librispeech-en-batch", "visibility": "open", "profile_id": "whisper-medium-en-batch"},
             {"id": "unrelated-pack", "visibility": "open", "profile_id": "some-other-profile"},
         ],
     )
@@ -143,7 +143,7 @@ def test_wizard_run_builds_expected_run_args(monkeypatch):
     text_responses = iter(["tiny", "1"])  # model override, then repeats
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(next(text_responses)))
 
-    select_responses = iter(["whisper-medium-en-batch", "example-librispeech-en-batch"])
+    select_responses = iter(["whisper-medium-en-batch", "librispeech-en-batch"])
 
     def fake_select(_prompt, choices):
         # Choice objects carry .value; a plain string choice is its own value.
@@ -162,7 +162,7 @@ def test_wizard_run_builds_expected_run_args(monkeypatch):
     cli_module._wizard_run()
 
     assert calls == [[
-        "run", "whisper-medium-en-batch", "example-librispeech-en-batch",
+        "run", "whisper-medium-en-batch", "librispeech-en-batch",
         "--repeats", "1", "--model-override", "tiny",
     ]]
 

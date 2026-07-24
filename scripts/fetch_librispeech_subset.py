@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch a small LibriSpeech subset for `example-librispeech-en-batch`.
+"""Fetch a small LibriSpeech subset for `librispeech-en-batch`.
 
 LibriSpeech (OpenSLR-12) is a plain, ungated HTTPS download — unlike Common
 Voice, no consent/session step is required, so this can run unattended.
@@ -10,7 +10,7 @@ What it does:
    that directory's entries are collected).
 2. Parses the chapter's official `*.trans.txt` for reference transcripts and
    reads each FLAC's duration (see oesb_runner.audio.flac_duration_s).
-3. Writes `packs/example-librispeech-en-batch/manifest.jsonl` — the
+3. Writes `packs/librispeech-en-batch/manifest.jsonl` — the
    deterministic, committed list of {utterance_id, relative_path,
    reference_text, duration_s}. No audio bytes are committed (FR-3.5); this
    manifest is text-only metadata.
@@ -34,7 +34,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-PACK_DIR = ROOT / "packs" / "example-librispeech-en-batch"
+PACK_DIR = ROOT / "packs" / "librispeech-en-batch"
 LIBRISPEECH_URL = "https://www.openslr.org/resources/12/dev-clean.tar.gz"
 
 sys.path.insert(0, str(ROOT / "runner" / "src"))

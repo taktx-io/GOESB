@@ -15,7 +15,7 @@ pywhispercpp = pytest.importorskip(
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "example-librispeech-en-batch" / "audio"
+BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "librispeech-en-batch" / "audio"
 
 pytestmark = [
     pytest.mark.slow,
@@ -31,7 +31,7 @@ runner = CliRunner()
 def test_whispercpp_run_produces_valid_signed_result(tmp_path):
     results_dir = tmp_path / "results"
     result = runner.invoke(app, [
-        "run", "whispercpp-base-en-batch", "example-librispeech-en-whispercpp-batch",
+        "run", "whispercpp-base-en-batch", "librispeech-en-whispercpp-batch",
         "--repeats", "1",
         "--profiles-dir", str(REPO_ROOT / "profiles"),
         "--packs-dir", str(REPO_ROOT / "packs"),

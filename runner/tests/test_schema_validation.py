@@ -16,7 +16,7 @@ def test_finds_valid_profile():
 
 def test_finds_valid_pack():
     data = yaml.safe_load(
-        (REPO_ROOT / "packs" / "example-librispeech-en-batch" / "pack.yaml").read_text()
+        (REPO_ROOT / "packs" / "librispeech-en-batch" / "pack.yaml").read_text()
     )
     assert validate_against(data, "benchmark-pack.schema.json") == []
 

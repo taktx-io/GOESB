@@ -15,7 +15,7 @@ faster_whisper = pytest.importorskip(
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "example-librispeech-en-batch" / "audio"
+BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "librispeech-en-batch" / "audio"
 
 pytestmark = [
     pytest.mark.slow,
@@ -31,7 +31,7 @@ runner = CliRunner()
 def test_streaming_run_produces_valid_signed_result_with_latency_percentiles(tmp_path):
     results_dir = tmp_path / "results"
     result = runner.invoke(app, [
-        "run", "whisper-medium-en-streaming", "example-librispeech-en-streaming",
+        "run", "whisper-medium-en-streaming", "librispeech-en-streaming",
         "--repeats", "1",
         "--model-override", "tiny",
         "--profiles-dir", str(REPO_ROOT / "profiles"),
