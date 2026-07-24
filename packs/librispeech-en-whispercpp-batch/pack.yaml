@@ -4,7 +4,7 @@
 # ../librispeech-en-batch/audio.
 id: librispeech-en-whispercpp-batch
 version: 1.0.0
-sha256: f6561020402a7aad3794fd6f278a6c2b53ed6ff94d993c7c2a9db575e0a98580
+sha256: 590926e04768d481c3c71058206e02b5743d1100e216f2dcc990b66aad590931
 profile_id: whispercpp-base-en-batch
 visibility: open
 license: CC-BY-4.0
@@ -14,7 +14,13 @@ audio:
   sample_rate_hz: 16000
   manifest_sha256: 6b9cdcf81a565496b7d4ef4881b035d98593eb941e61d87780591f0aba5852d9
   source:
-    fetch_instructions: 'Identical audio to librispeech-en-batch: run scripts/fetch_librispeech_subset.py
+    type: librispeech
+    params:
+      speaker: '1272'
+      chapter: '128104'
+      split: dev-clean
+    fetch_instructions: 'Identical audio to librispeech-en-batch — auto-fetched the
+      same way (same speaker/chapter). Manual fallback: run scripts/fetch_librispeech_subset.py
       for that pack, then pass `--audio-dir packs/librispeech-en-batch/audio` to `goesb
       run`.'
 metadata:

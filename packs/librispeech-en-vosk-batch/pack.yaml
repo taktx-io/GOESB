@@ -3,7 +3,7 @@
 # no new audio: point --audio-dir at ../librispeech-en-batch/audio.
 id: librispeech-en-vosk-batch
 version: 1.0.0
-sha256: 49c3a150cbd7ace90882f147faf70aa4efab4d1ac1eb45e9da0468c811c759ef
+sha256: 775f103f15f355736db4b06a995bf8521ae6a57a15f18c9b02f55ed9464d256d
 profile_id: vosk-small-en-batch
 visibility: open
 license: CC-BY-4.0
@@ -13,7 +13,13 @@ audio:
   sample_rate_hz: 16000
   manifest_sha256: 6b9cdcf81a565496b7d4ef4881b035d98593eb941e61d87780591f0aba5852d9
   source:
-    fetch_instructions: 'Identical audio to librispeech-en-batch: run scripts/fetch_librispeech_subset.py
+    type: librispeech
+    params:
+      speaker: '1272'
+      chapter: '128104'
+      split: dev-clean
+    fetch_instructions: 'Identical audio to librispeech-en-batch — auto-fetched the
+      same way (same speaker/chapter). Manual fallback: run scripts/fetch_librispeech_subset.py
       for that pack, then pass `--audio-dir packs/librispeech-en-batch/audio` to `goesb
       run`.'
 metadata:
