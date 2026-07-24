@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import yaml
 from typer.testing import CliRunner
 
 from oesb_runner.cli import app
@@ -65,22 +66,38 @@ def test_list_profiles_offline_no_local_dir_fails(tmp_path):
     assert result.exit_code == 1
 
 
-def test_run_prints_fetch_instructions_for_a_pack_with_no_manifest_yet():
-    # example-common-voice-nl-batch is deliberately incomplete: no
-    # manifest.jsonl, no local audio, and no auto-fetchable source.type
-    # (Common Voice's own consent flow can't be scripted) — `run` must fail
-    # cleanly with the pack's own fetch_instructions, not crash trying to
-    # read a manifest.jsonl that was never committed (regression: this used
-    # to raise an uncaught FileNotFoundError).
+def test_run_prints_fetch_instructions_for_a_pack_with_no_manifest_yet(tmp_path):
+    # A pack that declares fetch_instructions but no auto-fetchable
+    # source.type, and has no manifest.jsonl on disk at all (e.g. a
+    # not-yet-completed contribution) — `run` must fail cleanly with those
+    # instructions, not crash trying to read a manifest.jsonl that was
+    # never written (regression: this used to raise an uncaught
+    # FileNotFoundError).
+    from oesb_runner.hashing import canonical_asset_sha256
+
+    pack = {
+        "id": "incomplete-pack",
+        "version": "1.0.0",
+        "profile_id": "whisper-medium-en-batch",
+        "visibility": "open",
+        "license": "CC0-1.0",
+        "audio": {"source": {"fetch_instructions": "Visit https://example.invalid/dataset and follow its steps."}},
+        "metadata": {"language": "en-US", "recording_environment": "quiet", "speech_style": "read"},
+    }
+    pack["sha256"] = canonical_asset_sha256(pack)
+    packs_dir = tmp_path / "packs" / "incomplete-pack"
+    packs_dir.mkdir(parents=True)
+    (packs_dir / "pack.yaml").write_text(yaml.safe_dump(pack, sort_keys=False))
+
     result = runner.invoke(app, [
-        "run", "whisper-medium-nl-batch", "example-common-voice-nl-batch",
+        "run", "whisper-medium-en-batch", "incomplete-pack",
         "--profiles-dir", str(REPO_ROOT / "profiles"),
-        "--packs-dir", str(REPO_ROOT / "packs"),
+        "--packs-dir", str(tmp_path / "packs"),
     ])
     assert result.exit_code == 1
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "fetch it manually" in result.output
-    assert "commonvoice.mozilla.org" in result.output
+    assert "example.invalid/dataset" in result.output
 
 
 def test_bare_invocation_shows_help_instead_of_hanging():
