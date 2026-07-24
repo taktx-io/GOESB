@@ -88,6 +88,8 @@ jobs:
             --paths runner/src \
             $COLLECT_FLAGS \
             --collect-data oesb_runner \
+            --collect-all questionary \
+            --collect-all prompt_toolkit \
             --hidden-import "${{ matrix.engine.adapter }}" \
             goesb_entry.py
 
