@@ -1,0 +1,7 @@
+id: apple-m4
+display_name: Apple M4
+vendor: Apple
+category: cpu
+cores: 10
+threads: 10
+release_year: 2024

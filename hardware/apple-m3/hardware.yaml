@@ -1,0 +1,7 @@
+id: apple-m3
+display_name: Apple M3
+vendor: Apple
+category: cpu
+cores: 8
+threads: 8
+release_year: 2023

@@ -162,6 +162,7 @@ def test_wizard_run_builds_expected_run_args(monkeypatch):
         raise AssertionError(f"{wanted!r} not offered: {choices}")
 
     monkeypatch.setattr(cli_module.questionary, "select", fake_select)
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
 
     calls = []
     monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
@@ -170,8 +171,32 @@ def test_wizard_run_builds_expected_run_args(monkeypatch):
 
     assert calls == [[
         "run", "whisper-medium-en-batch", "librispeech-en-batch",
-        "--repeats", "1", "--model-override", "tiny",
+        "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6", "--model-override", "tiny",
     ]]
+
+
+def test_wizard_run_cancelling_hardware_pick_runs_nothing(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "librispeech-en-batch", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
+    )
+    monkeypatch.setattr(cli_module.questionary, "select", lambda *a, **k: _FakeAsk("whisper-medium-en-batch"))
+    text_responses = iter(["", "2"])
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(next(text_responses)))
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: None)
+
+    calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert calls == []
 
 
 def test_wizard_batch_dispatch_calls_wizard_run_batch(monkeypatch):
@@ -226,6 +251,7 @@ def test_wizard_run_batch_builds_combos_and_continues_past_failures(monkeypatch,
     monkeypatch.setattr(cli_module.questionary, "select", fake_select)
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
 
     reexec_calls = []
 
@@ -239,8 +265,8 @@ def test_wizard_run_batch_builds_combos_and_continues_past_failures(monkeypatch,
     cli_module._wizard_run_batch()
 
     assert reexec_calls == [
-        ["run", "profile-a", "pack-a", "--repeats", "1"],
-        ["run", "profile-b", "pack-b", "--repeats", "1"],
+        ["run", "profile-a", "pack-a", "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6"],
+        ["run", "profile-b", "pack-b", "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6"],
     ]
     out = capsys.readouterr().out
     assert "✗ profile-a  x  pack-a" in out
@@ -262,6 +288,7 @@ def test_wizard_run_batch_declines_confirmation_runs_nothing(monkeypatch):
     monkeypatch.setattr(cli_module.questionary, "select", lambda *a, **k: _FakeAsk("pack-a"))
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("2"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
 
     calls = []
     monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
@@ -269,6 +296,72 @@ def test_wizard_run_batch_declines_confirmation_runs_nothing(monkeypatch):
     cli_module._wizard_run_batch()
 
     assert calls == []
+
+
+def test_list_hardware_offline_lists_local_hardware():
+    result = runner.invoke(
+        app, ["list-hardware", "--offline", "--hardware-dir", str(REPO_ROOT / "hardware")]
+    )
+    assert result.exit_code == 0
+    assert "intel-xeon-e3-1240-v6" in result.stdout
+    assert "Intel" in result.stdout
+
+
+def test_pick_hardware_id_resolves_label_back_to_id(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_hardware_rows",
+        lambda *a, **k: [
+            {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+            {"id": "custom", "display_name": "Other / not yet in the catalog", "vendor": "Other", "category": "other"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module.questionary, "autocomplete",
+        lambda *a, **k: _FakeAsk("Intel Xeon E3-1240 v6 (Intel)"),
+    )
+
+    assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) == "intel-xeon-e3-1240-v6"
+
+
+def test_pick_hardware_id_unmatched_answer_falls_back_to_custom(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_hardware_rows",
+        lambda *a, **k: [
+            {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module.questionary, "autocomplete",
+        lambda *a, **k: _FakeAsk("Other / not yet in the catalog"),
+    )
+
+    assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) == "custom"
+
+
+def test_pick_hardware_id_empty_catalog_falls_back_to_custom(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
+
+    assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) == "custom"
+
+
+def test_pick_hardware_id_cancelled_returns_none(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_hardware_rows",
+        lambda *a, **k: [
+            {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+        ],
+    )
+    monkeypatch.setattr(cli_module.questionary, "autocomplete", lambda *a, **k: _FakeAsk(None))
+
+    assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) is None
 
 
 class _FakeAsk:

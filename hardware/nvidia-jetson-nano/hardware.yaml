@@ -1,0 +1,6 @@
+id: nvidia-jetson-nano
+display_name: NVIDIA Jetson Nano
+vendor: NVIDIA
+category: gpu
+vram_gb: 4
+release_year: 2019

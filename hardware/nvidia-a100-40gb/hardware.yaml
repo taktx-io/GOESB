@@ -1,0 +1,6 @@
+id: nvidia-a100-40gb
+display_name: NVIDIA A100 40GB
+vendor: NVIDIA
+category: gpu
+vram_gb: 40
+release_year: 2020

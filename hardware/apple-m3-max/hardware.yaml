@@ -1,0 +1,7 @@
+id: apple-m3-max
+display_name: Apple M3 Max
+vendor: Apple
+category: cpu
+cores: 16
+threads: 16
+release_year: 2023

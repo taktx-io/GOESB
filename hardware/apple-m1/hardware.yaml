@@ -1,0 +1,7 @@
+id: apple-m1
+display_name: Apple M1
+vendor: Apple
+category: cpu
+cores: 8
+threads: 8
+release_year: 2020

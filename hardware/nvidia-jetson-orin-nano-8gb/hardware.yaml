@@ -1,0 +1,6 @@
+id: nvidia-jetson-orin-nano-8gb
+display_name: NVIDIA Jetson Orin Nano 8GB
+vendor: NVIDIA
+category: gpu
+vram_gb: 8
+release_year: 2023

@@ -1,0 +1,6 @@
+id: nvidia-jetson-agx-orin-64gb
+display_name: NVIDIA Jetson AGX Orin 64GB
+vendor: NVIDIA
+category: gpu
+vram_gb: 64
+release_year: 2022

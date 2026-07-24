@@ -1,0 +1,9 @@
+id: intel-xeon-gold-6248
+display_name: Intel Xeon Gold 6248
+vendor: Intel
+category: cpu
+cores: 20
+threads: 40
+base_clock_ghz: 2.5
+max_clock_ghz: 3.9
+release_year: 2019

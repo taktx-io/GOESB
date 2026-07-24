@@ -127,8 +127,11 @@ def _wizard_run() -> None:
     repeats = questionary.text("Repeats:", default="2").ask()
     if repeats is None:
         return
+    hardware_id = _pick_hardware_id(DEFAULT_API_URL, "hardware", offline=False)
+    if hardware_id is None:
+        return
 
-    args = ["run", profile_id, pack_id, "--repeats", repeats]
+    args = ["run", profile_id, pack_id, "--repeats", repeats, "--hardware", hardware_id]
     if model_override:
         args += ["--model-override", model_override]
     _reexec(args)
@@ -177,6 +180,9 @@ def _wizard_run_batch() -> None:
     repeats = questionary.text("Repeats (applied to every run in the batch):", default="2").ask()
     if repeats is None:
         return
+    hardware_id = _pick_hardware_id(DEFAULT_API_URL, "hardware", offline=False)
+    if hardware_id is None:
+        return
 
     typer.echo(f"About to run {len(combos)} benchmark(s):")
     for profile_id, pack_id in combos:
@@ -187,7 +193,7 @@ def _wizard_run_batch() -> None:
     outcomes: list[tuple[str, str, bool]] = []
     for profile_id, pack_id in combos:
         try:
-            _reexec(["run", profile_id, pack_id, "--repeats", repeats])
+            _reexec(["run", profile_id, pack_id, "--repeats", repeats, "--hardware", hardware_id])
             outcomes.append((profile_id, pack_id, True))
         except typer.Exit:
             outcomes.append((profile_id, pack_id, False))
@@ -414,6 +420,65 @@ def _pack_rows(api_url: str, packs_dir: str, offline: bool) -> list[dict]:
     return rows
 
 
+def _hardware_rows(api_url: str, hardware_dir: str, offline: bool) -> list[dict]:
+    """Each row: id, display_name, vendor, category — shared by list-hardware
+    and the wizard's hardware picker. Live by default (not cached forever
+    like fetch_profile/fetch_pack): a pinned profile/pack is immutable once
+    referenced by id+version+sha, but the hardware catalog is a growing
+    collection where picker-time staleness matters."""
+    rows: list[dict] = []
+    if not offline:
+        try:
+            data = _get_json(f"{api_url.rstrip('/')}/hardware/catalog", timeout=10)
+            rows = [
+                {
+                    "id": h["id"], "display_name": h["display_name"],
+                    "vendor": h["vendor"], "category": h["category"],
+                }
+                for h in data["hardware"]
+            ]
+        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+            typer.echo(f"could not reach {api_url} ({exc}) — falling back to local {hardware_dir!r}", err=True)
+
+    if not rows:
+        local_dir = Path(hardware_dir)
+        if local_dir.exists():
+            for entry in sorted(local_dir.iterdir()):
+                yaml_path = entry / "hardware.yaml"
+                if yaml_path.exists():
+                    hw = _load_yaml(yaml_path)
+                    rows.append({
+                        "id": hw["id"], "display_name": hw["display_name"],
+                        "vendor": hw["vendor"], "category": hw["category"],
+                    })
+    return rows
+
+
+def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool) -> str | None:
+    """Searchable hardware picker shared by _wizard_run and
+    _wizard_run_batch. questionary.autocomplete only takes plain-string
+    choices (no separate display/value like select()'s Choice), so this
+    keeps its own label->id mapping and resolves an unmatched/blank answer
+    to the catalog's 'custom' escape hatch."""
+    rows = _hardware_rows(api_url, hardware_dir, offline)
+    if not rows:
+        return "custom"
+
+    labels_by_id = {r["id"]: f"{r['display_name']} ({r['vendor']})" for r in rows}
+    ids_by_label = {v: k for k, v in labels_by_id.items()}
+    other_label = "Other / not yet in the catalog"
+    choices = sorted(ids_by_label) + [other_label]
+
+    answer = questionary.autocomplete(
+        "What hardware did you run this on? (type to search)",
+        choices=choices,
+        match_middle=True,
+    ).ask()
+    if answer is None:
+        return None
+    return ids_by_label.get(answer, "custom")
+
+
 @app.command("list-profiles")
 def list_profiles_cmd(
     api_url: str = typer.Option(DEFAULT_API_URL, help="Where to list official profiles from."),
@@ -450,6 +515,25 @@ def list_packs_cmd(
     typer.echo(f"{'ID':<36} {'VISIBILITY':<12} VERSION")
     for r in rows:
         typer.echo(f"{r['id']:<36} {r['visibility']:<12} {r['version']}")
+
+
+@app.command("list-hardware")
+def list_hardware_cmd(
+    api_url: str = typer.Option(DEFAULT_API_URL, help="Where to list the official hardware catalog from."),
+    hardware_dir: str = typer.Option(
+        "hardware", help="Also used as a fallback (or with --offline) to list local hardware entries."
+    ),
+    offline: bool = typer.Option(False, "--offline", help="List local hardware entries only, skip the API call."),
+) -> None:
+    """List hardware ids you can pass to `goesb run --hardware` (id, display name, vendor, category)."""
+    rows = _hardware_rows(api_url, hardware_dir, offline)
+    if not rows:
+        typer.echo("no hardware entries found", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"{'ID':<32} {'DISPLAY NAME':<40} {'VENDOR':<14} CATEGORY")
+    for r in rows:
+        typer.echo(f"{r['id']:<32} {r['display_name']:<40} {r['vendor']:<14} {r['category']}")
 
 
 def _sample_during(fn, interval_s: float = 0.2):
@@ -530,6 +614,14 @@ def run(
     offline: bool = typer.Option(
         False, "--offline",
         help="Never fetch a profile/pack over the network; fail if not found locally.",
+    ),
+    hardware_id: str = typer.Option(
+        None, "--hardware",
+        help="Catalog hardware id you actually ran this on (see `goesb list-hardware`); "
+        "leave unset to skip. Not validated locally — the auto-detected "
+        "environment.cpu/gpu fields are captured either way; this is a "
+        "user-asserted override for when auto-detection is wrong (e.g. under "
+        "virtualization, where the guest OS cannot see the real hardware).",
     ),
 ) -> None:
     """Run a benchmark for a profile + pack and emit a signed result document."""
@@ -850,6 +942,8 @@ def run(
         "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "runner": {"version": __version__},
     }
+    if hardware_id:
+        result["hardware_id"] = hardware_id
 
     # Nothing named payload_sha256/signature exists on `result` yet, so this
     # hashes exactly the content those two fields will end up covering.

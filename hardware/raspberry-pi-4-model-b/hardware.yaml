@@ -1,0 +1,8 @@
+id: raspberry-pi-4-model-b
+display_name: Raspberry Pi 4 Model B (BCM2711)
+vendor: Raspberry Pi
+category: cpu
+cores: 4
+threads: 4
+max_clock_ghz: 1.8
+release_year: 2019

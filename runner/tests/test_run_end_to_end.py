@@ -38,6 +38,7 @@ def test_run_produces_valid_signed_reproducible_result(tmp_path):
         "--packs-dir", str(REPO_ROOT / "packs"),
         "--results-dir", str(results_dir),
         "--models-root", str(tmp_path / "models"),
+        "--hardware", "intel-xeon-e3-1240-v6",
     ])
     assert result.exit_code == 0, result.stdout
 
@@ -50,6 +51,9 @@ def test_run_produces_valid_signed_reproducible_result(tmp_path):
 
     # Hashes verify: signature covers exactly the content it claims to.
     assert verify_result_document(doc) is True
+
+    # User-asserted hardware id makes it into the signed document as-is.
+    assert doc["hardware_id"] == "intel-xeon-e3-1240-v6"
 
     # Reproducibility: primary metric (wer) has zero spread across 2 repeats
     # for this deterministic (beam_size, temperature=0.0) config — the

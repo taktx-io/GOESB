@@ -4,7 +4,23 @@ All notable changes to GOESB are documented here. Format loosely follows
 Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-07-25
 ### Added
+- Curated hardware catalog (`hardware/<id>/hardware.yaml`, ~37 seed CPU/GPU
+  entries + a `custom` escape hatch) so a result can carry a user-asserted
+  `hardware_id` instead of relying solely on the OS-probed CPU/GPU string,
+  which is unrecoverably wrong under virtualization (e.g. a real Xeon
+  E3-1240 v6 reports to a QEMU/KVM guest as "QEMU Virtual CPU version
+  2.5+"). `goesb run --hardware <id>` and a searchable wizard picker
+  (`_pick_hardware_id`, backed by `goesb list-hardware`) let a user assert
+  it; auto-detection stays as a diagnostic field. Platform-side: ingest
+  validates `hardware_id` against the catalog (optional, no backfill of old
+  results), `/hardware/catalog` serves it, `/hardware`'s aggregation groups
+  catalog-backed and legacy results separately, and `/answers`/
+  `/leaderboards` hardware filtering now keys off `hardware_id`.
+
+### Added (earlier, pre-dating versioned changelog entries)
 - M0 foundation: monorepo scaffold (runner, api, web, schemas, profiles, packs).
 - Documentation: vision, requirements, architecture, roadmap, glossary.
 - ADRs: record-decisions, tech stack, open-source strategy, runner security model.

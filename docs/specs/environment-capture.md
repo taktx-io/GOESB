@@ -23,6 +23,14 @@ lets the platform detect when a "reproduction" actually changed a variable
 - Cooling (active/passive; fan present) — explains throttling
 - Power source (AC/battery) and, where available, power-delivery limits
 
+Auto-probed CPU/GPU model strings are unrecoverable under virtualization (a
+guest OS cannot see the host's real hardware — e.g. a real Xeon E3-1240 v6
+reports to a QEMU/KVM guest as "QEMU Virtual CPU version 2.5+"), so a result
+also carries an optional, user-asserted `hardware_id` — a reference into the
+git-reviewed catalog under `hardware/` (see `hardware/README.md`). This is
+the canonical value leaderboards/filtering key off; `environment.cpu`/`gpu`
+stay as the raw diagnostic fingerprint described above.
+
 ### Software
 - Operating system + version
 - Kernel version

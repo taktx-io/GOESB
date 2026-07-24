@@ -1,0 +1,7 @@
+id: apple-m1-pro
+display_name: Apple M1 Pro
+vendor: Apple
+category: cpu
+cores: 10
+threads: 10
+release_year: 2021

@@ -1,0 +1,6 @@
+id: nvidia-rtx-4070
+display_name: NVIDIA GeForce RTX 4070
+vendor: NVIDIA
+category: gpu
+vram_gb: 12
+release_year: 2023

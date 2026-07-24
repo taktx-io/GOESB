@@ -66,6 +66,9 @@
     "config_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
       "description": "Hash over the fully-resolved configuration (profile.configuration + any explicit run overrides) used for this run." },
 
+    "hardware_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "User-asserted hardware catalog id (see the monorepo's hardware/ directory) — the canonical value leaderboards/filtering key off, since environment.cpu.model can be unrecoverably wrong under virtualization." },
+
     "environment": {
       "type": "object",
       "description": "The reproducibility fingerprint captured by `goesb env` at run time. See docs/specs/environment-capture.md. Fields the platform cannot probe are present and null with a reason, never omitted.",

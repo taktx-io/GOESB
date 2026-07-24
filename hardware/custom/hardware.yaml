@@ -1,0 +1,7 @@
+id: custom
+display_name: Other / not yet in the catalog
+vendor: Other
+category: other
+notes: Pick this when your real hardware isn't listed yet — consider opening a PR
+  to add it. The auto-detected environment.cpu/gpu fields still capture whatever the
+  OS reports.

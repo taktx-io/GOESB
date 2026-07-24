@@ -1,0 +1,6 @@
+id: nvidia-quadro-p2000
+display_name: NVIDIA Quadro P2000
+vendor: NVIDIA
+category: gpu
+vram_gb: 5
+release_year: 2017

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goesb.dev/schemas/benchmark-hardware.schema.json",
+  "title": "GOESB Hardware Catalog Entry",
+  "description": "A curated, git-reviewed CPU/GPU catalog entry a runner user can assert as the real hardware behind a benchmark result, replacing the OS-probed (and under virtualization, unrecoverable) raw model string.",
+  "type": "object",
+  "required": ["id", "display_name", "vendor", "category"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Globally unique, immutable hardware id, e.g. 'intel-xeon-e3-1240-v6'." },
+    "display_name": { "type": "string", "description": "Human-readable name, e.g. 'Intel Xeon E3-1240 v6'." },
+    "vendor": { "type": "string", "description": "e.g. 'Intel', 'AMD', 'Apple', 'NVIDIA', 'Raspberry Pi'." },
+    "category": { "enum": ["cpu", "gpu", "other"] },
+    "cores": { "type": "integer", "minimum": 1, "description": "Physical cores (cpu only)." },
+    "threads": { "type": "integer", "minimum": 1, "description": "Logical threads (cpu only)." },
+    "base_clock_ghz": { "type": "number", "minimum": 0 },
+    "max_clock_ghz": { "type": "number", "minimum": 0 },
+    "vram_gb": { "type": "number", "minimum": 0, "description": "gpu only." },
+    "release_year": { "type": "integer" },
+    "notes": { "type": "string" }
+  }
+}

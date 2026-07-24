@@ -1,0 +1,6 @@
+id: nvidia-a10
+display_name: NVIDIA A10
+vendor: NVIDIA
+category: gpu
+vram_gb: 24
+release_year: 2021

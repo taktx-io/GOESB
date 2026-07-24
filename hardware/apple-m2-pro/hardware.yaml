@@ -1,0 +1,7 @@
+id: apple-m2-pro
+display_name: Apple M2 Pro
+vendor: Apple
+category: cpu
+cores: 12
+threads: 12
+release_year: 2023

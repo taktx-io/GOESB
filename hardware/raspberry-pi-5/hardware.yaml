@@ -1,0 +1,8 @@
+id: raspberry-pi-5
+display_name: Raspberry Pi 5 (BCM2712)
+vendor: Raspberry Pi
+category: cpu
+cores: 4
+threads: 4
+max_clock_ghz: 2.4
+release_year: 2023
