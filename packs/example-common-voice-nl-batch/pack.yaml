@@ -1,7 +1,6 @@
-# Example open pack manifest (illustrative). Audio is NOT committed to git.
 id: example-common-voice-nl-batch
 version: 1.0.0
-sha256: "8bca49fd340182ac05f9408bfeefa9aabebb9f346db22911d0a86abcf2c910f7"
+sha256: 8ed21cf38f09eb1000cae2c6badf41a681848e01ad1a7533b4174d112f2c2118
 profile_id: whisper-medium-nl-batch
 visibility: open
 license: CC0-1.0
@@ -9,13 +8,28 @@ audio:
   count: 100
   total_duration_s: 600
   sample_rate_hz: 16000
-  manifest_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  manifest_sha256: '0000000000000000000000000000000000000000000000000000000000000000'
   source:
-    url: "https://commonvoice.mozilla.org/nl/datasets"
-    fetch_instructions: >
-      Download the nl (Dutch) Common Voice release, extract the referenced
-      100-clip subset (see manifest), and verify against manifest_sha256
-      before running.
+    url: https://commonvoice.mozilla.org/nl/datasets
+    fetch_instructions: "This example pack is a placeholder, not yet completed: manifest.jsonl\n\
+      (the file listing every clip's utterance_id/relative_path/reference_text/\n\
+      duration_s, one line each - see packs/example-librispeech-en-batch/manifest.jsonl\n\
+      for the exact shape) hasn't been created here yet, so `goesb run` has\nnothing\
+      \ to fetch or verify yet.\n\nTo finish it: visit https://commonvoice.mozilla.org/nl/datasets\
+      \ and\ndownload the nl (Dutch) release (requires accepting their terms per\n\
+      language - this step can't be scripted, unlike FLEURS/LibriSpeech), pick\n~100\
+      \ clips, save the audio files into\npacks/example-common-voice-nl-batch/audio/,\
+      \ and write manifest.jsonl\nlisting them. Then compute the real hashes and write\
+      \ them into this file\n(audio.manifest_sha256 and the top-level sha256):\n\n\
+      \  python3 -c \"\n  import yaml\n  from pathlib import Path\n  from oesb_runner.hashing\
+      \ import canonical_asset_sha256, sha256_file\n  pack_dir = Path('packs/example-common-voice-nl-batch')\n\
+      \  pack = yaml.safe_load((pack_dir / 'pack.yaml').read_text())\n  pack['audio']['manifest_sha256']\
+      \ = sha256_file(pack_dir / 'manifest.jsonl')\n  pack['sha256'] = canonical_asset_sha256(pack)\n\
+      \  (pack_dir / 'pack.yaml').write_text(yaml.safe_dump(pack, sort_keys=False,\
+      \ allow_unicode=True))\n  \"\n\nThen run `python scripts/validate_assets.py`\
+      \ to confirm it's self-consistent.\n\nUntil this is done, try example-fleurs-nl-batch\
+      \ instead - same profile\n(whisper-medium-nl-batch), fully working, audio fetched\
+      \ automatically.\n"
 metadata:
   language: nl-NL
   dialect: standard
@@ -27,4 +41,7 @@ metadata:
   num_speakers: 100
   speech_style: read
   transcription_style: verbatim
-  tags: [common-voice, dutch, clean]
+  tags:
+  - common-voice
+  - dutch
+  - clean

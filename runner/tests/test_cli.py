@@ -80,7 +80,7 @@ def test_run_prints_fetch_instructions_for_a_pack_with_no_manifest_yet():
     assert result.exit_code == 1
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "fetch it manually" in result.output
-    assert "Common Voice" in result.output
+    assert "commonvoice.mozilla.org" in result.output
 
 
 def test_bare_invocation_shows_help_instead_of_hanging():
