@@ -11,6 +11,7 @@ dependencies = [
   "psutil>=5.9",
   "cryptography>=42.0",
   "jsonschema>=4.21",
+  "packaging>=23.0",
 ]
 
 [project.optional-dependencies]

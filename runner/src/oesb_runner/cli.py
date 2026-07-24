@@ -18,6 +18,7 @@ from pathlib import Path
 import psutil
 import typer
 import yaml
+from packaging.version import Version
 
 from . import __version__
 from . import energy as energy_probe
@@ -507,6 +508,11 @@ def _post_json(url: str, payload: dict, timeout: int) -> dict:
         return json.loads(resp.read())
 
 
+def _get_json(url: str, timeout: int) -> dict:
+    with urllib.request.urlopen(url, timeout=timeout) as resp:  # nosec B310 - caller-controlled --api-url
+        return json.loads(resp.read())
+
+
 @app.command()
 def submit(
     result_path: str,
@@ -527,6 +533,22 @@ def submit(
     the file hasn't been altered since `goesb run` wrote it.
     """
     result = json.loads(Path(result_path).read_text())
+
+    try:
+        health = _get_json(f"{api_url.rstrip('/')}/health", timeout=10)
+    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+        typer.echo(f"could not reach {api_url} to check compatibility: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    min_runner_version = health.get("min_runner_version")
+    if min_runner_version and Version(__version__) < Version(min_runner_version):
+        typer.echo(
+            f"This goesb-runner ({__version__}) is older than what {api_url} currently "
+            f"accepts (minimum {min_runner_version}) — upgrade before submitting: "
+            "pip install --upgrade goesb-runner",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     recomputed = canonical_asset_sha256(result, exclude=("payload_sha256", "signature"))
     if recomputed != result.get("payload_sha256"):
