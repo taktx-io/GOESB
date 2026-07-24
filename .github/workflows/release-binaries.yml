@@ -1,0 +1,124 @@
+name: Release runner binaries
+
+# Standalone, per-engine executables (PyInstaller) for each OS/arch GitHub
+# can build on natively -- PyInstaller and Nuitka both require building on
+# the actual target OS/arch, no cross-compiling, so this is a real build
+# matrix, not a single job. Attaches to the same GitHub Release release.yml
+# creates for this tag.
+#
+# Two things a frozen build needs that a normal/editable install doesn't
+# (see the commits that made these necessary, on the runner package itself):
+# schemas ship as package data (importlib.resources, --collect-data
+# oesb_runner picks them up), and adapter source hashes are precomputed into
+# a manifest before freezing (scripts/generate_frozen_adapter_hashes.py) --
+# a frozen build has no monorepo checkout and no live .py source file to
+# hash for ADR-0004's provenance chain.
+
+on:
+  push:
+    tags: [ "runner-v*" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - macos-14
+          - windows-latest
+        engine:
+          - extra: faster-whisper
+            collect: ["faster_whisper", "ctranslate2", "tokenizers"]
+            adapter: oesb_runner.adapters.faster_whisper
+          - extra: vosk
+            collect: ["vosk"]
+            adapter: oesb_runner.adapters.vosk
+          - extra: whisper-cpp
+            collect: ["pywhispercpp"]
+            adapter: oesb_runner.adapters.whisper_cpp
+        include:
+          - os: ubuntu-latest
+            platform_tag: linux-x64
+          - os: ubuntu-24.04-arm
+            platform_tag: linux-arm64
+          - os: macos-14
+            platform_tag: macos-arm64
+          - os: windows-latest
+            platform_tag: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: Install runner + engine extra + pyinstaller
+        run: pip install -e "./runner[${{ matrix.engine.extra }}]" pyinstaller
+
+      - name: Precompute frozen adapter hashes
+        run: python scripts/generate_frozen_adapter_hashes.py
+
+      - name: Write entry point
+        shell: bash
+        run: |
+          cat > goesb_entry.py <<'PYEOF'
+          import multiprocessing
+
+          from oesb_runner.cli import app
+
+          if __name__ == "__main__":
+              multiprocessing.freeze_support()
+              app()
+          PYEOF
+
+      - name: Build binary
+        shell: bash
+        run: |
+          NAME="goesb-${{ matrix.engine.extra }}-${{ matrix.platform_tag }}"
+          COLLECT_FLAGS=""
+          for pkg in ${{ join(matrix.engine.collect, ' ') }}; do
+            COLLECT_FLAGS="$COLLECT_FLAGS --collect-all $pkg"
+          done
+          pyinstaller --onefile --name "$NAME" \
+            --paths runner/src \
+            $COLLECT_FLAGS \
+            --collect-data oesb_runner \
+            --hidden-import "${{ matrix.engine.adapter }}" \
+            goesb_entry.py
+
+      - name: Smoke test the binary
+        shell: bash
+        run: |
+          BIN="dist/goesb-${{ matrix.engine.extra }}-${{ matrix.platform_tag }}"
+          if [ "${{ runner.os }}" = "Windows" ]; then BIN="$BIN.exe"; fi
+          "$BIN" --help
+          "$BIN" validate profiles/whisper-medium-en-batch/profile.yaml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: goesb-${{ matrix.engine.extra }}-${{ matrix.platform_tag }}
+          path: dist/goesb-${{ matrix.engine.extra }}-${{ matrix.platform_tag }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p dist
+          find artifacts -type f -exec cp {} dist/ \;
+          ls -la dist/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/*
