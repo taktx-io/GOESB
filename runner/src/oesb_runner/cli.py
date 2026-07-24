@@ -570,6 +570,14 @@ def run(
 
     model_cfg = dict(profile["model"])
     model_name = model_override or model_cfg["name"]
+    # 2-letter code from the profile's BCP-47 language (e.g. "es-419" -> "es")
+    # so the adapter can condition the decoder on the actual spoken
+    # language, rather than the engine's own default — whisper.cpp in
+    # particular defaults to English when no language is given, which for
+    # non-English audio produces English-translation-flavored hallucinated
+    # output instead of a real transcription in the target language.
+    profile_language = profile.get("language")
+    language_code = profile_language.split("-")[0].lower() if profile_language else None
     ruleset_id = profile["normalization"]["ruleset_id"]
     norm_options = {
         k: v for k, v in profile["normalization"].items()
@@ -601,6 +609,7 @@ def run(
                     vad=model_cfg.get("vad", True),
                     threads=configuration.get("threads", 4),
                     download_root=models_root_path,
+                    language=language_code,
                 )
 
             transcriptions, samples, temp_samples_c, rapl_uj_delta = _sample_during(_do_transcribe)
@@ -645,6 +654,7 @@ def run(
                     vad=model_cfg.get("vad", True),
                     threads=configuration.get("threads", 4),
                     download_root=models_root_path,
+                    language=language_code,
                 )
 
             traces, samples, temp_samples_c, rapl_uj_delta = _sample_during(_do_transcribe)

@@ -35,6 +35,7 @@ def run_batch(
     vad: bool = True,
     threads: int = 4,
     download_root: str | Path | None = None,
+    language: str | None = None,
 ) -> list[Transcription]:
     """Transcribe every utterance once, batch-style, and time each call.
 
@@ -46,6 +47,18 @@ def run_batch(
     `**params` doesn't set (defaults to whisper.cpp's own greedy strategy),
     and this batch adapter doesn't chunk audio (that's M5's streaming
     concern).
+
+    `language` (2-letter code, e.g. "es") matters more here than it might
+    look: whisper.cpp's own default (`whisper_full_default_params()`) is a
+    hardcoded `language="en"`, not auto-detect — leaving it unset on
+    non-English audio doesn't just skip a nice-to-have, it makes the model
+    decode conditioned on the wrong language and produce fluent-sounding but
+    wrong (translation-flavored hallucination) English text instead of a
+    real transcription. `None` (profile has no declared language) falls
+    back to real auto-detection instead of silently keeping that "en"
+    default — except for an English-only (`.en`) model, which has no other
+    language to detect and produces near-random noise (confirmed: "detected"
+    unrelated languages at ~1% confidence) if asked to try.
     """
     try:
         from pywhispercpp.model import Model
@@ -55,13 +68,21 @@ def run_batch(
             "`pip install goesb-runner[whisper-cpp]`"
         ) from exc
 
+    resolved_model_id = _resolve_model_id(model_name)
+    if language:
+        language_params = {"language": language}
+    elif resolved_model_id.endswith(".en"):
+        language_params = {"language": "en"}
+    else:
+        language_params = {"detect_language": True}
     model = Model(
-        _resolve_model_id(model_name),
+        resolved_model_id,
         models_dir=str(download_root) if download_root is not None else None,
         n_threads=threads,
         temperature=temperature,
         print_realtime=False,
         print_progress=False,
+        **language_params,
     )
 
     results: list[Transcription] = []

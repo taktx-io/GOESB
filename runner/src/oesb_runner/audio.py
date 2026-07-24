@@ -89,8 +89,18 @@ def decode_pcm(path: str | Path, dtype: str = "int16") -> np.ndarray:
     Every GOESB pack shipped so far is already mono at the profile's target
     rate (see each pack's `pack.yaml` `audio.sample_rate_hz`), so this does
     not resample — a documented assumption, not a silent one.
+
+    Always reads via soundfile's float64 path and converts to the requested
+    dtype ourselves, rather than asking soundfile/libsndfile to convert
+    directly — confirmed (soundfile 0.14.0 / libsndfile 1.2.2) that asking
+    for `dtype="int16"` directly on a 32-bit-float-native WAV (e.g. any
+    FLEURS clip) silently returns an all-zero array instead of converting,
+    which fed a real, silently-empty transcription into vosk. Reading as
+    float64 first and scaling ourselves is correct for every source subtype,
+    not just the ones that happen to already match the requested dtype.
     """
     try:
+        import numpy as np
         import soundfile as sf
     except ImportError as exc:  # pragma: no cover - exercised only without an extra
         raise RuntimeError(
@@ -98,7 +108,12 @@ def decode_pcm(path: str | Path, dtype: str = "int16") -> np.ndarray:
             "or `pip install goesb-runner[whisper-cpp]`"
         ) from exc
 
-    samples, _sample_rate = sf.read(str(path), dtype=dtype, always_2d=False)
+    samples, _sample_rate = sf.read(str(path), dtype="float64", always_2d=False)
     if samples.ndim > 1:  # collapse stereo to mono by averaging channels
-        samples = samples.mean(axis=1).astype(samples.dtype)
-    return samples
+        samples = samples.mean(axis=1)
+
+    if dtype == "int16":
+        return np.clip(samples * 32768.0, -32768, 32767).astype(np.int16)
+    if dtype == "float32":
+        return samples.astype(np.float32)
+    raise ValueError(f"unsupported dtype: {dtype!r}")

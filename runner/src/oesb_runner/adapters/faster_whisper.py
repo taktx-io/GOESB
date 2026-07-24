@@ -35,6 +35,7 @@ def run_batch(
     vad: bool = True,
     threads: int = 4,
     download_root: str | Path | None = None,
+    language: str | None = None,
 ) -> list[Transcription]:
     """Transcribe every utterance once, batch-style, and time each call.
 
@@ -46,6 +47,11 @@ def run_batch(
     cached — the caller (the CLI) hashes that directory as `model.sha256`, so
     it must actually be where the weights land, not faster-whisper's default
     shared HF cache.
+
+    `language` (2-letter code, e.g. "es"; `None` = faster-whisper's own
+    auto-detect) should be set from the profile whenever it's known —
+    auto-detection is not required to fail, but it's strictly less reliable
+    than telling the decoder the language up front.
     """
     try:
         from faster_whisper import WhisperModel
@@ -70,6 +76,7 @@ def run_batch(
             beam_size=beam_size,
             temperature=temperature,
             vad_filter=vad,
+            language=language,
         )
         hypothesis_text = " ".join(segment.text.strip() for segment in segments).strip()
         elapsed = time.perf_counter() - start
@@ -94,6 +101,7 @@ def run_streaming(
     vad: bool = True,
     threads: int = 4,
     download_root: str | Path | None = None,
+    language: str | None = None,
 ) -> list[StreamTrace]:
     """Feed each utterance to faster-whisper in `chunk_ms` chunks, re-decoding
     the growing buffer after every chunk (faster-whisper has no incremental
@@ -141,6 +149,7 @@ def run_streaming(
                 beam_size=beam_size,
                 temperature=temperature,
                 vad_filter=vad,
+                language=language,
             )
             segments = list(segments)
             decode_wall_s = time.perf_counter() - start

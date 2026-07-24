@@ -19,6 +19,14 @@ from . import Transcription, log_progress, register
 _MODEL_URLS = {
     "vosk-model-small-en-us-0.15":
         "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+    "vosk-model-small-es-0.42":
+        "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip",
+    "vosk-model-small-fr-0.22":
+        "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip",
+    "vosk-model-small-de-0.15":
+        "https://alphacephei.com/vosk/models/vosk-model-small-de-0.15.zip",
+    "vosk-model-small-pt-0.3":
+        "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip",
 }
 _SAMPLE_RATE = 16000
 
@@ -60,13 +68,17 @@ def run_batch(
     vad: bool = True,
     threads: int = 4,
     download_root: str | Path | None = None,
+    language: str | None = None,
 ) -> list[Transcription]:
     """Transcribe every utterance once, batch-style, and time each call.
 
-    `quantization`/`beam_size`/`temperature`/`vad`/`threads` are accepted for
-    call-shape parity with the other batch adapters (docs/03-roadmap.md M2
-    exit criterion: adapters swap without core changes) but unused — vosk's
-    Kaldi decoder has no equivalent tunables exposed through its Python API.
+    `quantization`/`beam_size`/`temperature`/`vad`/`threads`/`language` are
+    accepted for call-shape parity with the other batch adapters
+    (docs/03-roadmap.md M2 exit criterion: adapters swap without core
+    changes) but unused — vosk's Kaldi decoder has no equivalent tunables
+    exposed through its Python API, and each vosk model is already
+    per-language (the profile's `model.name` picks the language, not a
+    runtime parameter).
     """
     try:
         import vosk
