@@ -25,7 +25,7 @@ from packaging.version import Version
 from . import __version__
 from . import energy as energy_probe
 from .adapters import get_adapter
-from .audio_sources import auto_fetch_audio
+from .audio_sources import AUTO_FETCH_SOURCE_TYPES, auto_fetch_audio
 from .environment import capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
 from .metrics import (
@@ -468,18 +468,8 @@ def run(
                 typer.echo(f"To fetch it:\n{fetch_instructions}", err=True)
             raise typer.Exit(code=1)
 
-        wanted_names = {
-            json.loads(line)["relative_path"]
-            for line in (pack_dir / "manifest.jsonl").read_text().splitlines()
-            if line.strip()
-        }
-        typer.echo(
-            f"No audio at {resolved_audio_dir} yet — attempting auto-fetch "
-            f"(source type: {source.get('type', 'none declared')}) ...",
-            err=True,
-        )
-        fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
-        if fetched is None:
+        manifest_path = pack_dir / "manifest.jsonl"
+        if source.get("type") not in AUTO_FETCH_SOURCE_TYPES or not manifest_path.exists():
             typer.echo(
                 "Don't know how to auto-fetch audio for this pack" +
                 (f" — to fetch it manually:\n{fetch_instructions}" if fetch_instructions
@@ -487,6 +477,18 @@ def run(
                 err=True,
             )
             raise typer.Exit(code=1)
+
+        wanted_names = {
+            json.loads(line)["relative_path"]
+            for line in manifest_path.read_text().splitlines()
+            if line.strip()
+        }
+        typer.echo(
+            f"No audio at {resolved_audio_dir} yet — attempting auto-fetch "
+            f"(source type: {source['type']}) ...",
+            err=True,
+        )
+        fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
         missing = wanted_names - fetched
         if missing:
             typer.echo(

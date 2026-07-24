@@ -65,6 +65,24 @@ def test_list_profiles_offline_no_local_dir_fails(tmp_path):
     assert result.exit_code == 1
 
 
+def test_run_prints_fetch_instructions_for_a_pack_with_no_manifest_yet():
+    # example-common-voice-nl-batch is deliberately incomplete: no
+    # manifest.jsonl, no local audio, and no auto-fetchable source.type
+    # (Common Voice's own consent flow can't be scripted) — `run` must fail
+    # cleanly with the pack's own fetch_instructions, not crash trying to
+    # read a manifest.jsonl that was never committed (regression: this used
+    # to raise an uncaught FileNotFoundError).
+    result = runner.invoke(app, [
+        "run", "whisper-medium-nl-batch", "example-common-voice-nl-batch",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(REPO_ROOT / "packs"),
+    ])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "fetch it manually" in result.output
+    assert "Common Voice" in result.output
+
+
 def test_bare_invocation_shows_help_instead_of_hanging():
     # CliRunner's stdin isn't a tty, same as any piped/scripted invocation —
     # exercises the non-interactive fallback path, not the wizard itself.
