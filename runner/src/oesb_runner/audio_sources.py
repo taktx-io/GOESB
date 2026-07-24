@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import tarfile
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 FLEURS_BASE_URL = "https://huggingface.co/datasets/google/fleurs/resolve/main/data"
 LIBRISPEECH_BASE_URL = "https://www.openslr.org/resources/12"
@@ -34,21 +35,23 @@ def _stream_extract(
     `wanted_names`, stopping as soon as every one has been found."""
     audio_dir.mkdir(parents=True, exist_ok=True)
     collected: set[str] = set()
-    with urllib.request.urlopen(url) as resp:  # nosec B310 - fixed public dataset URL
-        with tarfile.open(fileobj=resp, mode="r|gz") as tar:
-            for member in tar:
-                if not name_filter(member.name) or not member.isfile():
-                    continue
-                name = Path(member.name).name
-                if name not in wanted_names:
-                    continue
-                extracted = tar.extractfile(member)
-                if extracted is None:
-                    continue
-                (audio_dir / name).write_bytes(extracted.read())
-                collected.add(name)
-                if collected == wanted_names:
-                    break
+    with (
+        urllib.request.urlopen(url) as resp,  # nosec B310 - fixed public dataset URL
+        tarfile.open(fileobj=resp, mode="r|gz") as tar,
+    ):
+        for member in tar:
+            if not name_filter(member.name) or not member.isfile():
+                continue
+            name = Path(member.name).name
+            if name not in wanted_names:
+                continue
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                continue
+            (audio_dir / name).write_bytes(extracted.read())
+            collected.add(name)
+            if collected == wanted_names:
+                break
     return collected
 
 

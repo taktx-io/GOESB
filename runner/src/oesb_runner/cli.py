@@ -78,7 +78,7 @@ def _reexec(args: list[str]) -> None:
     the wizard picked instead of duplicating its logic, and streams output
     live instead of capturing it (unlike calling the command function
     in-process)."""
-    result = subprocess.run([sys.argv[0], *args])
+    result = subprocess.run([sys.argv[0], *args], check=False)
     if result.returncode != 0:
         raise typer.Exit(code=result.returncode)
 
