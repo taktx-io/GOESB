@@ -5,6 +5,22 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-25
+### Fixed
+- 0.2.4 shipped a real regression: `run`'s audio auto-fetch correctly
+  landed files in the new shared cache directory, but `load_pack()` was
+  still called with the original (unset) `--audio-dir` value, so it fell
+  back to the pack's own empty directory instead — every auto-fetched
+  pack failed with `PackAudioMissingError` immediately after printing
+  "Fetched N audio files" successfully. Extracted the whole
+  resolve-then-fetch sequence into `_resolve_pack_audio()`, which returns
+  one path used for both the fetch and the `load_pack()` call, so the two
+  can't drift apart again — and added a regression test that invokes the
+  real `run` command end-to-end (previous unit tests of the pieces in
+  isolation, and even a first draft of this same regression test, all
+  passed despite the bug, because none of them exercised `run()`'s actual
+  call site).
+
 ## [0.2.4] - 2026-07-25
 ### Changed
 - Simplified 0.2.3's shared audio cache: rather than fetching into the

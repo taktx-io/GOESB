@@ -463,6 +463,77 @@ def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
+def _resolve_pack_audio(
+    pack_dir: Path, pack_yaml: dict, audio_dir: str | None, offline: bool
+) -> Path:
+    """Figure out where this pack's audio actually is — auto-fetching it if
+    necessary — and return that directory. This is the single source of
+    truth the caller must pass straight to `load_pack()`: resolution and
+    the fetch destination must never be computed twice/separately, since
+    that's exactly how they drifted apart in 0.2.4 (fetched into the
+    shared cache dir, then loaded from the pack's own empty directory)."""
+    source = pack_yaml.get("audio", {}).get("source", {})
+    if audio_dir:
+        resolved_audio_dir = Path(audio_dir)
+    elif (pack_dir / "audio").exists():
+        resolved_audio_dir = pack_dir / "audio"  # already populated (manual or a prior direct fetch) — use it as-is
+    elif source.get("type") in AUTO_FETCH_SOURCE_TYPES:
+        # Nothing here yet and this source is auto-fetchable: point
+        # straight at the shared, content-addressed cache instead of this
+        # pack's own directory. load_pack() looks up audio strictly by the
+        # filename each manifest.jsonl entry names — it never scans the
+        # directory — so every sibling pack whose audio.source matches
+        # (e.g. every engine/size combo generated for one language, all
+        # pointing at the same FLEURS split) can share this exact folder:
+        # the fetch happens at most once total across all of them, and
+        # there's nothing to copy or link afterwards.
+        resolved_audio_dir = shared_audio_dir(source)
+    else:
+        resolved_audio_dir = pack_dir / "audio"
+
+    if resolved_audio_dir.exists():
+        return resolved_audio_dir
+
+    fetch_instructions = source.get("fetch_instructions")
+    if offline:
+        typer.echo(f"No audio at {resolved_audio_dir} and --offline was given", err=True)
+        if fetch_instructions:
+            typer.echo(f"To fetch it:\n{fetch_instructions}", err=True)
+        raise typer.Exit(code=1)
+
+    manifest_path = pack_dir / "manifest.jsonl"
+    if source.get("type") not in AUTO_FETCH_SOURCE_TYPES or not manifest_path.exists():
+        typer.echo(
+            "Don't know how to auto-fetch audio for this pack" +
+            (f" — to fetch it manually:\n{fetch_instructions}" if fetch_instructions
+             else " and no fetch_instructions were provided either."),
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    wanted_names = {
+        json.loads(line)["relative_path"]
+        for line in manifest_path.read_text().splitlines()
+        if line.strip()
+    }
+    typer.echo(
+        f"No audio at {resolved_audio_dir} yet — attempting auto-fetch "
+        f"(source type: {source['type']}) ...",
+        err=True,
+    )
+    fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
+    missing = wanted_names - fetched
+    if missing:
+        typer.echo(
+            f"auto-fetch only found {len(fetched)}/{len(wanted_names)} clips — "
+            f"missing: {sorted(missing)}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    typer.echo(f"Fetched {len(fetched)} audio files into {resolved_audio_dir}", err=True)
+    return resolved_audio_dir
+
+
 # runtime.name in a profile IS the pip extra name (see pyproject.toml
 # [project.optional-dependencies]) — this only maps it to the actual
 # importable module name, since that's the one thing pip's own naming
@@ -882,65 +953,8 @@ def run(
         )
         raise typer.Exit(code=1)
 
-    source = pack_yaml.get("audio", {}).get("source", {})
-    if audio_dir:
-        resolved_audio_dir = Path(audio_dir)
-    elif (pack_dir / "audio").exists():
-        resolved_audio_dir = pack_dir / "audio"  # already populated (manual or a prior direct fetch) — use it as-is
-    elif source.get("type") in AUTO_FETCH_SOURCE_TYPES:
-        # Nothing here yet and this source is auto-fetchable: point
-        # straight at the shared, content-addressed cache instead of this
-        # pack's own directory. load_pack() below looks up audio strictly
-        # by the filename each manifest.jsonl entry names — it never scans
-        # the directory — so every sibling pack whose audio.source matches
-        # (e.g. every engine/size combo generated for one language, all
-        # pointing at the same FLEURS split) can share this exact folder:
-        # the fetch happens at most once total across all of them, and
-        # there's nothing to copy or link afterwards.
-        resolved_audio_dir = shared_audio_dir(source)
-    else:
-        resolved_audio_dir = pack_dir / "audio"
-
-    if not resolved_audio_dir.exists():
-        fetch_instructions = source.get("fetch_instructions")
-        if offline:
-            typer.echo(f"No audio at {resolved_audio_dir} and --offline was given", err=True)
-            if fetch_instructions:
-                typer.echo(f"To fetch it:\n{fetch_instructions}", err=True)
-            raise typer.Exit(code=1)
-
-        manifest_path = pack_dir / "manifest.jsonl"
-        if source.get("type") not in AUTO_FETCH_SOURCE_TYPES or not manifest_path.exists():
-            typer.echo(
-                "Don't know how to auto-fetch audio for this pack" +
-                (f" — to fetch it manually:\n{fetch_instructions}" if fetch_instructions
-                 else " and no fetch_instructions were provided either."),
-                err=True,
-            )
-            raise typer.Exit(code=1)
-
-        wanted_names = {
-            json.loads(line)["relative_path"]
-            for line in manifest_path.read_text().splitlines()
-            if line.strip()
-        }
-        typer.echo(
-            f"No audio at {resolved_audio_dir} yet — attempting auto-fetch "
-            f"(source type: {source['type']}) ...",
-            err=True,
-        )
-        fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
-        missing = wanted_names - fetched
-        if missing:
-            typer.echo(
-                f"auto-fetch only found {len(fetched)}/{len(wanted_names)} clips — "
-                f"missing: {sorted(missing)}",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-        typer.echo(f"Fetched {len(fetched)} audio files into {resolved_audio_dir}", err=True)
-
-    pack = load_pack(pack_dir, audio_dir=Path(audio_dir) if audio_dir else None)
+    resolved_audio_dir = _resolve_pack_audio(pack_dir, pack_yaml, audio_dir, offline)
+    pack = load_pack(pack_dir, audio_dir=resolved_audio_dir)
 
     typer.echo(
         f"Loaded {len(pack.utterances)} utterances "

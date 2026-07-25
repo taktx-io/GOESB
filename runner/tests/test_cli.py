@@ -1,3 +1,6 @@
+import io
+import json
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -591,3 +594,138 @@ def test_ensure_engine_installed_frozen_binary_refuses(monkeypatch):
 
     with pytest.raises(typer.Exit):
         cli_module._ensure_engine_installed("vosk")
+
+
+class _FakeAudioResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fake_pack(pack_dir: Path, source: dict) -> dict:
+    """A minimal, self-contained pack fixture with real (not skipped)
+    hashes — load_pack() checks pack.yaml's sha256 and manifest.jsonl's
+    manifest_sha256 against actual content, so a fixture with fake hashes
+    would fail before ever reaching the audio-resolution logic under
+    test."""
+    from oesb_runner.hashing import canonical_asset_sha256, sha256_file
+
+    pack_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = pack_dir / "manifest.jsonl"
+    manifest_path.write_text(json.dumps({
+        "utterance_id": "u1", "relative_path": "wanted.wav",
+        "reference_text": "hello", "duration_s": 1.0,
+    }) + "\n")
+
+    pack_yaml = {
+        "id": "fake-pack", "version": "1.0.0", "profile_id": "fake-profile",
+        "visibility": "open", "license": "CC0-1.0",
+        "metadata": {"language": "en-US", "recording_environment": "quiet", "speech_style": "read"},
+        "audio": {"manifest_sha256": sha256_file(manifest_path), "source": source},
+    }
+    pack_yaml["sha256"] = canonical_asset_sha256(pack_yaml)
+    (pack_dir / "pack.yaml").write_text(yaml.safe_dump(pack_yaml))
+    return pack_yaml
+
+
+def test_run_command_loads_audio_from_wherever_it_was_actually_fetched(tmp_path, monkeypatch):
+    """End-to-end regression test through the real `run` command's actual
+    control flow — not just its pieces in isolation. A real bug shipped in
+    0.2.4: audio was auto-fetched into the shared cache directory, but
+    load_pack() was called with a different (stale) directory, so every
+    run of an auto-fetchable pack failed with PackAudioMissingError
+    despite the fetch itself succeeding and reporting success. Unit tests
+    of the fetch logic and of load_pack() both passed in isolation — a
+    prior version of this very test called `_resolve_pack_audio()` and
+    `load_pack()` separately and also passed despite the bug, because it
+    re-did the correct wiring itself instead of exercising `run()`'s own
+    call site. This invokes the real `run` subcommand end to end and only
+    stops (via a recognizable sentinel) right after load_pack succeeds —
+    proving the exact call site that broke actually works, without
+    needing a real ML engine installed."""
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    class _StoppedRightAfterLoadPack(Exception):
+        pass
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+
+    def _fake_get_adapter(runtime_name, benchmark_type="batch"):
+        raise _StoppedRightAfterLoadPack()
+
+    monkeypatch.setattr(cli_module, "get_adapter", _fake_get_adapter)
+
+    source = {"type": "fleurs", "params": {"language": "xx_xx", "split": "dev"}}
+    packs_dir = tmp_path / "packs"
+    pack_dir = packs_dir / "fake-pack"
+    _fake_pack(pack_dir, source)
+    # _fake_pack() sets profile_id "fake-profile" — swap in a real,
+    # already-committed profile id so `run` has an actual profile.yaml to load.
+    pack_yaml_path = pack_dir / "pack.yaml"
+    pack_yaml = yaml.safe_load(pack_yaml_path.read_text())
+    pack_yaml["profile_id"] = "whisper-medium-en-batch"
+    del pack_yaml["sha256"]
+    from oesb_runner.hashing import canonical_asset_sha256
+    pack_yaml["sha256"] = canonical_asset_sha256(pack_yaml)
+    pack_yaml_path.write_text(yaml.safe_dump(pack_yaml))
+
+    archive_buf = io.BytesIO()
+    with tarfile.open(fileobj=archive_buf, mode="w:gz") as tar:
+        content = b"fake audio bytes"
+        info = tarfile.TarInfo(name="xx_xx/audio/dev/wanted.wav")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+    archive_bytes = archive_buf.getvalue()
+    monkeypatch.setattr(
+        audio_sources.urllib.request, "urlopen",
+        lambda url, **kw: _FakeAudioResponse(archive_bytes),
+    )
+
+    result = runner.invoke(app, [
+        "run", "whisper-medium-en-batch", "fake-pack",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(packs_dir),
+    ])
+
+    assert "PackAudioMissingError" not in result.output
+    assert "audio file(s) missing" not in result.output
+    assert isinstance(result.exception, _StoppedRightAfterLoadPack), (
+        f"expected to reach get_adapter(), got: {result.output}"
+    )
+
+
+def test_resolve_pack_audio_prefers_existing_pack_local_audio(tmp_path, monkeypatch):
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+
+    source = {"type": "fleurs", "params": {"language": "xx_xx", "split": "dev"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+    (pack_dir / "audio").mkdir()
+    (pack_dir / "audio" / "wanted.wav").write_bytes(b"already here")
+
+    def _fail_if_called(url, **kw):
+        raise AssertionError("should not fetch — pack already has local audio")
+
+    monkeypatch.setattr(audio_sources.urllib.request, "urlopen", _fail_if_called)
+
+    resolved_audio_dir = cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert resolved_audio_dir == pack_dir / "audio"
+
+
+def test_resolve_pack_audio_offline_with_nothing_local_exits(tmp_path):
+    from oesb_runner import cli as cli_module
+
+    source = {"type": "fleurs", "params": {"language": "xx_xx", "split": "dev"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    with pytest.raises(typer.Exit):
+        cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, True)
