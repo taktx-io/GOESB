@@ -5,6 +5,16 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-25
+### Fixed
+- `goesb version` (and every place `__version__` is used — `--model-override`
+  install prompt, the `/answers` runner version check) reported a hardcoded
+  `0.0.3` regardless of the actually installed version, because
+  `oesb_runner/__init__.py` hardcoded that string instead of deriving it
+  from the package's own metadata. Every release since 0.1.0 shipped this
+  stale string unchanged. Now reads `importlib.metadata.version("goesb-runner")`
+  instead, so it can't drift from `pyproject.toml` again.
+
 ## [0.2.0] - 2026-07-25
 ### Changed
 - The batch wizard's flat checkbox picker (row/column "shortcut" entries
