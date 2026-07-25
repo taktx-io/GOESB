@@ -5,6 +5,22 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-25
+### Added
+- Full nl-NL (Dutch) profile/pack coverage — the other 10 of 11
+  engine/size combos, alongside the pre-existing `whisper-medium-nl-batch`
+  example. Adds the Dutch vosk model (`vosk-model-small-nl-0.22`) to the
+  vosk adapter's known-models list.
+### Fixed
+- The on-the-spot engine installer (`_ensure_engine_installed`, triggered
+  the first time the wizard hits a profile whose engine isn't installed
+  yet) always shelled out to `python -m pip install`, which fails with
+  "No module named pip" under pipx's `uv` backend — that backend creates
+  venvs with no pip inside them at all, so every uv-backed pipx install
+  of goesb-runner hit this on every platform. Now falls back through
+  `ensurepip` and then `uv pip install` (against this exact interpreter)
+  before giving up.
+
 ## [0.2.1] - 2026-07-25
 ### Fixed
 - `goesb version` (and every place `__version__` is used — `--model-override`

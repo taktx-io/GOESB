@@ -10,6 +10,7 @@ import base64
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -473,6 +474,33 @@ _ENGINE_MODULE_NAMES = {
 }
 
 
+def _install_package(spec: str) -> subprocess.CompletedProcess:
+    """Install `spec` into this interpreter's environment. Tries plain pip
+    first (the common case), then bootstraps pip via the stdlib's own
+    `ensurepip` and retries, then falls back to `uv pip install` against
+    this exact interpreter — needed because pipx's `uv` backend creates
+    venvs with no `pip` module inside them at all (confirmed: plain `pip
+    install` fails there with "No module named pip", on every platform,
+    not just one machine), and `uv` itself needs no pip in the target
+    environment to install into it. `uv` is guaranteed present wherever a
+    uv-backed pipx venv exists — same cross-platform installer provides
+    both."""
+    result = subprocess.run([sys.executable, "-m", "pip", "install", spec], check=False)
+    if result.returncode == 0:
+        return result
+
+    if subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"], check=False).returncode == 0:
+        result = subprocess.run([sys.executable, "-m", "pip", "install", spec], check=False)
+        if result.returncode == 0:
+            return result
+
+    uv_path = shutil.which("uv")
+    if uv_path is not None:
+        return subprocess.run([uv_path, "pip", "install", "--python", sys.executable, spec], check=False)
+
+    return result
+
+
 def _ensure_engine_installed(runtime_name: str) -> None:
     """If `runtime_name`'s adapter dependency isn't importable yet, offer to
     pip-install its extra on the spot — pinned to this exact goesb-runner
@@ -502,10 +530,7 @@ def _ensure_engine_installed(runtime_name: str) -> None:
         raise typer.Exit(code=1)
 
     typer.echo(f"Installing goesb-runner[{runtime_name}]=={__version__} ...", err=True)
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", f"goesb-runner[{runtime_name}]=={__version__}"],
-        check=False,
-    )
+    result = _install_package(f"goesb-runner[{runtime_name}]=={__version__}")
     if result.returncode != 0:
         typer.echo("Install failed — install it yourself and retry.", err=True)
         raise typer.Exit(code=result.returncode)

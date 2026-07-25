@@ -492,6 +492,97 @@ def test_ensure_engine_installed_confirms_and_installs(monkeypatch):
     ]]
 
 
+def test_install_package_returns_on_first_pip_success(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    calls = []
+
+    class _Result:
+        def __init__(self, returncode):
+            self.returncode = returncode
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return _Result(0)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+
+    result = cli_module._install_package("goesb-runner[vosk]==0.2.1")
+
+    assert result.returncode == 0
+    assert calls == [[cli_module.sys.executable, "-m", "pip", "install", "goesb-runner[vosk]==0.2.1"]]
+
+
+def test_install_package_bootstraps_pip_via_ensurepip_then_retries(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    calls = []
+
+    class _Result:
+        def __init__(self, returncode):
+            self.returncode = returncode
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if args[1:3] == ["-m", "ensurepip"]:
+            return _Result(0)
+        # first pip attempt fails (no pip module), retry after ensurepip succeeds
+        return _Result(0 if len(calls) > 1 else 1)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+
+    result = cli_module._install_package("goesb-runner[vosk]==0.2.1")
+
+    assert result.returncode == 0
+    assert calls == [
+        [cli_module.sys.executable, "-m", "pip", "install", "goesb-runner[vosk]==0.2.1"],
+        [cli_module.sys.executable, "-m", "ensurepip", "--upgrade"],
+        [cli_module.sys.executable, "-m", "pip", "install", "goesb-runner[vosk]==0.2.1"],
+    ]
+
+
+def test_install_package_falls_back_to_uv_when_ensurepip_fails(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    calls = []
+
+    class _Result:
+        def __init__(self, returncode):
+            self.returncode = returncode
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if args[0] == "/usr/local/bin/uv":
+            return _Result(0)
+        return _Result(1)  # both pip and ensurepip fail
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/usr/local/bin/uv" if name == "uv" else None)
+
+    result = cli_module._install_package("goesb-runner[vosk]==0.2.1")
+
+    assert result.returncode == 0
+    assert calls[-1] == [
+        "/usr/local/bin/uv", "pip", "install", "--python", cli_module.sys.executable,
+        "goesb-runner[vosk]==0.2.1",
+    ]
+
+
+def test_install_package_surfaces_original_pip_failure_when_no_uv_available(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    class _Result:
+        def __init__(self, returncode):
+            self.returncode = returncode
+
+    monkeypatch.setattr(cli_module.subprocess, "run", lambda args, **kwargs: _Result(1))
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: None)
+
+    result = cli_module._install_package("goesb-runner[vosk]==0.2.1")
+
+    assert result.returncode == 1
+
+
 def test_ensure_engine_installed_frozen_binary_refuses(monkeypatch):
     from oesb_runner import cli as cli_module
 
