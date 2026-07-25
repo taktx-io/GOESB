@@ -35,7 +35,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from . import __version__
 from . import energy as energy_probe
 from .adapters import get_adapter
-from .audio_sources import AUTO_FETCH_SOURCE_TYPES, auto_fetch_audio
+from .audio_sources import AUTO_FETCH_SOURCE_TYPES, auto_fetch_audio_cached
 from .environment import capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
 from .metrics import (
@@ -912,7 +912,7 @@ def run(
             f"(source type: {source['type']}) ...",
             err=True,
         )
-        fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
+        fetched = auto_fetch_audio_cached(source, wanted_names, resolved_audio_dir)
         missing = wanted_names - fetched
         if missing:
             typer.echo(

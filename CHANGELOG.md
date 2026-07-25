@@ -5,6 +5,17 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-25
+### Changed
+- Auto-fetched pack audio is now cached once per `(source.type,
+  source.params)` under `~/.goesb/cache/audio/<hash>`, shared across every
+  pack that points at the same underlying audio — previously each pack
+  fetched into its own directory, so all 11 engine/size sibling packs
+  generated for one language (identical FLEURS audio, confirmed by their
+  matching `manifest_sha256`) independently re-downloaded the same clips
+  the first time each was used. Selecting a whole language row in the
+  wizard's matrix now triggers the fetch once, not 11 times.
+
 ## [0.2.2] - 2026-07-25
 ### Added
 - Full nl-NL (Dutch) profile/pack coverage — the other 10 of 11
