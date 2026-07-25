@@ -9,11 +9,13 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import threading
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,6 +24,12 @@ import questionary
 import typer
 import yaml
 from packaging.version import Version
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.containers import Window
+from prompt_toolkit.layout.controls import FormattedTextControl
 
 from . import __version__
 from . import energy as energy_probe
@@ -91,71 +99,232 @@ def _matching_packs(packs: list[dict], profile_id: str) -> list[dict]:
     return [p for p in packs if p["profile_id"] == profile_id] or packs
 
 
+# Bulk-generated batch profile ids are a clean <engine>-<size>-<lang>-batch
+# grid (e.g. "whisper-medium-en-batch", "vosk-small-es-batch") — confirmed
+# across every profile in the official set. Anything not matching this (e.g.
+# the one streaming profile) just doesn't get a matrix cell, same as any
+# hand-authored profile outside the bulk set.
+_MATRIX_ID_RE = re.compile(r"^(whisper|whispercpp|vosk)-(tiny|base|small|medium|large-v3)-([a-z]{2})-batch$")
+
+_MATRIX_SIZES = ["tiny", "base", "small", "medium", "large-v3"]
+_MATRIX_COLUMNS = (
+    [("whisper", size) for size in _MATRIX_SIZES]
+    + [("whispercpp", size) for size in _MATRIX_SIZES]
+    + [("vosk", "small")]
+)
+
+
+@dataclass
+class _Matrix:
+    languages: list[str]  # sorted BCP-47 tags, the grid's rows
+    columns: list[tuple[str, str]]  # (engine, size) pairs that exist, the grid's columns
+    cells: dict[tuple[str, str], str]  # (language, "<engine>-<size>") -> profile_id
+
+
+def _build_matrix(profiles: list[dict]) -> _Matrix:
+    """Groups batch profiles into the wizard's language x engine/size grid.
+    A language missing most columns (e.g. the single Dutch example profile)
+    just has fewer entries in `cells` — the grid renders whatever exists,
+    no "unavailable" placeholders."""
+    by_lang: dict[str, dict[str, str]] = {}
+    for p in profiles:
+        match = _MATRIX_ID_RE.match(p["id"])
+        if match is None:
+            continue
+        engine, size, _lang_code = match.groups()
+        by_lang.setdefault(p["language"], {})[f"{engine}-{size}"] = p["id"]
+
+    columns = [
+        (engine, size) for engine, size in _MATRIX_COLUMNS
+        if any(f"{engine}-{size}" in cols for cols in by_lang.values())
+    ]
+    cells = {
+        (language, column_key): profile_id
+        for language, cols in by_lang.items()
+        for column_key, profile_id in cols.items()
+    }
+    return _Matrix(languages=sorted(by_lang), columns=columns, cells=cells)
+
+
+def _matrix_cell_exists(matrix: _Matrix, row: int, col: int) -> bool:
+    """row/col are 1-indexed grid positions (0 is reserved for headers)."""
+    language = matrix.languages[row - 1]
+    engine, size = matrix.columns[col - 1]
+    return (language, f"{engine}-{size}") in matrix.cells
+
+
+def _toggle_selection(selected: set[tuple[int, int]], matrix: _Matrix, row: int, col: int) -> set[tuple[int, int]]:
+    """Pure selection-state transition for one space-press at grid position
+    (row, col), row 0 / col 0 being the header row/column. A header toggles
+    every existing cell in its whole row/column at once — clearing them if
+    all are already selected, else selecting all of them. A body cell
+    toggles itself alone; toggling a cell with no profile (a gap in a
+    sparse row) is a no-op. Returns a new set — callers hold the current
+    selection and reassign it, this never mutates its input."""
+    if row == 0 and col == 0:
+        return selected
+    if row == 0:
+        column_cells = {(r, col) for r in range(1, len(matrix.languages) + 1) if _matrix_cell_exists(matrix, r, col)}
+        return selected - column_cells if column_cells <= selected else selected | column_cells
+    if col == 0:
+        row_cells = {(row, c) for c in range(1, len(matrix.columns) + 1) if _matrix_cell_exists(matrix, row, c)}
+        return selected - row_cells if row_cells <= selected else selected | row_cells
+    if not _matrix_cell_exists(matrix, row, col):
+        return selected
+    return selected - {(row, col)} if (row, col) in selected else selected | {(row, col)}
+
+
+def _selection_to_profile_ids(selected: set[tuple[int, int]], matrix: _Matrix) -> list[str]:
+    """Maps selected (row, col) body cells (headers, row/col 0, are never
+    themselves "selected" — toggling one just selects/clears its cells)
+    back to profile ids, deduped and sorted."""
+    profile_ids: set[str] = set()
+    for row, col in selected:
+        if row == 0 or col == 0:
+            continue
+        language = matrix.languages[row - 1]
+        engine, size = matrix.columns[col - 1]
+        profile_id = matrix.cells.get((language, f"{engine}-{size}"))
+        if profile_id is not None:
+            profile_ids.add(profile_id)
+    return sorted(profile_ids)
+
+
+_MATRIX_ENGINE_SHORT = {"whisper": "fw", "whispercpp": "wc", "vosk": "vk"}
+_MATRIX_SIZE_SHORT = {"tiny": "T", "base": "B", "small": "S", "medium": "M", "large-v3": "L"}
+_MATRIX_COLUMN_WIDTH = 7
+_MATRIX_ROW_HEADER_WIDTH = 8
+_MATRIX_LEGEND = (
+    "fw=faster-whisper  wc=whisper-cpp  vk=vosk    T=tiny B=base S=small M=medium L=large-v3\n"
+    "Arrows to move, space to toggle a cell/row/column, enter to confirm, escape to go back."
+)
+
+
+def _ask_matrix(matrix: _Matrix) -> list[str] | None:
+    """The real 2D grid picker: arrow keys move a cursor over language
+    (rows) x engine/size (columns), space toggles whatever's under the
+    cursor — a single cell, or (on a header) that whole row/column — enter
+    confirms, escape backs out (same as cancelling, since this is the
+    batch wizard's first step). Built directly on prompt_toolkit (which
+    questionary itself is a thin wrapper over — Question.ask() is just
+    `self.application.run()`) since questionary's own prompts have no 2D
+    navigation or escape handling to build on."""
+    n_rows, n_cols = len(matrix.languages), len(matrix.columns)
+    selected: set[tuple[int, int]] = set()
+    cursor = [0, 0]  # [row, col]; 0 is the header row/column
+
+    def render() -> list[tuple[str, str]]:
+        tokens: list[tuple[str, str]] = []
+
+        def cell(text: str, row: int, col: int) -> None:
+            # The real terminal cursor (via the SetCursorPosition sentinel)
+            # is enough to show position — no style/color on top of it, so
+            # nothing competes with the "[x]" selection marker for attention.
+            if cursor == [row, col]:
+                tokens.append(("[SetCursorPosition]", ""))
+            tokens.append(("", text))
+
+        cell(" " * _MATRIX_ROW_HEADER_WIDTH, 0, 0)
+        for c, (engine, size) in enumerate(matrix.columns, start=1):
+            label = f"{_MATRIX_ENGINE_SHORT[engine]}-{_MATRIX_SIZE_SHORT[size]}"
+            cell(label.center(_MATRIX_COLUMN_WIDTH), 0, c)
+        tokens.append(("", "\n"))
+
+        for r, language in enumerate(matrix.languages, start=1):
+            cell(language.ljust(_MATRIX_ROW_HEADER_WIDTH), r, 0)
+            for c in range(1, n_cols + 1):
+                if not _matrix_cell_exists(matrix, r, c):
+                    glyph = ""
+                elif (r, c) in selected:
+                    glyph = "[x]"
+                else:
+                    glyph = "[ ]"
+                cell(glyph.center(_MATRIX_COLUMN_WIDTH), r, c)
+            tokens.append(("", "\n"))
+        return tokens
+
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.Up, eager=True)
+    def _move_up(event) -> None:
+        cursor[0] = max(0, cursor[0] - 1)
+        event.app.invalidate()
+
+    @bindings.add(Keys.Down, eager=True)
+    def _move_down(event) -> None:
+        cursor[0] = min(n_rows, cursor[0] + 1)
+        event.app.invalidate()
+
+    @bindings.add(Keys.Left, eager=True)
+    def _move_left(event) -> None:
+        cursor[1] = max(0, cursor[1] - 1)
+        event.app.invalidate()
+
+    @bindings.add(Keys.Right, eager=True)
+    def _move_right(event) -> None:
+        cursor[1] = min(n_cols, cursor[1] + 1)
+        event.app.invalidate()
+
+    @bindings.add(" ", eager=True)
+    def _toggle(event) -> None:
+        nonlocal selected
+        selected = _toggle_selection(selected, matrix, cursor[0], cursor[1])
+        event.app.invalidate()
+
+    @bindings.add(Keys.ControlM, eager=True)
+    def _confirm(event) -> None:
+        event.app.exit(result=_selection_to_profile_ids(selected, matrix))
+
+    @bindings.add(Keys.Escape, eager=True)
+    def _back(event) -> None:
+        event.app.exit(result=None)
+
+    @bindings.add(Keys.ControlC, eager=True)
+    @bindings.add(Keys.ControlQ, eager=True)
+    def _cancel(event) -> None:
+        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+    app = Application(
+        layout=Layout(Window(FormattedTextControl(render))),
+        key_bindings=bindings,
+        style=questionary.styles.DEFAULT_STYLE,
+        full_screen=False,
+    )
+    try:
+        return app.run()
+    except KeyboardInterrupt:
+        return None
+
+
 def _wizard_run() -> None:
+    """The wizard's sole run flow: a language x engine/size matrix picker
+    (single cells, whole rows, or whole columns — one selection runs one
+    benchmark, more runs a batch), packs resolved automatically
+    (one-pack-per-profile), one shared repeats value, then a single
+    confirmed queue. A bad combo (e.g. a missing model download) must not
+    abort the rest of the queue, so each `_reexec` is run in isolation and
+    reported rather than propagated."""
     profiles = _profile_rows(DEFAULT_API_URL, "profiles", offline=False)
     if not profiles:
         typer.echo("no profiles found (checked the API and ./profiles)", err=True)
         return
-    profile_id = questionary.select(
-        "Pick a profile:",
-        choices=[
-            questionary.Choice(f"{p['id']}  ({p['language']}, {p['benchmark_type']})", value=p["id"])
-            for p in profiles
-        ],
-    ).ask()
-    if profile_id is None:
+    matrix = _build_matrix(profiles)
+    if not matrix.columns:
+        typer.echo("no batch-matrix profiles found (none matched the <engine>-<size>-<lang>-batch id pattern)", err=True)
         return
 
-    packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
-    matching_packs = _matching_packs(packs, profile_id)
-    if not matching_packs:
-        typer.echo("no packs found (checked the API and ./packs)", err=True)
-        return
-    pack_id = questionary.select(
-        "Pick a pack:",
-        choices=[
-            questionary.Choice(f"{p['id']}  ({p['visibility']})", value=p["id"])
-            for p in matching_packs
-        ],
-    ).ask()
-    if pack_id is None:
-        return
-
-    model_override = questionary.text("Model override (blank = use the profile's default):").ask()
-    if model_override is None:
-        return
-    repeats = questionary.text("Repeats:", default="2").ask()
-    if repeats is None:
-        return
-    hardware_id = _pick_hardware_id(DEFAULT_API_URL, "hardware", offline=False)
-    if hardware_id is None:
-        return
-
-    args = ["run", profile_id, pack_id, "--repeats", repeats, "--hardware", hardware_id]
-    if model_override:
-        args += ["--model-override", model_override]
-    _reexec(args)
-
-
-def _wizard_run_batch() -> None:
-    """Multi-select variant of _wizard_run for the bulk profile/pack
-    generation case (100+ combos) — one pack pick per selected profile, one
-    shared repeats value, then a single confirmed queue. A bad combo (e.g. a
-    missing model download) must not abort the rest of the queue, so each
-    `_reexec` is run in isolation and reported rather than propagated."""
-    profiles = _profile_rows(DEFAULT_API_URL, "profiles", offline=False)
-    if not profiles:
-        typer.echo("no profiles found (checked the API and ./profiles)", err=True)
-        return
-    profile_ids = questionary.checkbox(
-        "Pick profiles (space to select, enter to confirm):",
-        choices=[
-            questionary.Choice(f"{p['id']}  ({p['language']}, {p['benchmark_type']})", value=p["id"])
-            for p in profiles
-        ],
-    ).ask()
-    if not profile_ids:
-        return
+    profile_ids: list[str] | None = None
+    hardware_id: str | None = None
+    while profile_ids is None:
+        typer.echo(_MATRIX_LEGEND, err=True)
+        profile_ids = _ask_matrix(matrix)
+        if not profile_ids:
+            return
+        hardware_id = _pick_hardware_id(DEFAULT_API_URL, "hardware", offline=False, allow_back=True)
+        if hardware_id is None:
+            return
+        if hardware_id is _WIZARD_BACK:
+            profile_ids = None  # loop re-shows the grid, selection cleared
 
     packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
     combos: list[tuple[str, str]] = []
@@ -164,24 +333,12 @@ def _wizard_run_batch() -> None:
         if not matching_packs:
             typer.echo(f"no packs found for {profile_id!r} — skipping", err=True)
             continue
-        pack_id = questionary.select(
-            f"Pick a pack for {profile_id}:",
-            choices=[
-                questionary.Choice(f"{p['id']}  ({p['visibility']})", value=p["id"])
-                for p in matching_packs
-            ],
-        ).ask()
-        if pack_id is None:
-            return
-        combos.append((profile_id, pack_id))
+        combos.append((profile_id, matching_packs[0]["id"]))
     if not combos:
         return
 
     repeats = questionary.text("Repeats (applied to every run in the batch):", default="2").ask()
     if repeats is None:
-        return
-    hardware_id = _pick_hardware_id(DEFAULT_API_URL, "hardware", offline=False)
-    if hardware_id is None:
         return
 
     typer.echo(f"About to run {len(combos)} benchmark(s):")
@@ -225,8 +382,7 @@ def _wizard_submit() -> None:
 
 def _run_wizard() -> None:
     actions = {
-        "Run a benchmark": _wizard_run,
-        "Run multiple benchmarks (batch)": _wizard_run_batch,
+        "Run benchmark(s)": _wizard_run,
         "List available profiles": lambda: _reexec(["list-profiles"]),
         "List available packs": lambda: _reexec(["list-packs"]),
         "Validate a profile/pack file": _wizard_validate,
@@ -454,12 +610,33 @@ def _hardware_rows(api_url: str, hardware_dir: str, offline: bool) -> list[dict]
     return rows
 
 
-def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool) -> str | None:
-    """Searchable hardware picker shared by _wizard_run and
-    _wizard_run_batch. questionary.autocomplete only takes plain-string
-    choices (no separate display/value like select()'s Choice), so this
-    keeps its own label->id mapping and resolves an unmatched/blank answer
-    to the catalog's 'custom' escape hatch."""
+# Sentinel _pick_hardware_id returns (instead of an id or None) when the
+# caller passed allow_back=True and the user picked the back option — lets
+# _wizard_run distinguish "go back a step" from "cancel entirely" (plain
+# None) without a real prior-step stack.
+_WIZARD_BACK = object()
+
+_HARDWARE_BACK_LABEL = "« Back to language/engine selection »"
+
+# prompt_toolkit's default completion-menu style leaves the entry text
+# color unset, so it falls through to whatever the terminal/theme decides —
+# unreadable against the menu's own grey background in some themes. Fixed
+# explicit colors instead of relying on that fallback.
+_COMPLETION_MENU_STYLE = questionary.Style([
+    ("completion-menu", "bg:#333333 fg:#eeeeee"),
+    ("completion-menu.completion", "bg:#333333 fg:#eeeeee"),
+    ("completion-menu.completion.current", "bg:#5f5faf fg:#ffffff bold"),
+])
+
+
+def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool, allow_back: bool = False) -> str | None:
+    """Searchable hardware picker for _wizard_run. questionary.autocomplete
+    only takes plain-string choices (no separate display/value like
+    select()'s Choice), so this keeps its own label->id mapping and
+    resolves an unmatched/blank answer to the catalog's 'custom' escape
+    hatch. allow_back=True adds a literal back-option choice, since
+    questionary has no Escape handling to hook into here the way the
+    matrix picker does."""
     rows = _hardware_rows(api_url, hardware_dir, offline)
     if not rows:
         return "custom"
@@ -468,14 +645,19 @@ def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool) -> str | N
     ids_by_label = {v: k for k, v in labels_by_id.items()}
     other_label = "Other / not yet in the catalog"
     choices = sorted(ids_by_label) + [other_label]
+    if allow_back:
+        choices = [_HARDWARE_BACK_LABEL, *choices]
 
     answer = questionary.autocomplete(
         "What hardware did you run this on? (type to search)",
         choices=choices,
         match_middle=True,
+        style=_COMPLETION_MENU_STYLE,
     ).ask()
     if answer is None:
         return None
+    if allow_back and answer == _HARDWARE_BACK_LABEL:
+        return _WIZARD_BACK
     return ids_by_label.get(answer, "custom")
 
 

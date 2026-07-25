@@ -132,80 +132,13 @@ def test_wizard_list_profiles_reexecs_the_subcommand(monkeypatch):
     assert calls == [["list-profiles"]]
 
 
-def test_wizard_run_builds_expected_run_args(monkeypatch):
-    from oesb_runner import cli as cli_module
-
-    monkeypatch.setattr(
-        cli_module, "_profile_rows",
-        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
-    )
-    monkeypatch.setattr(
-        cli_module, "_pack_rows",
-        lambda *a, **k: [
-            {"id": "librispeech-en-batch", "visibility": "open", "profile_id": "whisper-medium-en-batch"},
-            {"id": "unrelated-pack", "visibility": "open", "profile_id": "some-other-profile"},
-        ],
-    )
-
-    text_responses = iter(["tiny", "1"])  # model override, then repeats
-    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(next(text_responses)))
-
-    select_responses = iter(["whisper-medium-en-batch", "librispeech-en-batch"])
-
-    def fake_select(_prompt, choices):
-        # Choice objects carry .value; a plain string choice is its own value.
-        wanted = next(select_responses)
-        for c in choices:
-            value = getattr(c, "value", c)
-            if value == wanted:
-                return _FakeAsk(wanted)
-        raise AssertionError(f"{wanted!r} not offered: {choices}")
-
-    monkeypatch.setattr(cli_module.questionary, "select", fake_select)
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
-
-    calls = []
-    monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
-
-    cli_module._wizard_run()
-
-    assert calls == [[
-        "run", "whisper-medium-en-batch", "librispeech-en-batch",
-        "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6", "--model-override", "tiny",
-    ]]
-
-
-def test_wizard_run_cancelling_hardware_pick_runs_nothing(monkeypatch):
-    from oesb_runner import cli as cli_module
-
-    monkeypatch.setattr(
-        cli_module, "_profile_rows",
-        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
-    )
-    monkeypatch.setattr(
-        cli_module, "_pack_rows",
-        lambda *a, **k: [{"id": "librispeech-en-batch", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
-    )
-    monkeypatch.setattr(cli_module.questionary, "select", lambda *a, **k: _FakeAsk("whisper-medium-en-batch"))
-    text_responses = iter(["", "2"])
-    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(next(text_responses)))
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: None)
-
-    calls = []
-    monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
-
-    cli_module._wizard_run()
-
-    assert calls == []
-
-
-def test_wizard_batch_dispatch_calls_wizard_run_batch(monkeypatch):
+def test_wizard_dispatch_calls_wizard_run(monkeypatch):
     from oesb_runner import cli as cli_module
 
     called = []
-    monkeypatch.setattr(cli_module, "_wizard_run_batch", lambda: called.append(True))
+    monkeypatch.setattr(cli_module, "_wizard_run", lambda: called.append(True))
 
-    responses = iter(["Run multiple benchmarks (batch)", "Exit"])
+    responses = iter(["Run benchmark(s)", "Exit"])
     monkeypatch.setattr(
         cli_module.questionary, "select", lambda *a, **k: _FakeAsk(next(responses))
     )
@@ -215,40 +148,28 @@ def test_wizard_batch_dispatch_calls_wizard_run_batch(monkeypatch):
     assert called == [True]
 
 
-def test_wizard_run_batch_builds_combos_and_continues_past_failures(monkeypatch, capsys):
+def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsys):
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(
         cli_module, "_profile_rows",
         lambda *a, **k: [
-            {"id": "profile-a", "language": "en-US", "benchmark_type": "batch"},
-            {"id": "profile-b", "language": "fr-FR", "benchmark_type": "batch"},
+            {"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"},
+            {"id": "whisper-medium-fr-batch", "language": "fr-FR", "benchmark_type": "batch"},
         ],
     )
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "pack-a", "visibility": "open", "profile_id": "profile-a"},
-            {"id": "pack-b", "visibility": "open", "profile_id": "profile-b"},
+            {"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"},
+            {"id": "pack-b", "visibility": "open", "profile_id": "whisper-medium-fr-batch"},
             {"id": "unrelated-pack", "visibility": "open", "profile_id": "some-other-profile"},
         ],
     )
     monkeypatch.setattr(
-        cli_module.questionary, "checkbox",
-        lambda *a, **k: _FakeAsk(["profile-a", "profile-b"]),
+        cli_module, "_ask_matrix",
+        lambda matrix: ["whisper-medium-en-batch", "whisper-medium-fr-batch"],
     )
-
-    select_responses = iter(["pack-a", "pack-b"])
-
-    def fake_select(_prompt, choices):
-        wanted = next(select_responses)
-        for c in choices:
-            value = getattr(c, "value", c)
-            if value == wanted:
-                return _FakeAsk(wanted)
-        raise AssertionError(f"{wanted!r} not offered: {choices}")
-
-    monkeypatch.setattr(cli_module.questionary, "select", fake_select)
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
@@ -257,35 +178,34 @@ def test_wizard_run_batch_builds_combos_and_continues_past_failures(monkeypatch,
 
     def fake_reexec(args):
         reexec_calls.append(args)
-        if args[1] == "profile-a":
+        if args[1] == "whisper-medium-en-batch":
             raise typer.Exit(code=1)
 
     monkeypatch.setattr(cli_module, "_reexec", fake_reexec)
 
-    cli_module._wizard_run_batch()
+    cli_module._wizard_run()
 
     assert reexec_calls == [
-        ["run", "profile-a", "pack-a", "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6"],
-        ["run", "profile-b", "pack-b", "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6"],
+        ["run", "whisper-medium-en-batch", "pack-a", "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6"],
+        ["run", "whisper-medium-fr-batch", "pack-b", "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6"],
     ]
     out = capsys.readouterr().out
-    assert "✗ profile-a  x  pack-a" in out
-    assert "✓ profile-b  x  pack-b" in out
+    assert "✗ whisper-medium-en-batch  x  pack-a" in out
+    assert "✓ whisper-medium-fr-batch  x  pack-b" in out
 
 
-def test_wizard_run_batch_declines_confirmation_runs_nothing(monkeypatch):
+def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(
         cli_module, "_profile_rows",
-        lambda *a, **k: [{"id": "profile-a", "language": "en-US", "benchmark_type": "batch"}],
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
     )
     monkeypatch.setattr(
         cli_module, "_pack_rows",
-        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "profile-a"}],
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
     )
-    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk(["profile-a"]))
-    monkeypatch.setattr(cli_module.questionary, "select", lambda *a, **k: _FakeAsk("pack-a"))
+    monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("2"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
@@ -293,9 +213,139 @@ def test_wizard_run_batch_declines_confirmation_runs_nothing(monkeypatch):
     calls = []
     monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
 
-    cli_module._wizard_run_batch()
+    cli_module._wizard_run()
 
     assert calls == []
+
+
+def test_wizard_run_hardware_back_re_shows_the_matrix(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
+    )
+    matrix_calls = []
+    monkeypatch.setattr(
+        cli_module, "_ask_matrix",
+        lambda matrix: (matrix_calls.append(1), ["whisper-medium-en-batch"])[1],
+    )
+    hardware_responses = iter([cli_module._WIZARD_BACK, "intel-xeon-e3-1240-v6"])
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: next(hardware_responses))
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+
+    cli_module._wizard_run()
+
+    assert len(matrix_calls) == 2  # matrix re-shown once after the "back" pick
+
+
+def _sample_matrix_profiles():
+    return [
+        {"id": "whisper-tiny-en-batch", "language": "en-US", "benchmark_type": "batch"},
+        {"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"},
+        {"id": "vosk-small-en-batch", "language": "en-US", "benchmark_type": "batch"},
+        {"id": "whisper-tiny-fr-batch", "language": "fr-FR", "benchmark_type": "batch"},
+        # Sparse language: only one of the columns the other languages have.
+        {"id": "whisper-medium-nl-batch", "language": "nl-NL", "benchmark_type": "batch"},
+        # Not part of the batch grid at all — must be ignored, not crash.
+        {"id": "whisper-medium-en-streaming", "language": "en-US", "benchmark_type": "streaming"},
+    ]
+
+
+def test_build_matrix_shapes_languages_columns_and_cells():
+    from oesb_runner import cli as cli_module
+
+    matrix = cli_module._build_matrix(_sample_matrix_profiles())
+
+    assert matrix.languages == ["en-US", "fr-FR", "nl-NL"]
+    assert ("whisper", "tiny") in matrix.columns
+    assert ("vosk", "small") in matrix.columns
+    assert matrix.cells == {
+        ("en-US", "whisper-tiny"): "whisper-tiny-en-batch",
+        ("en-US", "whisper-medium"): "whisper-medium-en-batch",
+        ("en-US", "vosk-small"): "vosk-small-en-batch",
+        ("fr-FR", "whisper-tiny"): "whisper-tiny-fr-batch",
+        ("nl-NL", "whisper-medium"): "whisper-medium-nl-batch",
+    }
+
+
+def test_toggle_selection_column_header_selects_and_clears_the_whole_column():
+    from oesb_runner import cli as cli_module
+
+    matrix = cli_module._build_matrix(_sample_matrix_profiles())
+    en_row, nl_row = 1, 3  # languages sorted: en-US, fr-FR, nl-NL
+    medium_col = matrix.columns.index(("whisper", "medium")) + 1
+
+    selected = cli_module._toggle_selection(set(), matrix, 0, medium_col)
+    # Only en-US and nl-NL have a whisper-medium cell; fr-FR doesn't.
+    assert selected == {(en_row, medium_col), (nl_row, medium_col)}
+
+    cleared = cli_module._toggle_selection(selected, matrix, 0, medium_col)
+    assert cleared == set()
+
+
+def test_toggle_selection_row_header_selects_and_clears_the_whole_row():
+    from oesb_runner import cli as cli_module
+
+    matrix = cli_module._build_matrix(_sample_matrix_profiles())
+    en_row = matrix.languages.index("en-US") + 1
+    n_cols = len(matrix.columns)
+
+    selected = cli_module._toggle_selection(set(), matrix, en_row, 0)
+    assert selected == {
+        (en_row, c) for c in range(1, n_cols + 1)
+        if cli_module._matrix_cell_exists(matrix, en_row, c)
+    }
+    assert len(selected) == 3  # tiny, medium, vosk-small
+
+    cleared = cli_module._toggle_selection(selected, matrix, en_row, 0)
+    assert cleared == set()
+
+
+def test_toggle_selection_body_cell_and_missing_cell():
+    from oesb_runner import cli as cli_module
+
+    matrix = cli_module._build_matrix(_sample_matrix_profiles())
+    nl_row = matrix.languages.index("nl-NL") + 1
+    tiny_col = matrix.columns.index(("whisper", "tiny")) + 1  # nl-NL has no tiny profile
+
+    # Missing cell: no-op.
+    assert cli_module._toggle_selection(set(), matrix, nl_row, tiny_col) == set()
+
+    # Real cell: toggles on, then off.
+    medium_col = matrix.columns.index(("whisper", "medium")) + 1
+    on = cli_module._toggle_selection(set(), matrix, nl_row, medium_col)
+    assert on == {(nl_row, medium_col)}
+    off = cli_module._toggle_selection(on, matrix, nl_row, medium_col)
+    assert off == set()
+
+
+def test_toggle_selection_corner_is_a_noop():
+    from oesb_runner import cli as cli_module
+
+    matrix = cli_module._build_matrix(_sample_matrix_profiles())
+    assert cli_module._toggle_selection(set(), matrix, 0, 0) == set()
+
+
+def test_selection_to_profile_ids_maps_cells_back_to_ids():
+    from oesb_runner import cli as cli_module
+
+    matrix = cli_module._build_matrix(_sample_matrix_profiles())
+    en_row = matrix.languages.index("en-US") + 1
+    fr_row = matrix.languages.index("fr-FR") + 1
+    tiny_col = matrix.columns.index(("whisper", "tiny")) + 1
+    vosk_col = matrix.columns.index(("vosk", "small")) + 1
+
+    selected = {(en_row, tiny_col), (en_row, vosk_col), (fr_row, tiny_col)}
+    assert cli_module._selection_to_profile_ids(selected, matrix) == sorted([
+        "whisper-tiny-en-batch", "vosk-small-en-batch", "whisper-tiny-fr-batch",
+    ])
 
 
 def test_list_hardware_offline_lists_local_hardware():
