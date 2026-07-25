@@ -418,17 +418,43 @@ def _wizard_validate() -> None:
 
 
 def _wizard_submit() -> None:
+    """Submit one or more result files — questionary's checkbox already
+    supports select/deselect-all (press 'a') and invert ('i') natively, no
+    custom widget needed, unlike the matrix picker. Each submission runs
+    in its own isolated `_reexec` (continue-past-failure, same spirit as
+    the batch run loop): one rejected result must not block the rest.
+    Deletion is offered only for files that actually made it, and
+    defaults to "no" — deleting a local result file isn't undoable."""
     results_dir = Path("runs/results")
     result_files = sorted(results_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not result_files:
         typer.echo(f"no result files found under {results_dir}", err=True)
         return
-    result_path = questionary.select(
-        "Pick a result to submit:",
+    chosen = questionary.checkbox(
+        "Pick result(s) to submit:",
         choices=[questionary.Choice(str(p), value=str(p)) for p in result_files],
     ).ask()
-    if result_path:
-        _reexec(["submit", result_path])
+    if not chosen:
+        return
+
+    submitted: list[str] = []
+    for result_path in chosen:
+        try:
+            _reexec(["submit", result_path])
+            submitted.append(result_path)
+        except typer.Exit:
+            typer.echo(f"  ✗ {result_path} — submission failed, keeping the file", err=True)
+
+    if not submitted:
+        return
+
+    typer.echo(f"Submitted {len(submitted)}/{len(chosen)} result file(s).", err=True)
+    if questionary.confirm(
+        f"Delete the {len(submitted)} submitted result file(s) now?", default=False
+    ).ask():
+        for result_path in submitted:
+            Path(result_path).unlink(missing_ok=True)
+        typer.echo(f"Deleted {len(submitted)} file(s).", err=True)
 
 
 def _run_wizard() -> None:

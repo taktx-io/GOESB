@@ -5,6 +5,20 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-07-25
+### Changed
+- The wizard's "Submit a result" step now lets you pick multiple result
+  files at once (`questionary.checkbox` — press `a` to select/deselect
+  all, `i` to invert, space for one), instead of only ever submitting a
+  single file per trip through the wizard. Each submission still runs in
+  its own isolated subprocess, continue-past-failure, same as the batch
+  run loop — one rejected result doesn't block the rest.
+### Added
+- After submitting, the wizard offers to delete the result files that
+  were just successfully submitted (declined by default — not undoable).
+  Files that failed to submit are never offered for deletion, so they
+  stay around to retry.
+
 ## [0.2.6] - 2026-07-25
 ### Changed
 - Batch runs now confirm every distinct engine they need up front, before

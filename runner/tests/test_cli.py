@@ -287,6 +287,102 @@ def test_preflight_engines_drops_only_combos_needing_a_declined_engine(monkeypat
     assert kept == [("whisper-tiny-en-batch", "pack-a")]
 
 
+def test_wizard_submit_no_results_prints_message(monkeypatch, tmp_path, capsys):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+
+    cli_module._wizard_submit()
+
+    assert "no result files found" in capsys.readouterr().err
+
+
+def test_wizard_submit_multiple_and_deletes_confirmed(monkeypatch, tmp_path):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    results_dir = tmp_path / "runs" / "results"
+    results_dir.mkdir(parents=True)
+    file_a, file_b = results_dir / "a.json", results_dir / "b.json"
+    file_a.write_text("{}")
+    file_b.write_text("{}")
+
+    monkeypatch.setattr(
+        cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a), str(file_b)])
+    )
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_submit()
+
+    assert reexec_calls == [["submit", str(file_a)], ["submit", str(file_b)]]
+    assert not file_a.exists()
+    assert not file_b.exists()
+
+
+def test_wizard_submit_declined_delete_keeps_files(monkeypatch, tmp_path):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    results_dir = tmp_path / "runs" / "results"
+    results_dir.mkdir(parents=True)
+    file_a = results_dir / "a.json"
+    file_a.write_text("{}")
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a)]))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+
+    cli_module._wizard_submit()
+
+    assert file_a.exists()
+
+
+def test_wizard_submit_only_deletes_successfully_submitted_files(monkeypatch, tmp_path):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    results_dir = tmp_path / "runs" / "results"
+    results_dir.mkdir(parents=True)
+    file_a, file_b = results_dir / "a.json", results_dir / "b.json"
+    file_a.write_text("{}")
+    file_b.write_text("{}")
+
+    monkeypatch.setattr(
+        cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a), str(file_b)])
+    )
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+
+    def fake_reexec(args):
+        if args[1] == str(file_b):
+            raise typer.Exit(code=1)
+
+    monkeypatch.setattr(cli_module, "_reexec", fake_reexec)
+
+    cli_module._wizard_submit()
+
+    assert not file_a.exists()  # submitted successfully -> deleted
+    assert file_b.exists()  # submission failed -> kept, never offered for deletion
+
+
+def test_wizard_submit_no_selection_does_nothing(monkeypatch, tmp_path):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    results_dir = tmp_path / "runs" / "results"
+    results_dir.mkdir(parents=True)
+    (results_dir / "a.json").write_text("{}")
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([]))
+    calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
+
+    cli_module._wizard_submit()
+
+    assert calls == []
+
+
 def _sample_matrix_profiles():
     return [
         {"id": "whisper-tiny-en-batch", "language": "en-US", "benchmark_type": "batch"},
