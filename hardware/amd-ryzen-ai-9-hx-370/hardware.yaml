@@ -1,0 +1,9 @@
+id: amd-ryzen-ai-9-hx-370
+display_name: AMD Ryzen AI 9 HX 370
+vendor: AMD
+category: cpu
+cores: 12
+threads: 24
+max_clock_ghz: 5.1
+release_year: 2024
+notes: Zen 5 'Strix Point', ~50 TOPS on-die XDNA NPU (AMD demos Whisper on it directly).

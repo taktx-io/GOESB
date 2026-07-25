@@ -1,0 +1,7 @@
+id: amd-radeon-rx-7900-xtx
+display_name: AMD Radeon RX 7900 XTX
+vendor: AMD
+category: gpu
+vram_gb: 24
+release_year: 2022
+notes: Clearest AMD/ROCm consumer-card signal for Whisper.

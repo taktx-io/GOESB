@@ -1,0 +1,7 @@
+id: nvidia-rtx-5090
+display_name: NVIDIA GeForce RTX 5090
+vendor: NVIDIA
+category: gpu
+vram_gb: 32
+release_year: 2025
+notes: Current flagship — fastest long-form Whisper RTF in 2026 guides.

@@ -1,0 +1,9 @@
+id: apple-m4-max
+display_name: Apple M4 Max
+vendor: Apple
+category: cpu
+cores: 16
+threads: 16
+release_year: 2024
+notes: The 'best possible local Mac' reference point in whisper.cpp Apple Silicon
+  benchmark writeups.

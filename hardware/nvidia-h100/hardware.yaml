@@ -1,0 +1,7 @@
+id: nvidia-h100
+display_name: NVIDIA H100
+vendor: NVIDIA
+category: gpu
+vram_gb: 80
+release_year: 2022
+notes: Standard high-end cloud rental target for production ASR.

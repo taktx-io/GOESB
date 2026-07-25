@@ -1,0 +1,10 @@
+id: amd-ryzen-ai-max-plus-395
+display_name: AMD Ryzen AI Max+ 395
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+max_clock_ghz: 5.1
+release_year: 2025
+notes: Zen 5 'Strix Halo', up to 128GB unified memory — the top-tier local-AI workstation
+  APU.

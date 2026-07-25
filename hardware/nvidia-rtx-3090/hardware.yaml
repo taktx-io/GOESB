@@ -1,0 +1,8 @@
+id: nvidia-rtx-3090
+display_name: NVIDIA GeForce RTX 3090
+vendor: NVIDIA
+category: gpu
+vram_gb: 24
+release_year: 2020
+notes: The single most-cited Whisper GPU across benchmark threads and GPU-comparison
+  guides.

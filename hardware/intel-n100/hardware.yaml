@@ -1,0 +1,8 @@
+id: intel-n100
+display_name: Intel N100
+vendor: Intel
+category: cpu
+cores: 4
+threads: 4
+max_clock_ghz: 3.4
+release_year: 2023

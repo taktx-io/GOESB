@@ -1,0 +1,10 @@
+id: intel-core-ultra-7-258v
+display_name: Intel Core Ultra 7 258V
+vendor: Intel
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 4.8
+release_year: 2024
+notes: '''Lunar Lake'', on-die NPU — directly benchmarked against Snapdragon X Elite/Strix
+  Point for local AI.'

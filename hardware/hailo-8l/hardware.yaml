@@ -1,0 +1,7 @@
+id: hailo-8l
+display_name: Hailo-8L
+vendor: Hailo
+category: accelerator
+tops: 13
+release_year: 2022
+notes: Lower-power sibling of the Hailo-8.

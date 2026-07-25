@@ -1,0 +1,9 @@
+id: google-coral-edge-tpu
+display_name: Google Coral Edge TPU
+vendor: Google
+category: accelerator
+tops: 4
+release_year: 2019
+notes: M.2/USB form factors, same TPU silicon. Repeatedly requested by name for Whisper/Piper
+  acceleration in the Home Assistant community — no confirmed working STT implementation
+  yet, community demand rather than a proven benchmark target.

@@ -4,3 +4,5 @@ vendor: NVIDIA
 category: gpu
 vram_gb: 8
 release_year: 2023
+notes: A 2024 firmware update ('Super' mode) unlocks higher clocks on this same physical
+  module — not different hardware, no separate entry.

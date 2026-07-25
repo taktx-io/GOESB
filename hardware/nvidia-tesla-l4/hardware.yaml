@@ -1,0 +1,7 @@
+id: nvidia-tesla-l4
+display_name: NVIDIA Tesla L4
+vendor: NVIDIA
+category: gpu
+vram_gb: 24
+release_year: 2023
+notes: Low 72W power draw, popular for always-on batch/streaming ASR rentals.

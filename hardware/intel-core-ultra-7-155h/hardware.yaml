@@ -1,0 +1,10 @@
+id: intel-core-ultra-7-155h
+display_name: Intel Core Ultra 7 155H
+vendor: Intel
+category: cpu
+cores: 16
+threads: 22
+max_clock_ghz: 4.8
+release_year: 2023
+notes: '''Meteor Lake'', first-gen Core Ultra — widely benchmarked for OpenVINO/AI
+  workloads.'

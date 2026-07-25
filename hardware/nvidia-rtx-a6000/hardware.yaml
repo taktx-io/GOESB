@@ -1,0 +1,7 @@
+id: nvidia-rtx-a6000
+display_name: NVIDIA RTX A6000
+vendor: NVIDIA
+category: gpu
+vram_gb: 48
+release_year: 2020
+notes: High-VRAM workstation choice for batch WhisperX/diarization jobs.

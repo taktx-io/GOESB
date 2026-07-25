@@ -1,0 +1,8 @@
+id: nvidia-rtx-4060-ti-16gb
+display_name: NVIDIA GeForce RTX 4060 Ti 16GB
+vendor: NVIDIA
+category: gpu
+vram_gb: 16
+release_year: 2023
+notes: Frequently called the price/performance 'sweet spot' for local Whisper; an
+  8GB variant also exists.

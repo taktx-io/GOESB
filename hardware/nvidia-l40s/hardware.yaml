@@ -1,0 +1,6 @@
+id: nvidia-l40s
+display_name: NVIDIA L40S
+vendor: NVIDIA
+category: gpu
+vram_gb: 48
+release_year: 2023

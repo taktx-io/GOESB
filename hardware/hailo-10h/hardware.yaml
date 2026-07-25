@@ -1,0 +1,8 @@
+id: hailo-10h
+display_name: Hailo-10H
+vendor: Hailo
+category: accelerator
+tops: 40
+release_year: 2024
+notes: Positioned for broader on-device generative AI, including speech, not just
+  vision.

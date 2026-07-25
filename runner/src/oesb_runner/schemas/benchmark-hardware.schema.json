@@ -11,7 +11,8 @@
       "description": "Globally unique, immutable hardware id, e.g. 'intel-xeon-e3-1240-v6'." },
     "display_name": { "type": "string", "description": "Human-readable name, e.g. 'Intel Xeon E3-1240 v6'." },
     "vendor": { "type": "string", "description": "e.g. 'Intel', 'AMD', 'Apple', 'NVIDIA', 'Raspberry Pi'." },
-    "category": { "enum": ["cpu", "gpu", "other"] },
+    "category": { "enum": ["cpu", "gpu", "accelerator", "other"],
+      "description": "Which compute path a result on this hardware actually exercises — not a strict silicon taxonomy. A full SoC (e.g. a Jetson module) is 'gpu' if benchmarks on it run via CUDA, 'cpu' if they run on its ARM cores; a dedicated add-in inference card (Hailo, Coral) that isn't a CPU or GPU at all is 'accelerator'. See hardware/README.md." },
     "cores": { "type": "integer", "minimum": 1, "description": "Physical cores (cpu only)." },
     "threads": { "type": "integer", "minimum": 1, "description": "Logical threads (cpu only)." },
     "base_clock_ghz": { "type": "number", "minimum": 0 },
@@ -19,6 +20,8 @@
     "vram_gb": { "type": "number", "minimum": 0, "description": "gpu only." },
     "ram_gb": { "type": "number", "minimum": 0,
       "description": "System RAM, for cpu/other boards that ship in more than one RAM configuration (e.g. a 4GB vs 8GB SKU of the same board) — a separate catalog entry per real configuration, not a range." },
+    "tops": { "type": "number", "minimum": 0,
+      "description": "Peak int8 TOPS, for accelerator-category entries (Hailo, Coral, and similar dedicated inference cards) — their headline comparison spec, same role vram_gb plays for gpu." },
     "release_year": { "type": "integer" },
     "notes": { "type": "string" }
   }

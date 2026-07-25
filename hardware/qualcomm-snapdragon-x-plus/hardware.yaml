@@ -1,0 +1,9 @@
+id: qualcomm-snapdragon-x-plus
+display_name: Qualcomm Snapdragon X Plus
+vendor: Qualcomm
+category: cpu
+cores: 10
+threads: 10
+max_clock_ghz: 3.4
+release_year: 2024
+notes: Snapdragon X Elite's lower-core-count sibling, same Oryon architecture.

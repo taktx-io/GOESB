@@ -1,0 +1,9 @@
+id: intel-core-i3-n305
+display_name: Intel Core i3-N305
+vendor: Intel
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 3.8
+release_year: 2023
+notes: Higher-core N-series part, used in the ODROID-H4 Ultra.

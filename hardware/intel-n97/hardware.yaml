@@ -1,0 +1,10 @@
+id: intel-n97
+display_name: Intel N97
+vendor: Intel
+category: cpu
+cores: 4
+threads: 4
+max_clock_ghz: 3.6
+release_year: 2023
+notes: Used in the ODROID-H4, sold specifically as a Home Assistant Whisper/Piper
+  offload board.

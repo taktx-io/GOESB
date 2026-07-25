@@ -1,0 +1,8 @@
+id: hailo-8
+display_name: Hailo-8
+vendor: Hailo
+category: accelerator
+tops: 26
+release_year: 2021
+notes: M.2 inference card, the most-discussed NPU card in the Frigate/Home Assistant
+  community.
