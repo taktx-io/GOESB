@@ -35,7 +35,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from . import __version__
 from . import energy as energy_probe
 from .adapters import get_adapter
-from .audio_sources import AUTO_FETCH_SOURCE_TYPES, auto_fetch_audio_cached
+from .audio_sources import AUTO_FETCH_SOURCE_TYPES, auto_fetch_audio, shared_audio_dir
 from .environment import capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
 from .metrics import (
@@ -882,9 +882,26 @@ def run(
         )
         raise typer.Exit(code=1)
 
-    resolved_audio_dir = Path(audio_dir) if audio_dir else (pack_dir / "audio")
+    source = pack_yaml.get("audio", {}).get("source", {})
+    if audio_dir:
+        resolved_audio_dir = Path(audio_dir)
+    elif (pack_dir / "audio").exists():
+        resolved_audio_dir = pack_dir / "audio"  # already populated (manual or a prior direct fetch) — use it as-is
+    elif source.get("type") in AUTO_FETCH_SOURCE_TYPES:
+        # Nothing here yet and this source is auto-fetchable: point
+        # straight at the shared, content-addressed cache instead of this
+        # pack's own directory. load_pack() below looks up audio strictly
+        # by the filename each manifest.jsonl entry names — it never scans
+        # the directory — so every sibling pack whose audio.source matches
+        # (e.g. every engine/size combo generated for one language, all
+        # pointing at the same FLEURS split) can share this exact folder:
+        # the fetch happens at most once total across all of them, and
+        # there's nothing to copy or link afterwards.
+        resolved_audio_dir = shared_audio_dir(source)
+    else:
+        resolved_audio_dir = pack_dir / "audio"
+
     if not resolved_audio_dir.exists():
-        source = pack_yaml.get("audio", {}).get("source", {})
         fetch_instructions = source.get("fetch_instructions")
         if offline:
             typer.echo(f"No audio at {resolved_audio_dir} and --offline was given", err=True)
@@ -912,7 +929,7 @@ def run(
             f"(source type: {source['type']}) ...",
             err=True,
         )
-        fetched = auto_fetch_audio_cached(source, wanted_names, resolved_audio_dir)
+        fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
         missing = wanted_names - fetched
         if missing:
             typer.echo(

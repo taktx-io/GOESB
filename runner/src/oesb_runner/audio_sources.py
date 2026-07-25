@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 import tarfile
 import urllib.request
 from collections.abc import Callable
@@ -91,36 +90,18 @@ def auto_fetch_audio(source: dict[str, Any], wanted_names: set[str], audio_dir: 
     return provider(source.get("params", {}), wanted_names, audio_dir)
 
 
-def _shared_cache_key(source: dict[str, Any]) -> str:
+def shared_audio_dir(source: dict[str, Any]) -> Path:
+    """Where auto-fetched audio for this exact `(source.type,
+    source.params)` lives: `~/.goesb/cache/audio/<hash>`, keyed on content
+    identity rather than any one pack's directory. `load_pack()` looks up
+    audio strictly by the filename each manifest.jsonl entry names — it
+    never scans the directory — so every sibling pack whose audio.source
+    matches (e.g. every engine/size combo generated for one language, all
+    pointing at the same FLEURS split) can point straight at this same
+    folder and read the exact same files: nothing to fetch twice, nothing
+    to copy or link."""
     canonical = json.dumps(
         {"type": source.get("type"), "params": source.get("params", {})}, sort_keys=True
     )
-    return hashlib.sha256(canonical.encode()).hexdigest()
-
-
-def auto_fetch_audio_cached(
-    source: dict[str, Any], wanted_names: set[str], audio_dir: Path
-) -> set[str] | None:
-    """Like `auto_fetch_audio`, but backed by a shared cache keyed on
-    `(source.type, source.params)` under `~/.goesb/cache/audio/<hash>`,
-    rather than fetching straight into the calling pack's own directory.
-    Sibling packs that reuse the same underlying audio — e.g. every
-    engine/size combo generated for one language, all pointing at the same
-    FLEURS split — hit the network at most once total across all of them,
-    not once per pack the first time each is used."""
-    if source.get("type") not in AUTO_FETCH_SOURCE_TYPES:
-        return None
-
-    shared_dir = CACHE_ROOT / "audio" / _shared_cache_key(source)
-    have = {p.name for p in shared_dir.glob("*")} if shared_dir.exists() else set()
-    still_missing = wanted_names - have
-    if still_missing:
-        have |= auto_fetch_audio(source, still_missing, shared_dir)
-
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    found = wanted_names & have
-    for name in found:
-        dest = audio_dir / name
-        if not dest.exists():
-            shutil.copyfile(shared_dir / name, dest)
-    return found
+    key = hashlib.sha256(canonical.encode()).hexdigest()
+    return CACHE_ROOT / "audio" / key

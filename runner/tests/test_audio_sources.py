@@ -2,7 +2,7 @@ import io
 import tarfile
 
 from oesb_runner import audio_sources
-from oesb_runner.audio_sources import auto_fetch_audio, auto_fetch_audio_cached
+from oesb_runner.audio_sources import auto_fetch_audio, shared_audio_dir
 
 
 def _fake_tar_gz(members: dict[str, bytes]) -> bytes:
@@ -55,42 +55,48 @@ def test_auto_fetch_audio_returns_none_when_no_source_declared(tmp_path):
     assert auto_fetch_audio({}, {"a.wav"}, tmp_path) is None
 
 
-def test_auto_fetch_audio_cached_populates_shared_cache_on_first_fetch(tmp_path, monkeypatch):
+def test_shared_audio_dir_is_stable_for_identical_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    source_a = {"type": "fleurs", "params": {"language": "nl_nl", "split": "dev"}}
+    source_b = {"type": "fleurs", "params": {"language": "nl_nl", "split": "dev"}}
+
+    assert shared_audio_dir(source_a) == shared_audio_dir(source_b)
+    assert shared_audio_dir(source_a).parent == tmp_path / "cache" / "audio"
+
+
+def test_shared_audio_dir_differs_for_different_params(tmp_path, monkeypatch):
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    nl = {"type": "fleurs", "params": {"language": "nl_nl", "split": "dev"}}
+    de = {"type": "fleurs", "params": {"language": "de_de", "split": "dev"}}
+
+    assert shared_audio_dir(nl) != shared_audio_dir(de)
+
+
+def test_sibling_packs_share_one_fetch_via_shared_audio_dir(tmp_path, monkeypatch):
+    """Two "packs" (distinct audio_dir targets) with identical audio.source
+    end up reading from the exact same shared directory — the real
+    scenario this whole design exists for: 11 engine/size sibling packs
+    for one language, all pointing at the same FLEURS split."""
     monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
     archive = _fake_tar_gz({"nl_nl/audio/dev/wanted.wav": b"real audio bytes"})
-    monkeypatch.setattr(
-        audio_sources.urllib.request, "urlopen", lambda url, **kw: _FakeResponse(archive)
-    )
+    call_count = 0
+
+    def _counting_urlopen(url, **kw):
+        nonlocal call_count
+        call_count += 1
+        return _FakeResponse(archive)
+
+    monkeypatch.setattr(audio_sources.urllib.request, "urlopen", _counting_urlopen)
     source = {"type": "fleurs", "params": {"language": "nl_nl", "split": "dev"}}
-    audio_dir = tmp_path / "pack-a" / "audio"
 
-    fetched = auto_fetch_audio_cached(source, {"wanted.wav"}, audio_dir)
+    pack_a_dir = shared_audio_dir(source)
+    fetched_a = auto_fetch_audio(source, {"wanted.wav"}, pack_a_dir)
+    assert fetched_a == {"wanted.wav"}
+    assert call_count == 1
 
-    assert fetched == {"wanted.wav"}
-    assert (audio_dir / "wanted.wav").read_bytes() == b"real audio bytes"
-    key = audio_sources._shared_cache_key(source)
-    assert (tmp_path / "cache" / "audio" / key / "wanted.wav").read_bytes() == b"real audio bytes"
-
-
-def test_auto_fetch_audio_cached_reuses_shared_cache_without_refetching(tmp_path, monkeypatch):
-    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
-    source = {"type": "fleurs", "params": {"language": "nl_nl", "split": "dev"}}
-    key = audio_sources._shared_cache_key(source)
-    shared_dir = tmp_path / "cache" / "audio" / key
-    shared_dir.mkdir(parents=True)
-    (shared_dir / "wanted.wav").write_bytes(b"already cached bytes")
-
-    def _fail_if_called(url, **kw):
-        raise AssertionError("should not hit the network — shared cache already has this file")
-
-    monkeypatch.setattr(audio_sources.urllib.request, "urlopen", _fail_if_called)
-
-    fetched = auto_fetch_audio_cached(source, {"wanted.wav"}, tmp_path / "pack-b" / "audio")
-
-    assert fetched == {"wanted.wav"}
-    assert (tmp_path / "pack-b" / "audio" / "wanted.wav").read_bytes() == b"already cached bytes"
-
-
-def test_auto_fetch_audio_cached_returns_none_for_unknown_source_type(tmp_path, monkeypatch):
-    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
-    assert auto_fetch_audio_cached({"type": "common-voice"}, {"a.wav"}, tmp_path) is None
+    # A second, different pack with the same source resolves to the same
+    # directory and finds the file already there — no second fetch.
+    pack_b_dir = shared_audio_dir(source)
+    assert pack_b_dir == pack_a_dir
+    assert (pack_b_dir / "wanted.wav").read_bytes() == b"real audio bytes"
+    assert call_count == 1

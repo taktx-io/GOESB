@@ -5,6 +5,18 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-25
+### Changed
+- Simplified 0.2.3's shared audio cache: rather than fetching into the
+  shared location and then copying into each pack's own directory,
+  `goesb run` now points a pack's audio directly at the shared,
+  content-addressed folder whenever nothing already exists at the pack's
+  own conventional location — `load_pack()` only ever looks up audio by
+  the exact filename each manifest.jsonl entry names, never by scanning
+  the directory, so every sibling pack pointing at identical audio can
+  read the one shared folder directly. No copying, no linking, no
+  duplicate bytes on disk at all.
+
 ## [0.2.3] - 2026-07-25
 ### Changed
 - Auto-fetched pack audio is now cached once per `(source.type,
