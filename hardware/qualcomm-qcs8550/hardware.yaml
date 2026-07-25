@@ -1,0 +1,9 @@
+id: qualcomm-qcs8550
+display_name: Qualcomm QCS8550
+vendor: Qualcomm
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 3.36
+release_year: 2023
+notes: Snapdragon 8 Gen 2-based edge-AI SoC, higher-tier Hexagon NPU.

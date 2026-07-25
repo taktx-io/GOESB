@@ -1,0 +1,8 @@
+id: rockchip-rk3566
+display_name: Rockchip RK3566
+vendor: Rockchip
+category: cpu
+cores: 4
+threads: 4
+max_clock_ghz: 1.8
+release_year: 2021

@@ -1,0 +1,10 @@
+id: qualcomm-qcs610
+display_name: Qualcomm QCS610
+vendor: Qualcomm
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 2.0
+release_year: 2019
+notes: Lower-power edge-AI SoC aimed specifically at far-field voice/smart-speaker
+  designs.

@@ -1,0 +1,9 @@
+id: rockchip-rk3568
+display_name: Rockchip RK3568
+vendor: Rockchip
+category: cpu
+cores: 4
+threads: 4
+max_clock_ghz: 2.0
+release_year: 2021
+notes: 4x Cortex-A55, ~1 TOPS NPU on some SKUs.

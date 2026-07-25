@@ -1,0 +1,10 @@
+id: qualcomm-qcs6490
+display_name: Qualcomm QCS6490
+vendor: Qualcomm
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 2.7
+release_year: 2021
+notes: Kryo 670 octa-core, Hexagon 770 NPU (~12 TOPS) — common in edge-AI/voice dev
+  kits (e.g. Qualcomm RB3 Gen2).

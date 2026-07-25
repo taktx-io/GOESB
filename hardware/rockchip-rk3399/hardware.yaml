@@ -1,0 +1,9 @@
+id: rockchip-rk3399
+display_name: Rockchip RK3399
+vendor: Rockchip
+category: cpu
+cores: 6
+threads: 6
+max_clock_ghz: 2.0
+release_year: 2016
+notes: 2x Cortex-A72 + 4x Cortex-A55, no NPU — original Rock Pi 4 / NanoPi M4 generation.

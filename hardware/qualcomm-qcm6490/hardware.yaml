@@ -1,0 +1,9 @@
+id: qualcomm-qcm6490
+display_name: Qualcomm QCM6490
+vendor: Qualcomm
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 2.7
+release_year: 2021
+notes: Same silicon as QCS6490, module packaging (no display/camera ISP exposed).

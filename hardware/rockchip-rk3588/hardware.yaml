@@ -1,0 +1,9 @@
+id: rockchip-rk3588
+display_name: Rockchip RK3588
+vendor: Rockchip
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 2.4
+release_year: 2022
+notes: 4x Cortex-A76 + 4x Cortex-A55, Mali-G610 GPU, ~6 TOPS NPU.

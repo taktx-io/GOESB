@@ -1,0 +1,10 @@
+id: qualcomm-snapdragon-x-elite
+display_name: Qualcomm Snapdragon X Elite
+vendor: Qualcomm
+category: cpu
+cores: 12
+threads: 12
+max_clock_ghz: 4.3
+release_year: 2024
+notes: Laptop-class Oryon cores, ~45 TOPS Hexagon NPU — relevant for on-device speech
+  apps on ARM Windows laptops.

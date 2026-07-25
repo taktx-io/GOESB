@@ -1,0 +1,9 @@
+id: qualcomm-qcs8250
+display_name: Qualcomm QCS8250
+vendor: Qualcomm
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 2.84
+release_year: 2020
+notes: Snapdragon 865-based edge-AI SoC — Qualcomm RB5 dev kit.

@@ -1,0 +1,9 @@
+id: rockchip-rk3588s
+display_name: Rockchip RK3588S
+vendor: Rockchip
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 2.4
+release_year: 2022
+notes: RK3588 variant with fewer PCIe/video lanes, same core layout and NPU.
