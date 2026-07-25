@@ -5,6 +5,17 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-07-25
+### Changed
+- Batch runs now confirm every distinct engine they need up front, before
+  the run loop starts, instead of prompting per-engine inside each
+  combo's own `_reexec`'d subprocess as it's encountered. A batch
+  spanning several engines could previously stall for however long it
+  took someone to notice an unanswered Y/n prompt hours into an
+  unattended run. Declining or failing to install one engine now just
+  drops the combos that need it (reported), same continue-past-failure
+  behavior as the rest of the batch — the other combos still run.
+
 ## [0.2.5] - 2026-07-25
 ### Fixed
 - 0.2.4 shipped a real regression: `run`'s audio auto-fetch correctly

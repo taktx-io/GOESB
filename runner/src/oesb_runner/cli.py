@@ -297,6 +297,52 @@ def _ask_matrix(matrix: _Matrix) -> list[str] | None:
         return None
 
 
+def _preflight_engines(
+    combos: list[tuple[str, str]], profiles_dir: str, api_url: str
+) -> list[tuple[str, str]]:
+    """Before the batch loop starts — which re-execs each combo as its own
+    fresh subprocess — make sure every distinct engine the batch needs is
+    installed, prompting once per engine right now instead of letting each
+    subprocess discover it needs a Y/n answer on its own. A batch spanning
+    several engines could otherwise stall for however long it takes
+    someone to notice a prompt sitting unanswered hours into an
+    unattended run. Combos whose engine install is declined or fails are
+    dropped and reported, same continue-past-failure spirit as the rest
+    of the batch — just resolved up front rather than discovered mid-run."""
+    runtime_by_profile: dict[str, str | None] = {}
+    for profile_id, _pack_id in combos:
+        if profile_id in runtime_by_profile:
+            continue
+        profile_path = Path(profiles_dir) / profile_id / "profile.yaml"
+        try:
+            profile = (
+                _load_yaml(profile_path) if profile_path.exists()
+                else fetch_profile(profile_id, api_url)
+            )
+            runtime_by_profile[profile_id] = profile["runtime"]["name"]
+        except (urllib.error.URLError, urllib.error.HTTPError):
+            runtime_by_profile[profile_id] = None  # unresolved — let run() itself surface this
+
+    unavailable_engines: set[str] = set()
+    for runtime_name in sorted({r for r in runtime_by_profile.values() if r is not None}):
+        try:
+            _ensure_engine_installed(runtime_name)
+        except typer.Exit:
+            unavailable_engines.add(runtime_name)
+
+    if not unavailable_engines:
+        return combos
+
+    kept = []
+    for profile_id, pack_id in combos:
+        runtime_name = runtime_by_profile.get(profile_id)
+        if runtime_name in unavailable_engines:
+            typer.echo(f"  {profile_id}  x  {pack_id} — skipping ({runtime_name!r} not installed)", err=True)
+            continue
+        kept.append((profile_id, pack_id))
+    return kept
+
+
 def _wizard_run() -> None:
     """The wizard's sole run flow: a language x engine/size matrix picker
     (single cells, whole rows, or whole columns — one selection runs one
@@ -335,6 +381,10 @@ def _wizard_run() -> None:
             typer.echo(f"no packs found for {profile_id!r} — skipping", err=True)
             continue
         combos.append((profile_id, matching_packs[0]["id"]))
+    if not combos:
+        return
+
+    combos = _preflight_engines(combos, "profiles", DEFAULT_API_URL)
     if not combos:
         return
 

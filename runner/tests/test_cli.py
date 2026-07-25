@@ -176,6 +176,7 @@ def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsy
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
 
     reexec_calls = []
 
@@ -212,6 +213,7 @@ def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("2"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
 
     calls = []
     monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
@@ -242,10 +244,47 @@ def test_wizard_run_hardware_back_re_shows_the_matrix(monkeypatch):
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
     monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
 
     cli_module._wizard_run()
 
     assert len(matrix_calls) == 2  # matrix re-shown once after the "back" pick
+
+
+def test_preflight_engines_installs_each_distinct_engine_once(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    combos = [
+        ("whisper-tiny-en-batch", "pack-a"),  # faster-whisper
+        ("whisper-medium-en-batch", "pack-b"),  # faster-whisper too — same engine
+        ("vosk-small-en-batch", "pack-c"),  # vosk
+    ]
+    installed = []
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda name: installed.append(name))
+
+    kept = cli_module._preflight_engines(combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL)
+
+    assert sorted(installed) == ["faster-whisper", "vosk"]  # deduped, not once per combo
+    assert kept == combos
+
+
+def test_preflight_engines_drops_only_combos_needing_a_declined_engine(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    combos = [
+        ("whisper-tiny-en-batch", "pack-a"),  # faster-whisper
+        ("vosk-small-en-batch", "pack-b"),  # vosk
+    ]
+
+    def fake_ensure(name):
+        if name == "vosk":
+            raise typer.Exit(code=1)
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", fake_ensure)
+
+    kept = cli_module._preflight_engines(combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL)
+
+    assert kept == [("whisper-tiny-en-batch", "pack-a")]
 
 
 def _sample_matrix_profiles():
