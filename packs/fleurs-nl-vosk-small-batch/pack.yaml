@@ -1,0 +1,28 @@
+id: fleurs-nl-vosk-small-batch
+version: 1.0.0
+sha256: ceff20a38aa559c00db9c2b9dfa519e73b65b2174bc5efe5dca7a4ab28ab7108
+profile_id: vosk-small-nl-batch
+visibility: open
+license: CC-BY-4.0
+audio:
+  count: 15
+  total_duration_s: 119.52
+  sample_rate_hz: 16000
+  manifest_sha256: 4118daa0793b5a2b70fb37fa7ce1b4e33243fa4d1e6918e668d95d848499b17f
+  source:
+    type: fleurs
+    params:
+      language: nl_nl
+      split: dev
+    fetch_instructions: 'Identical audio to fleurs-nl-batch — auto-fetched the same
+      way. Manual fallback: run `python scripts/fetch_fleurs_subset.py --language
+      nl_nl --pack-dir packs/fleurs-nl-batch`, then pass `--audio-dir packs/fleurs-nl-batch/audio`
+      to `goesb run`.'
+metadata:
+  language: nl-NL
+  recording_environment: studio
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - fleurs
+  - nl

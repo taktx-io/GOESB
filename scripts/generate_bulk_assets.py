@@ -80,6 +80,12 @@ LANGUAGES: list[dict[str, Any]] = [
         "primary_pack_id": "librispeech-en-batch", "source_type": "librispeech",
         "existing_combos": {("faster-whisper", "medium"), ("whisper-cpp", "base"), ("vosk", None)},
     },
+    {
+        "code": "nl", "bcp47": "nl-NL", "fleurs": "nl_nl",
+        "vosk_model": "vosk-model-small-nl-0.22",
+        "primary_pack_id": "fleurs-nl-batch", "source_type": "fleurs",
+        "existing_combos": {("faster-whisper", "medium")},
+    },
 ]
 
 

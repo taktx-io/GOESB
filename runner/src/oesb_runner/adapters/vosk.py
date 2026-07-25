@@ -27,6 +27,8 @@ _MODEL_URLS = {
         "https://alphacephei.com/vosk/models/vosk-model-small-de-0.15.zip",
     "vosk-model-small-pt-0.3":
         "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip",
+    "vosk-model-small-nl-0.22":
+        "https://alphacephei.com/vosk/models/vosk-model-small-nl-0.22.zip",
 }
 _SAMPLE_RATE = 16000
 
