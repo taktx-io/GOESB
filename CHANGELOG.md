@@ -5,6 +5,19 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-26
+### Fixed
+- **`_pick_hardware_id` silently fell back to `custom` on any unmatched
+  answer, with no warning.** Typing the catalog id/slug (e.g. `intel-n150`)
+  instead of picking the shown label (`Intel N150 (Intel)`) from the
+  autocomplete menu resolved to `hardware_id: "custom"` with zero
+  indication anything was off — the mistake only surfaced later, on the
+  leaderboard, filed under the wrong hardware entirely. Still falls back
+  to `custom` (no dead end), but now prints `'<answer>' doesn't match a
+  catalog entry — recording hardware as 'custom' instead` unless `custom`
+  was actually chosen on purpose via the explicit "Other / not yet in the
+  catalog" option.
+
 ## [0.3.2] - 2026-07-26
 ### Changed
 - **`goesb submit` now batches under one call-home token instead of one per

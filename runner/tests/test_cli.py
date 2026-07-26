@@ -889,7 +889,7 @@ def test_pick_hardware_id_resolves_label_back_to_id(monkeypatch):
     assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) == "intel-xeon-e3-1240-v6"
 
 
-def test_pick_hardware_id_unmatched_answer_falls_back_to_custom(monkeypatch):
+def test_pick_hardware_id_explicit_other_falls_back_to_custom_silently(monkeypatch, capsys):
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(
@@ -904,6 +904,28 @@ def test_pick_hardware_id_unmatched_answer_falls_back_to_custom(monkeypatch):
     )
 
     assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) == "custom"
+    # Deliberately picking "Other" is not a mistake -- no warning needed.
+    assert "doesn't match a catalog entry" not in capsys.readouterr().err
+
+
+def test_pick_hardware_id_typo_falls_back_to_custom_with_warning(monkeypatch, capsys):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_hardware_rows",
+        lambda *a, **k: [
+            {"id": "intel-n150", "display_name": "Intel N150", "vendor": "Intel", "category": "cpu"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module.questionary, "autocomplete",
+        lambda *a, **k: _FakeAsk("intel-n150"),  # typed the id/slug, not the shown label
+    )
+
+    result = cli_module._pick_hardware_id("http://api", "hardware", offline=False)
+
+    assert result == "custom"
+    assert "'intel-n150' doesn't match a catalog entry" in capsys.readouterr().err
 
 
 def test_pick_hardware_id_empty_catalog_falls_back_to_custom(monkeypatch):

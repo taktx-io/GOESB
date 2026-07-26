@@ -966,7 +966,22 @@ def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool, allow_back
         return None
     if allow_back and answer == _HARDWARE_BACK_LABEL:
         return _WIZARD_BACK
-    return ids_by_label.get(answer, "custom")
+
+    resolved = ids_by_label.get(answer)
+    if resolved is not None:
+        return resolved
+    if answer != other_label:
+        # Typed free text that doesn't exactly match any catalog label
+        # (e.g. "intel-n150" instead of the shown "Intel N150 (Intel)") —
+        # falls back to custom either way (no dead end), but silently
+        # doing so meant results meant for a real catalog entry ended up
+        # filed under "custom" with no indication anything was off until
+        # someone noticed on the leaderboard later.
+        typer.echo(
+            f"'{answer}' doesn't match a catalog entry — recording hardware as 'custom' instead.",
+            err=True,
+        )
+    return "custom"
 
 
 @app.command("list-profiles")
