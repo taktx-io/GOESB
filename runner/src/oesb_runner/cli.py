@@ -672,10 +672,11 @@ def _resolve_pack_audio(
     that's exactly how they drifted apart in 0.2.4 (fetched into the
     shared cache dir, then loaded from the pack's own empty directory)."""
     source = pack_yaml.get("audio", {}).get("source", {})
+    auto_fetchable = False
     if audio_dir:
         resolved_audio_dir = Path(audio_dir)
     elif (pack_dir / "audio").exists():
-        resolved_audio_dir = pack_dir / "audio"  # already populated (manual or a prior direct fetch) — use it as-is
+        return pack_dir / "audio"  # already populated (manual or a prior direct fetch) — use it as-is
     elif source.get("type") in AUTO_FETCH_SOURCE_TYPES:
         # Nothing here yet and this source is auto-fetchable: point
         # straight at the shared, content-addressed cache instead of this
@@ -687,11 +688,30 @@ def _resolve_pack_audio(
         # the fetch happens at most once total across all of them, and
         # there's nothing to copy or link afterwards.
         resolved_audio_dir = shared_audio_dir(source)
+        auto_fetchable = True
     else:
         resolved_audio_dir = pack_dir / "audio"
 
+    manifest_path = pack_dir / "manifest.jsonl"
+    wanted_names: set[str] | None = None
+    if manifest_path.exists():
+        wanted_names = {
+            json.loads(line)["relative_path"]
+            for line in manifest_path.read_text().splitlines()
+            if line.strip()
+        }
+
     if resolved_audio_dir.exists():
-        return resolved_audio_dir
+        # A directory existing isn't proof it's complete: an auto-fetch
+        # interrupted mid-stream (network blip, Ctrl-C) can leave it
+        # partially — or, if interrupted on the very first clip, entirely —
+        # empty. shared_audio_dir() reuses this exact path across every
+        # sibling pack, so trusting bare existence here would permanently
+        # poison every one of them the moment any single fetch is cut
+        # short; check completeness against the manifest before trusting it.
+        existing_names = {p.name for p in resolved_audio_dir.iterdir()}
+        if wanted_names is None or wanted_names <= existing_names:
+            return resolved_audio_dir
 
     fetch_instructions = source.get("fetch_instructions")
     if offline:
@@ -700,8 +720,7 @@ def _resolve_pack_audio(
             typer.echo(f"To fetch it:\n{fetch_instructions}", err=True)
         raise typer.Exit(code=1)
 
-    manifest_path = pack_dir / "manifest.jsonl"
-    if source.get("type") not in AUTO_FETCH_SOURCE_TYPES or not manifest_path.exists():
+    if not auto_fetchable or wanted_names is None:
         typer.echo(
             "Don't know how to auto-fetch audio for this pack" +
             (f" — to fetch it manually:\n{fetch_instructions}" if fetch_instructions
@@ -710,11 +729,6 @@ def _resolve_pack_audio(
         )
         raise typer.Exit(code=1)
 
-    wanted_names = {
-        json.loads(line)["relative_path"]
-        for line in manifest_path.read_text().splitlines()
-        if line.strip()
-    }
     typer.echo(
         f"No audio at {resolved_audio_dir} yet — attempting auto-fetch "
         f"(source type: {source['type']}) ...",

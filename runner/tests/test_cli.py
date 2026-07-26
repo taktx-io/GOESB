@@ -1079,6 +1079,72 @@ def test_resolve_pack_audio_prefers_existing_pack_local_audio(tmp_path, monkeypa
     assert resolved_audio_dir == pack_dir / "audio"
 
 
+def test_resolve_pack_audio_retries_after_stale_empty_shared_cache_dir(tmp_path, monkeypatch):
+    """A prior auto-fetch interrupted mid-stream (network blip, Ctrl-C) can
+    leave shared_audio_dir() existing but empty (or partial). Since that
+    same path is reused by every sibling pack pointing at the same source,
+    treating bare directory existence as "already fetched" would poison
+    every one of them permanently — this is the real bug seen in
+    production: a batch run's first pack left an empty cache dir behind,
+    and every subsequent sibling pack failed with PackAudioMissingError
+    without even attempting a fetch."""
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+
+    source = {"type": "fleurs", "params": {"language": "xx_xx", "split": "dev"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    # Simulate the poisoned state: the shared cache dir already exists
+    # (created by mkdir at the start of a prior, interrupted _stream_extract)
+    # but has none of the wanted files in it.
+    stale_dir = audio_sources.shared_audio_dir(source)
+    stale_dir.mkdir(parents=True)
+
+    archive_buf = io.BytesIO()
+    with tarfile.open(fileobj=archive_buf, mode="w:gz") as tar:
+        content = b"fake audio bytes"
+        info = tarfile.TarInfo(name="wanted.wav")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+    archive_bytes = archive_buf.getvalue()
+    monkeypatch.setattr(
+        audio_sources.urllib.request, "urlopen",
+        lambda url, **kw: _FakeAudioResponse(archive_bytes),
+    )
+
+    resolved_audio_dir = cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert resolved_audio_dir == stale_dir
+    assert (stale_dir / "wanted.wav").read_bytes() == content
+
+
+def test_resolve_pack_audio_skips_fetch_when_shared_cache_already_complete(tmp_path, monkeypatch):
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+
+    source = {"type": "fleurs", "params": {"language": "xx_xx", "split": "dev"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    complete_dir = audio_sources.shared_audio_dir(source)
+    complete_dir.mkdir(parents=True)
+    (complete_dir / "wanted.wav").write_bytes(b"already fetched")
+
+    def _fail_if_called(url, **kw):
+        raise AssertionError("should not re-fetch — shared cache is already complete")
+
+    monkeypatch.setattr(audio_sources.urllib.request, "urlopen", _fail_if_called)
+
+    resolved_audio_dir = cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert resolved_audio_dir == complete_dir
+
+
 def test_coerce_param_value_bool_parses_common_spellings():
     from oesb_runner import cli as cli_module
 

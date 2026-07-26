@@ -5,6 +5,22 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-26
+### Fixed
+- **Auto-fetched pack audio could get permanently stuck empty.** `--param`
+  aside, this hit any multi-pack batch run over an auto-fetchable source
+  (FLEURS, LibriSpeech): `_resolve_pack_audio()` trusted the shared,
+  content-addressed cache directory's mere existence as proof its audio
+  was already fetched. An auto-fetch interrupted mid-stream (network
+  blip, Ctrl-C) left that directory created-but-empty by
+  `_stream_extract()`'s own `mkdir`, and since every sibling pack pointing
+  at the same source reuses that exact path, every one of them then
+  failed with `PackAudioMissingError` on every subsequent run — the
+  directory "existed," so the runner never even tried to fetch again.
+  Fixed by checking the cache directory's contents against the pack's own
+  `manifest.jsonl` before trusting it, and only short-circuiting the
+  fetch when every wanted file is actually present.
+
 ## [0.3.0] - 2026-07-26
 ### Added
 - **Parameterized profile configuration (ADR-0009), runner portion.** A
