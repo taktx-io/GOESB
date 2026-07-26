@@ -535,12 +535,18 @@ def test_wizard_submit_multiple_and_deletes_confirmed(monkeypatch, tmp_path):
         cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a), str(file_b)])
     )
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
-    reexec_calls = []
-    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+    submit_calls = []
+
+    def fake_submit_paths(paths, api_url):
+        submit_calls.append((paths, api_url))
+        return [(p, True, f"Submitted: {p}") for p in paths]
+
+    monkeypatch.setattr(cli_module, "_submit_paths", fake_submit_paths)
 
     cli_module._wizard_submit()
 
-    assert reexec_calls == [["submit", str(file_a)], ["submit", str(file_b)]]
+    # one shared batch call for every chosen file, not one call per file
+    assert submit_calls == [([str(file_a), str(file_b)], cli_module.DEFAULT_API_URL)]
     assert not file_a.exists()
     assert not file_b.exists()
 
@@ -556,7 +562,9 @@ def test_wizard_submit_declined_delete_keeps_files(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a)]))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
-    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+    monkeypatch.setattr(
+        cli_module, "_submit_paths", lambda paths, api_url: [(p, True, "ok") for p in paths]
+    )
 
     cli_module._wizard_submit()
 
@@ -578,11 +586,13 @@ def test_wizard_submit_only_deletes_successfully_submitted_files(monkeypatch, tm
     )
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
 
-    def fake_reexec(args):
-        if args[1] == str(file_b):
-            raise typer.Exit(code=1)
+    def fake_submit_paths(paths, api_url):
+        return [
+            (p, False, "submission rejected: ...") if p == str(file_b) else (p, True, "Submitted: ...")
+            for p in paths
+        ]
 
-    monkeypatch.setattr(cli_module, "_reexec", fake_reexec)
+    monkeypatch.setattr(cli_module, "_submit_paths", fake_submit_paths)
 
     cli_module._wizard_submit()
 
@@ -600,11 +610,153 @@ def test_wizard_submit_no_selection_does_nothing(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([]))
     calls = []
-    monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
+    monkeypatch.setattr(cli_module, "_submit_paths", lambda paths, api_url: calls.append(paths))
 
     cli_module._wizard_submit()
 
     assert calls == []
+
+
+def _write_fake_result(path, **overrides):
+    from oesb_runner.hashing import canonical_asset_sha256
+
+    result = {"schema_version": "0.2", "runner": {"version": "0.0.1"}, "metrics": {}}
+    result.update(overrides)
+    result["payload_sha256"] = canonical_asset_sha256(result, exclude=("payload_sha256", "signature"))
+    path.write_text(json.dumps(result))
+    return result
+
+
+def test_submit_paths_batches_all_files_under_one_token(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    file_a, file_b = tmp_path / "a.json", tmp_path / "b.json"
+    _write_fake_result(file_a, repeats=1)
+    _write_fake_result(file_b, repeats=2)
+
+    calls = []
+
+    def fake_get_json(url, timeout):
+        calls.append(("GET", url))
+        return {"min_runner_version": "0.0.1"}
+
+    def fake_post_json(url, payload, timeout):
+        calls.append(("POST", url, payload))
+        if url.endswith("/runner-tokens"):
+            return {"token_id": "tok-1"}
+        assert url.endswith("/benchmark/batch")
+        assert payload["token_id"] == "tok-1"
+        assert len(payload["results"]) == 2
+        return {"results": [{"accepted": True, "id": r["payload_sha256"]} for r in payload["results"]]}
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+    monkeypatch.setattr(cli_module, "_post_json", fake_post_json)
+
+    outcomes = cli_module._submit_paths([str(file_a), str(file_b)], "http://api.example")
+
+    assert [(p, accepted) for p, accepted, _ in outcomes] == [(str(file_a), True), (str(file_b), True)]
+    # exactly one health check, one token request, one batch POST -- not
+    # one round-trip per file
+    assert [c[0:2] for c in calls] == [
+        ("GET", "http://api.example/health"),
+        ("POST", "http://api.example/runner-tokens"),
+        ("POST", "http://api.example/benchmark/batch"),
+    ]
+
+
+def test_submit_paths_locally_invalid_file_never_reaches_network(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    tampered = tmp_path / "tampered.json"
+    tampered.write_text(json.dumps({"payload_sha256": "not-the-real-hash", "metrics": {}}))
+    good = tmp_path / "good.json"
+    _write_fake_result(good)
+
+    posted = []
+
+    def fake_get_json(url, timeout):
+        return {"min_runner_version": "0.0.1"}
+
+    def fake_post_json(url, payload, timeout):
+        posted.append(url)
+        if url.endswith("/runner-tokens"):
+            return {"token_id": "tok-1"}
+        assert len(payload["results"]) == 1  # tampered file never joins the batch
+        return {"results": [{"accepted": True, "id": payload["results"][0]["payload_sha256"]}]}
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+    monkeypatch.setattr(cli_module, "_post_json", fake_post_json)
+
+    outcomes = cli_module._submit_paths([str(tampered), str(good)], "http://api.example")
+
+    outcome_by_path = {p: (accepted, msg) for p, accepted, msg in outcomes}
+    assert outcome_by_path[str(tampered)][0] is False
+    assert "does not match its own payload_sha256" in outcome_by_path[str(tampered)][1]
+    assert outcome_by_path[str(good)][0] is True
+
+
+def test_submit_paths_reports_per_item_rejection_without_failing_others(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    file_a, file_b = tmp_path / "a.json", tmp_path / "b.json"
+    _write_fake_result(file_a)
+    _write_fake_result(file_b)
+
+    def fake_get_json(url, timeout):
+        return {"min_runner_version": "0.0.1"}
+
+    def fake_post_json(url, payload, timeout):
+        if url.endswith("/runner-tokens"):
+            return {"token_id": "tok-1"}
+        return {"results": [
+            {"accepted": True, "id": payload["results"][0]["payload_sha256"]},
+            {"accepted": False, "detail": {"reason": "not_an_official_profile"}},
+        ]}
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+    monkeypatch.setattr(cli_module, "_post_json", fake_post_json)
+
+    outcomes = cli_module._submit_paths([str(file_a), str(file_b)], "http://api.example")
+
+    assert outcomes[0][1] is True
+    assert outcomes[1][1] is False
+    assert "not_an_official_profile" in outcomes[1][2]
+
+
+def test_submit_command_exits_nonzero_if_any_file_rejected(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    file_a, file_b = tmp_path / "a.json", tmp_path / "b.json"
+    _write_fake_result(file_a)
+    _write_fake_result(file_b)
+
+    monkeypatch.setattr(
+        cli_module,
+        "_submit_paths",
+        lambda paths, api_url: [(paths[0], True, "Submitted: ok"), (paths[1], False, "submission rejected: nope")],
+    )
+
+    result = runner.invoke(app, ["submit", str(file_a), str(file_b)])
+
+    assert result.exit_code == 1
+    assert "Submitted: ok" in result.output
+    assert "submission rejected: nope" in result.output
+
+
+def test_submit_command_single_file_still_works(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    file_a = tmp_path / "a.json"
+    _write_fake_result(file_a)
+
+    monkeypatch.setattr(
+        cli_module, "_submit_paths", lambda paths, api_url: [(paths[0], True, "Submitted: ok")]
+    )
+
+    result = runner.invoke(app, ["submit", str(file_a)])
+
+    assert result.exit_code == 0
+    assert "Submitted: ok" in result.output
 
 
 def _sample_matrix_profiles():

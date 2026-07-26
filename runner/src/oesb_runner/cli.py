@@ -543,11 +543,12 @@ def _wizard_validate() -> None:
 def _wizard_submit() -> None:
     """Submit one or more result files — questionary's checkbox already
     supports select/deselect-all (press 'a') and invert ('i') natively, no
-    custom widget needed, unlike the matrix picker. Each submission runs
-    in its own isolated `_reexec` (continue-past-failure, same spirit as
-    the batch run loop): one rejected result must not block the rest.
-    Deletion is offered only for files that actually made it, and
-    defaults to "no" — deleting a local result file isn't undoable."""
+    custom widget needed, unlike the matrix picker. All chosen files go in
+    one `_submit_paths()` batch under a single call-home token (rather than
+    one token per file — see that function's docstring for why); one
+    rejected result must not block the rest. Deletion is offered only for
+    files that actually made it, and defaults to "no" — deleting a local
+    result file isn't undoable."""
     results_dir = Path("runs/results")
     result_files = sorted(results_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not result_files:
@@ -561,12 +562,10 @@ def _wizard_submit() -> None:
         return
 
     submitted: list[str] = []
-    for result_path in chosen:
-        try:
-            _reexec(["submit", result_path])
+    for result_path, accepted, message in _submit_paths(chosen, DEFAULT_API_URL):
+        typer.echo(message, err=True)
+        if accepted:
             submitted.append(result_path)
-        except typer.Exit:
-            typer.echo(f"  ✗ {result_path} — submission failed, keeping the file", err=True)
 
     if not submitted:
         return
@@ -1594,51 +1593,50 @@ def _get_json(url: str, timeout: int) -> dict:
         return json.loads(resp.read())
 
 
-@app.command()
-def submit(
-    result_path: str,
-    api_url: str = typer.Option(
-        DEFAULT_API_URL, help="Base URL of the GOESB API to submit the result to."
-    ),
-) -> None:
-    """Sign a locally-produced result for public submission and POST it to
-    the API (ADR-0005).
+def _submit_paths(result_paths: list[str], api_url: str) -> list[tuple[str, bool, str]]:
+    """Submit every path under ONE shared call-home token (ADR-0005) —
+    returns (path, accepted, message) per input path, in the same order.
 
-    Producing a result (`goesb run`) never requires network access; this is
-    the separate, explicit submission step. A fresh keypair is generated
-    in-memory for this submission only — the private key never touches disk
-    or leaves this machine — and the API is asked to vouch for its public
-    key with a short-lived, single-use token, which is what actually signs
-    the result. Re-uses the file's own `payload_sha256` unchanged (content,
-    and therefore the hash, doesn't depend on who signs it) after confirming
-    the file hasn't been altered since `goesb run` wrote it.
-    """
-    result = json.loads(Path(result_path).read_text())
-
+    The API's per-IP rate limit (tokens.py) counts token *issuance*, not
+    results ingested: fetching one token per file (the original approach)
+    means a batch of N results costs N units of quota, the same as N
+    separate spam attempts would. Fetching a single token and submitting
+    every file as one array to `POST /benchmark/batch` costs exactly 1,
+    regardless of N — this is the actual fix, not a bigger rate limit.
+    A result that fails locally (edited since `goesb run` wrote it) never
+    reaches the network at all; one rejected-by-the-API result never blocks
+    its siblings."""
     try:
         health = _get_json(f"{api_url.rstrip('/')}/health", timeout=10)
     except (urllib.error.HTTPError, urllib.error.URLError) as exc:
-        typer.echo(f"could not reach {api_url} to check compatibility: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        msg = f"could not reach {api_url} to check compatibility: {exc}"
+        return [(p, False, msg) for p in result_paths]
 
     min_runner_version = health.get("min_runner_version")
     if min_runner_version and Version(__version__) < Version(min_runner_version):
-        typer.echo(
+        msg = (
             f"This goesb-runner ({__version__}) is older than what {api_url} currently "
             f"accepts (minimum {min_runner_version}) — upgrade before submitting: "
-            "pip install --upgrade goesb-runner",
-            err=True,
+            "pip install --upgrade goesb-runner"
         )
-        raise typer.Exit(code=1)
+        return [(p, False, msg) for p in result_paths]
 
-    recomputed = canonical_asset_sha256(result, exclude=("payload_sha256", "signature"))
-    if recomputed != result.get("payload_sha256"):
-        typer.echo(
-            f"{result_path} content does not match its own payload_sha256 "
-            "(edited since `goesb run` wrote it?) — refusing to submit",
-            err=True,
-        )
-        raise typer.Exit(code=1)
+    outcomes: list[tuple[str, bool, str]] = []
+    ready: list[tuple[str, dict]] = []
+    for path in result_paths:
+        result = json.loads(Path(path).read_text())
+        recomputed = canonical_asset_sha256(result, exclude=("payload_sha256", "signature"))
+        if recomputed != result.get("payload_sha256"):
+            message = (
+                f"{path} content does not match its own payload_sha256 "
+                "(edited since `goesb run` wrote it?) — refusing to submit"
+            )
+            outcomes.append((path, False, message))
+            continue
+        ready.append((path, result))
+
+    if not ready:
+        return outcomes
 
     private_key = generate_ephemeral_keypair()
     public_key_b64 = base64.b64encode(public_key_bytes_for(private_key)).decode("ascii")
@@ -1646,24 +1644,63 @@ def submit(
     try:
         token = _post_json(f"{api_url.rstrip('/')}/runner-tokens", {"public_key": public_key_b64}, timeout=10)
     except urllib.error.HTTPError as exc:
-        typer.echo(f"failed to obtain a submission token: {exc.code} {exc.read().decode()}", err=True)
-        raise typer.Exit(code=1) from exc
+        msg = f"failed to obtain a submission token: {exc.code} {exc.read().decode()}"
+        return outcomes + [(p, False, msg) for p, _ in ready]
     except urllib.error.URLError as exc:
-        typer.echo(f"could not reach {api_url}: {exc.reason}", err=True)
-        raise typer.Exit(code=1) from exc
+        msg = f"could not reach {api_url}: {exc.reason}"
+        return outcomes + [(p, False, msg) for p, _ in ready]
 
-    result["signature"] = sign_with_key(recomputed, private_key, token["token_id"])
+    for _path, result in ready:
+        result["signature"] = sign_with_key(result["payload_sha256"], private_key, token["token_id"])
 
     try:
-        response = _post_json(f"{api_url.rstrip('/')}/benchmark", result, timeout=30)
+        response = _post_json(
+            f"{api_url.rstrip('/')}/benchmark/batch",
+            {"token_id": token["token_id"], "results": [r for _, r in ready]},
+            timeout=60,
+        )
     except urllib.error.HTTPError as exc:
-        typer.echo(f"submission rejected: {exc.code} {exc.read().decode()}", err=True)
-        raise typer.Exit(code=1) from exc
+        msg = f"batch submission rejected: {exc.code} {exc.read().decode()}"
+        return outcomes + [(p, False, msg) for p, _ in ready]
     except urllib.error.URLError as exc:
-        typer.echo(f"could not reach {api_url}: {exc.reason}", err=True)
-        raise typer.Exit(code=1) from exc
+        msg = f"could not reach {api_url}: {exc.reason}"
+        return outcomes + [(p, False, msg) for p, _ in ready]
 
-    typer.echo(f"Submitted: {response}", err=True)
+    for (path, _result), item in zip(ready, response["results"], strict=True):
+        if item.get("accepted"):
+            outcomes.append((path, True, f"Submitted: {item}"))
+        else:
+            outcomes.append((path, False, f"submission rejected: {item.get('detail')}"))
+
+    return outcomes
+
+
+@app.command()
+def submit(
+    result_paths: list[str] = typer.Argument(  # noqa: B008
+        ..., metavar="RESULT_PATH...", help="One or more result files to submit."
+    ),
+    api_url: str = typer.Option(
+        DEFAULT_API_URL, help="Base URL of the GOESB API to submit the result(s) to."
+    ),
+) -> None:
+    """Sign one or more locally-produced results for public submission and
+    POST them to the API (ADR-0005).
+
+    Producing a result (`goesb run`) never requires network access; this is
+    the separate, explicit submission step. Every path given here shares a
+    single ephemeral keypair and a single call-home token — the private key
+    never touches disk or leaves this machine, and submitting many results
+    in one sitting costs the same rate-limit quota as submitting one (see
+    `_submit_paths`). A result that fails locally or is rejected by the API
+    never blocks its siblings; the command exits non-zero if any path
+    failed, even though the others may have succeeded.
+    """
+    outcomes = _submit_paths(result_paths, api_url)
+    for _path, _accepted, message in outcomes:
+        typer.echo(message, err=True)
+    if any(not accepted for _, accepted, _ in outcomes):
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,22 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-26
+### Changed
+- **`goesb submit` now batches under one call-home token instead of one per
+  file.** The API's per-IP rate limit on token issuance (20/hour) counts
+  *tokens*, not results — submitting one at a time meant a legitimate
+  multi-result batch (e.g. the wizard's multi-select submit, or a sweep
+  across many profile/pack combos) burned through the exact same budget a
+  spam script would, one result at a time. `submit` now accepts one or
+  more paths (`goesb submit a.json b.json ...`, still fully backward
+  compatible with a single path) and the wizard's "Submit a result" step
+  submits every chosen file as one call under a single token — cost is now
+  1 token per sitting, not 1 per result. Requires the paired
+  `oesb-platform` API change (`POST /benchmark/batch`); a locally-invalid
+  file never reaches the network, and one result rejected by the API never
+  blocks its siblings.
+
 ## [0.3.1] - 2026-07-26
 ### Fixed
 - **Auto-fetched pack audio could get permanently stuck empty.** `--param`
