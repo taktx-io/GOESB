@@ -59,7 +59,7 @@ def _resolve_model_dir(model_name: str, download_root: Path) -> Path:
     return model_dir
 
 
-@register("vosk", benchmark_type="batch")
+@register("vosk", benchmark_type="batch", applied_parameters=frozenset())
 def run_batch(
     model_name: str,
     utterances: list[Utterance],

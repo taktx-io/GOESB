@@ -1,13 +1,13 @@
 # Example official profile (illustrative). Validated against
 # schemas/benchmark-profile.schema.json.
 id: whisper-medium-nl-batch
-version: 1.0.1
+version: 1.1.0
 title: Whisper Medium Dutch (Batch)
 benchmark_type: batch
 language: nl-NL
 runtime:
   name: faster-whisper
-  min_version: "1.0.0"
+  min_version: 1.0.0
 model:
   name: whisper-medium
   quantization: int8
@@ -23,10 +23,38 @@ normalization:
   ruleset_id: goesb-nl-v1
 scoring:
   primary_metric: wer
-  tie_breakers: [real_time_factor, energy_wh]
-metrics: [wer, cer, real_time_factor, cpu_pct, ram_mb, energy_wh, temperature_c]
+  tie_breakers:
+  - real_time_factor
+  - energy_wh
+metrics:
+- wer
+- cer
+- real_time_factor
+- cpu_pct
+- ram_mb
+- energy_wh
+- temperature_c
+overridable:
+  beam_size:
+    allowed:
+    - 1
+    - 2
+    - 4
+    - 5
+    - 8
+  vad: {}
+  quantization:
+    allowed:
+    - int8
+    - float32
+  threads:
+    range:
+      min: 1
+      max: 16
 changelog:
-  - version: 1.0.0
-    notes: Initial profile.
-  - version: 1.0.1
-    notes: Added temperature_c (M2) now that the hwmon probe exists.
+- version: 1.0.0
+  notes: Initial profile.
+- version: 1.0.1
+  notes: Added temperature_c (M2) now that the hwmon probe exists.
+- version: 1.1.0
+  notes: Declare beam_size/quantization/threads/vad override-eligible (ADR-0009).

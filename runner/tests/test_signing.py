@@ -73,3 +73,26 @@ def test_verify_result_document_detects_tampering_after_signing(tmp_path):
 def test_verify_result_document_rejects_malformed_input(tmp_path):
     key_dir = tmp_path / "keys"
     assert signing.verify_result_document({"nonsense": True}, key_dir=key_dir) is False
+
+
+def test_verify_result_document_detects_tampering_with_parameters(tmp_path):
+    """ADR-0009: parameters needs no new integrity mechanism — it's just
+    another field in the same document canonical_asset_sha256 already
+    covers, so tampering with it after signing is caught exactly like any
+    other field (test_verify_result_document_detects_tampering_after_signing
+    above)."""
+    from oesb_runner.hashing import canonical_asset_sha256
+
+    key_dir = tmp_path / "keys"
+    doc = {
+        "metrics": {"wer": {"value": 0.1}},
+        "profile": {"id": "x"},
+        "parameters": {"beam_size": {"value": 8, "default": 5}},
+    }
+    payload = canonical_asset_sha256(doc, exclude=("payload_sha256", "signature"))
+    doc["payload_sha256"] = payload
+    doc["signature"] = signing.sign_payload_sha256(payload, key_dir=key_dir)
+    assert signing.verify_result_document(doc, key_dir=key_dir) is True
+
+    doc["parameters"]["beam_size"]["value"] = 1  # tamper after signing
+    assert signing.verify_result_document(doc, key_dir=key_dir) is False

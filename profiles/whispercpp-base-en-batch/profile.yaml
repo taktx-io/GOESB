@@ -1,14 +1,11 @@
-# Example official profile — English batch on whisper.cpp (pywhispercpp),
-# proving the runtime adapter interface (M2 exit criterion: adapters swap
-# without core changes). Validated against schemas/benchmark-profile.schema.json.
 id: whispercpp-base-en-batch
-version: 1.0.0
+version: 1.1.0
 title: Whisper.cpp Base English (Batch)
 benchmark_type: batch
 language: en-US
 runtime:
   name: whisper-cpp
-  min_version: "1.5.0"
+  min_version: 1.5.0
 model:
   name: whisper-base.en
   beam_size: 5
@@ -22,8 +19,24 @@ normalization:
   ruleset_id: goesb-en-v1
 scoring:
   primary_metric: wer
-  tie_breakers: [real_time_factor, energy_wh]
-metrics: [wer, cer, real_time_factor, cpu_pct, ram_mb, energy_wh, temperature_c]
+  tie_breakers:
+  - real_time_factor
+  - energy_wh
+metrics:
+- wer
+- cer
+- real_time_factor
+- cpu_pct
+- ram_mb
+- energy_wh
+- temperature_c
+overridable:
+  threads:
+    range:
+      min: 1
+      max: 16
 changelog:
-  - version: 1.0.0
-    notes: Initial profile (M2) — third runtime adapter proving the plugin interface.
+- version: 1.0.0
+  notes: Initial profile (M2) — third runtime adapter proving the plugin interface.
+- version: 1.1.0
+  notes: Declare threads override-eligible (ADR-0009).

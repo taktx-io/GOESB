@@ -1,5 +1,5 @@
 id: whisper-small-pt-batch
-version: 1.0.0
+version: 1.1.0
 title: Whisper Small PT (Batch)
 benchmark_type: batch
 language: pt-BR
@@ -32,6 +32,25 @@ metrics:
 - ram_mb
 - energy_wh
 - temperature_c
+overridable:
+  beam_size:
+    allowed:
+    - 1
+    - 2
+    - 4
+    - 5
+    - 8
+  vad: {}
+  quantization:
+    allowed:
+    - int8
+    - float32
+  threads:
+    range:
+      min: 1
+      max: 16
 changelog:
 - version: 1.0.0
   notes: Initial profile (bulk-generated official set).
+- version: 1.1.0
+  notes: Declare beam_size/quantization/threads/vad override-eligible (ADR-0009).

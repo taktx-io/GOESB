@@ -2,7 +2,12 @@ import re
 
 import pytest
 
-from oesb_runner.adapters import get_adapter, log_progress, register
+from oesb_runner.adapters import (
+    get_adapter,
+    get_applied_parameters,
+    log_progress,
+    register,
+)
 from oesb_runner.adapters.vosk import _MODEL_URLS
 
 
@@ -29,6 +34,42 @@ def test_register_rejects_duplicate_key():
     register("test-only-runtime", benchmark_type="batch")(lambda: None)
     with pytest.raises(ValueError):
         register("test-only-runtime", benchmark_type="batch")(lambda: None)
+
+
+# --- ADR-0009 §2 "no silent knobs": applied-parameters registry ---
+
+
+def test_get_applied_parameters_faster_whisper_batch():
+    assert get_applied_parameters("faster-whisper", "batch") == {
+        "quantization", "beam_size", "temperature", "vad", "threads",
+    }
+
+
+def test_get_applied_parameters_faster_whisper_streaming_adds_chunk_ms():
+    streaming = get_applied_parameters("faster-whisper", "streaming")
+    assert streaming == get_applied_parameters("faster-whisper", "batch") | {"chunk_ms"}
+
+
+def test_get_applied_parameters_whisper_cpp_excludes_beam_size_and_vad():
+    """The exact "no silent knobs" case: whisper-cpp's adapter accepts
+    beam_size/vad/quantization for call-shape parity but never applies
+    them — confirmed against the adapter's own code/docstring."""
+    applied = get_applied_parameters("whisper-cpp", "batch")
+    assert applied == {"threads", "temperature"}
+    assert "beam_size" not in applied
+    assert "vad" not in applied
+    assert "quantization" not in applied
+
+
+def test_get_applied_parameters_vosk_applies_nothing():
+    assert get_applied_parameters("vosk", "batch") == frozenset()
+
+
+def test_get_applied_parameters_unknown_pair_defaults_to_empty_fail_closed():
+    """A future adapter that forgets to declare applied_parameters applies
+    nothing by default, not everything — fail closed, not open."""
+    register("test-only-unregistered-params-runtime", benchmark_type="batch")(lambda: None)
+    assert get_applied_parameters("test-only-unregistered-params-runtime", "batch") == frozenset()
 
 
 def test_log_progress_writes_to_stderr(capsys):

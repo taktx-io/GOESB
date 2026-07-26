@@ -24,7 +24,10 @@ def _resolve_model_id(model_name: str) -> str:
     return model_name.removeprefix(prefix)
 
 
-@register("faster-whisper", benchmark_type="batch")
+@register(
+    "faster-whisper", benchmark_type="batch",
+    applied_parameters=frozenset({"quantization", "beam_size", "temperature", "vad", "threads"}),
+)
 def run_batch(
     model_name: str,
     utterances: list[Utterance],
@@ -89,7 +92,12 @@ def run_batch(
     return results
 
 
-@register("faster-whisper", benchmark_type="streaming")
+@register(
+    "faster-whisper", benchmark_type="streaming",
+    applied_parameters=frozenset(
+        {"quantization", "beam_size", "temperature", "vad", "threads", "chunk_ms"}
+    ),
+)
 def run_streaming(
     model_name: str,
     utterances: list[Utterance],

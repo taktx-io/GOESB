@@ -177,6 +177,10 @@ def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsy
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
 
     reexec_calls = []
 
@@ -214,6 +218,10 @@ def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
 
     calls = []
     monkeypatch.setattr(cli_module, "_reexec", lambda args: calls.append(args))
@@ -245,10 +253,226 @@ def test_wizard_run_hardware_back_re_shows_the_matrix(monkeypatch):
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
     monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
 
     cli_module._wizard_run()
 
     assert len(matrix_calls) == 2  # matrix re-shown once after the "back" pick
+
+
+# --- ADR-0009: wizard per-engine parameter step ---
+# Real, already-migrated profiles under REPO_ROOT/profiles are used
+# directly (no synthetic fixtures, no network) — whisper-medium-en-batch
+# and whisper-tiny-en-batch both declare beam_size (allowed [1,2,4,5,8],
+# default 5) and vad (default true); vosk-small-en-batch declares nothing.
+
+
+def test_wizard_engine_parameters_enter_through_matches_todays_behavior(monkeypatch):
+    """Regression guard (hard constraint): a full Enter-through must
+    produce the exact same expanded combos/overrides as before this
+    feature existed — one entry per combo, empty overrides, so `_reexec`
+    gets no extra --param flags at all."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(""))
+
+    combos = [("whisper-medium-en-batch", "pack-a"), ("vosk-small-en-batch", "pack-b")]
+    expanded = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+
+    assert expanded == [
+        ("whisper-medium-en-batch", "pack-a", {}),
+        ("vosk-small-en-batch", "pack-b", {}),
+    ]
+
+
+def _fake_text_by_param(**responses: str):
+    """Build a questionary.text stub that answers by which parameter name
+    appears in the prompt text, defaulting to "" (Enter) for anything not
+    named — robust to however many parameters a profile's `overridable`
+    block declares, rather than depending on prompt order/count."""
+    def _fake_text(question, *a, **k):
+        for param_name, value in responses.items():
+            if f"] {param_name} " in question:
+                return _FakeAsk(value)
+        return _FakeAsk("")
+    return _fake_text
+
+
+def test_wizard_engine_parameters_single_value_overrides_all_cells_of_engine(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", _fake_text_by_param(beam_size="8"))
+
+    combos = [("whisper-medium-en-batch", "pack-a"), ("whisper-tiny-en-batch", "pack-b")]
+    expanded = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+
+    assert expanded == [
+        ("whisper-medium-en-batch", "pack-a", {"beam_size": "8"}),
+        ("whisper-tiny-en-batch", "pack-b", {"beam_size": "8"}),
+    ]
+
+
+def test_wizard_engine_parameters_comma_list_sweeps_cells_x_values(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", _fake_text_by_param(beam_size="1,4,8"))
+
+    combos = [("whisper-medium-en-batch", "pack-a")]
+    expanded = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+
+    assert expanded == [
+        ("whisper-medium-en-batch", "pack-a", {"beam_size": "1"}),
+        ("whisper-medium-en-batch", "pack-a", {"beam_size": "4"}),
+        ("whisper-medium-en-batch", "pack-a", {"beam_size": "8"}),
+    ]
+
+
+def test_wizard_engine_parameters_cross_product_of_multiple_swept_params(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module.questionary, "text",
+        _fake_text_by_param(beam_size="1,8", vad="true,false"),
+    )
+
+    combos = [("whisper-medium-en-batch", "pack-a")]
+    expanded = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+
+    assert len(expanded) == 4
+    assert {
+        (o.get("beam_size"), o.get("vad")) for _, _, o in expanded
+    } == {("1", "true"), ("1", "false"), ("8", "true"), ("8", "false")}
+
+
+def test_wizard_engine_parameters_never_leaks_onto_engine_without_it(monkeypatch):
+    """Mixed whisper+vosk selection: whisper gets prompted (once per its
+    overridable parameters, all scoped to faster-whisper), vosk — no
+    overridable parameters at all — is never asked anything and never
+    receives an override."""
+    from oesb_runner import cli as cli_module
+
+    prompts = []
+
+    def _fake_text(question, *a, **k):
+        prompts.append(question)
+        return _FakeAsk("8" if "] beam_size " in question else "")
+
+    monkeypatch.setattr(cli_module.questionary, "text", _fake_text)
+
+    combos = [("whisper-medium-en-batch", "pack-a"), ("vosk-small-en-batch", "pack-b")]
+    expanded = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+
+    assert prompts  # at least one prompt happened
+    assert all(p.startswith("[faster-whisper]") for p in prompts)
+    assert ("vosk-small-en-batch", "pack-b", {}) in expanded
+    assert ("whisper-medium-en-batch", "pack-a", {"beam_size": "8"}) in expanded
+
+
+def test_wizard_engine_parameters_rejects_out_of_domain_sweep_value(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", _fake_text_by_param(beam_size="3"))
+
+    combos = [("whisper-medium-en-batch", "pack-a")]
+    with pytest.raises(typer.Exit):
+        cli_module._wizard_engine_parameters(
+            combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+        )
+
+
+def test_wizard_engine_parameters_aborts_on_none(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(None))
+
+    combos = [("whisper-medium-en-batch", "pack-a")]
+    result = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+    assert result is None
+
+
+def test_wizard_run_confirmation_states_total_including_repeats(monkeypatch, capsys):
+    """Fixes the pre-existing undercount: --repeats 2 must be reflected in
+    the stated total, not just the combo count."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
+    )
+    monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [
+            (pid, pack, {"beam_size": "1"}) for pid, pack in combos
+        ] + [(pid, pack, {"beam_size": "8"}) for pid, pack in combos],
+    )
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("3"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+
+    cli_module._wizard_run()
+
+    out = capsys.readouterr().out
+    assert "About to run 2 benchmark(s) (6 runs incl. 3 repeats)" in out
+
+
+def test_wizard_run_warns_above_twenty_expanded_combos(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
+    )
+    monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [
+            (pid, pack, {"beam_size": str(i)}) for pid, pack in combos for i in range(25)
+        ],
+    )
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+
+    confirm_prompts = []
+
+    def _fake_confirm(question, *a, **k):
+        confirm_prompts.append(question)
+        return _FakeAsk(False)  # decline the soft-warning confirm
+
+    monkeypatch.setattr(cli_module.questionary, "confirm", _fake_confirm)
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert any("25 combos" in p for p in confirm_prompts)
+    assert reexec_calls == []  # declined the warning, never proceeded to run anything
 
 
 def test_preflight_engines_installs_each_distinct_engine_once(monkeypatch):
@@ -853,6 +1077,281 @@ def test_resolve_pack_audio_prefers_existing_pack_local_audio(tmp_path, monkeypa
     resolved_audio_dir = cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
 
     assert resolved_audio_dir == pack_dir / "audio"
+
+
+def test_coerce_param_value_bool_parses_common_spellings():
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._coerce_param_value("true", True) is True
+    assert cli_module._coerce_param_value("false", True) is False
+    assert cli_module._coerce_param_value("1", False) is True
+    assert cli_module._coerce_param_value("no", True) is False
+
+
+def test_coerce_param_value_bool_rejects_garbage():
+    from oesb_runner import cli as cli_module
+
+    with pytest.raises(ValueError, match="true/false"):
+        cli_module._coerce_param_value("maybe", True)
+
+
+def test_coerce_param_value_int_and_float():
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._coerce_param_value("8", 5) == 8
+    assert cli_module._coerce_param_value("0.5", 0.0) == 0.5
+
+
+def test_coerce_param_value_int_rejects_non_numeric():
+    from oesb_runner import cli as cli_module
+
+    with pytest.raises(ValueError, match="integer"):
+        cli_module._coerce_param_value("eight", 5)
+
+
+def test_check_param_domain_allowed_list():
+    from oesb_runner import cli as cli_module
+
+    cli_module._check_param_domain("beam_size", 8, {"allowed": [1, 2, 4, 5, 8]})
+    with pytest.raises(ValueError, match="not in allowed values"):
+        cli_module._check_param_domain("beam_size", 3, {"allowed": [1, 2, 4, 5, 8]})
+
+
+def test_check_param_domain_range():
+    from oesb_runner import cli as cli_module
+
+    cli_module._check_param_domain("threads", 4, {"range": {"min": 1, "max": 8}})
+    with pytest.raises(ValueError, match="outside range"):
+        cli_module._check_param_domain("threads", 16, {"range": {"min": 1, "max": 8}})
+
+
+_SAMPLE_OVERRIDABLE_PROFILE = {
+    "id": "sample-profile",
+    "model": {"name": "whisper-medium", "beam_size": 5, "vad": True},
+    "configuration": {"threads": 4},
+    "overridable": {"beam_size": {"allowed": [1, 2, 4, 5, 8]}, "vad": {}},
+}
+
+
+def test_resolve_one_param_override_within_domain():
+    from oesb_runner import cli as cli_module
+
+    resolved = cli_module._resolve_one_param(_SAMPLE_OVERRIDABLE_PROFILE, "beam_size", "8")
+    assert resolved == {"value": 8, "default": 5}
+
+
+def test_resolve_one_param_no_override_returns_default():
+    from oesb_runner import cli as cli_module
+
+    resolved = cli_module._resolve_one_param(_SAMPLE_OVERRIDABLE_PROFILE, "beam_size", None)
+    assert resolved == {"value": 5, "default": 5}
+
+
+def test_resolve_one_param_rejects_undeclared_key():
+    from oesb_runner import cli as cli_module
+
+    with pytest.raises(ValueError, match="not declared overridable"):
+        cli_module._resolve_one_param(_SAMPLE_OVERRIDABLE_PROFILE, "temperature", "0.5")
+
+
+def test_resolve_one_param_rejects_out_of_domain_value():
+    from oesb_runner import cli as cli_module
+
+    with pytest.raises(ValueError, match="not in allowed values"):
+        cli_module._resolve_one_param(_SAMPLE_OVERRIDABLE_PROFILE, "beam_size", "3")
+
+
+def test_resolve_parameters_returns_every_declared_key_overridden_or_not():
+    from oesb_runner import cli as cli_module
+
+    resolved = cli_module._resolve_parameters(_SAMPLE_OVERRIDABLE_PROFILE, {"beam_size": "8"})
+
+    assert resolved == {
+        "beam_size": {"value": 8, "default": 5},
+        "vad": {"value": True, "default": True},
+    }
+
+
+def test_resolve_parameters_empty_for_profile_without_overridable():
+    from oesb_runner import cli as cli_module
+
+    profile = {"id": "no-overridable", "model": {"name": "x"}}
+    assert cli_module._resolve_parameters(profile, {}) == {}
+
+
+def test_resolve_parameters_rejects_unknown_param():
+    from oesb_runner import cli as cli_module
+
+    with pytest.raises(ValueError, match="not declared overridable"):
+        cli_module._resolve_parameters(_SAMPLE_OVERRIDABLE_PROFILE, {"quantization": "int4"})
+
+
+# --- ADR-0009 §2 "no silent knobs": profile <-> adapter cross-validation ---
+
+
+def test_validate_overridable_against_adapter_accepts_correctly_declared_profile():
+    """Acceptance criterion 1 in spirit: a correctly-authored profile (the
+    real, migrated whisper-medium-en-batch) never trips this check."""
+    from oesb_runner import cli as cli_module
+
+    profile = yaml.safe_load(
+        (REPO_ROOT / "profiles" / "whisper-medium-en-batch" / "profile.yaml").read_text()
+    )
+    cli_module._validate_overridable_against_adapter(profile)  # must not raise
+
+
+def test_validate_overridable_against_adapter_rejects_unapplied_parameter():
+    """Acceptance criterion 7 part 1: a profile declaring a parameter its
+    adapter doesn't apply fails with a clear error naming both the
+    parameter and the adapter."""
+    from oesb_runner import cli as cli_module
+
+    profile = {
+        "id": "misdeclared-whispercpp-profile",
+        "runtime": {"name": "whisper-cpp"},
+        "benchmark_type": "batch",
+        "model": {"name": "whisper-base", "beam_size": 5},
+        "overridable": {"beam_size": {"allowed": [1, 5, 8]}},
+    }
+    with pytest.raises(ValueError, match="beam_size") as exc_info:
+        cli_module._validate_overridable_against_adapter(profile)
+    assert "whisper-cpp" in str(exc_info.value)
+
+
+def test_validate_overridable_against_adapter_noop_when_nothing_declared():
+    from oesb_runner import cli as cli_module
+
+    profile = {"id": "x", "runtime": {"name": "vosk"}, "benchmark_type": "batch", "model": {"name": "m"}}
+    cli_module._validate_overridable_against_adapter(profile)  # must not raise
+
+
+def test_run_command_param_against_whispercpp_fails_before_model_load(tmp_path, monkeypatch):
+    """Acceptance criterion 7 part 2: `goesb run <whispercpp-profile> <pack>
+    --param beam_size=8` fails before model load, for the correct reason
+    (beam_size isn't declared overridable on whisper-cpp profiles at all,
+    since the adapter never applies it) — not just any failure."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+
+    result = runner.invoke(app, [
+        "run", "whispercpp-base-en-batch", "some-pack-that-does-not-exist",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(tmp_path / "packs"),
+        "--param", "beam_size=8",
+    ])
+
+    assert result.exit_code == 1
+    assert "not declared overridable" in result.output
+    assert "Loaded" not in result.output  # never reached pack/audio resolution
+
+
+def test_parse_param_overrides_splits_key_value_pairs():
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._parse_param_overrides(["beam_size=8", "vad=false"]) == {
+        "beam_size": "8", "vad": "false",
+    }
+
+
+def test_parse_param_overrides_rejects_missing_equals():
+    from oesb_runner import cli as cli_module
+
+    with pytest.raises(ValueError, match="KEY=VALUE"):
+        cli_module._parse_param_overrides(["beam_size8"])
+
+
+def test_run_with_param_override_records_parameters_and_verifies(tmp_path, monkeypatch):
+    """Acceptance criterion 3: `goesb run p pack --param beam_size=8` ->
+    signed result contains parameters.beam_size = {value: 8, default: 5}
+    and verifies. Uses the real, already-migrated whisper-medium-en-batch
+    profile (beam_size default 5, allowed [1,2,4,5,8]) rather than a
+    synthetic one, so this exercises the actual shipped profile data."""
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+    from oesb_runner.adapters import Transcription
+    from oesb_runner.signing import verify_result_document
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+
+    captured_kwargs = {}
+
+    def _fake_get_adapter(runtime_name, benchmark_type="batch"):
+        def _fake_run_batch(model_name, utterances, **kwargs):
+            captured_kwargs.update(kwargs)
+            return [
+                Transcription(
+                    utterance_id=u.utterance_id, hypothesis_text=u.reference_text, processing_time_s=0.01
+                )
+                for u in utterances
+            ]
+        return _fake_run_batch
+
+    monkeypatch.setattr(cli_module, "get_adapter", _fake_get_adapter)
+
+    source = {"type": "fleurs", "params": {"language": "xx_xx", "split": "dev"}}
+    packs_dir = tmp_path / "packs"
+    pack_dir = packs_dir / "fake-pack"
+    _fake_pack(pack_dir, source)
+    pack_yaml_path = pack_dir / "pack.yaml"
+    pack_yaml = yaml.safe_load(pack_yaml_path.read_text())
+    pack_yaml["profile_id"] = "whisper-medium-en-batch"
+    del pack_yaml["sha256"]
+    from oesb_runner.hashing import canonical_asset_sha256
+    pack_yaml["sha256"] = canonical_asset_sha256(pack_yaml)
+    pack_yaml_path.write_text(yaml.safe_dump(pack_yaml))
+
+    archive_buf = io.BytesIO()
+    with tarfile.open(fileobj=archive_buf, mode="w:gz") as tar:
+        content = b"fake audio bytes"
+        info = tarfile.TarInfo(name="xx_xx/audio/dev/wanted.wav")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+    archive_bytes = archive_buf.getvalue()
+    monkeypatch.setattr(
+        audio_sources.urllib.request, "urlopen",
+        lambda url, **kw: _FakeAudioResponse(archive_bytes),
+    )
+
+    results_dir = tmp_path / "results"
+    result = runner.invoke(app, [
+        "run", "whisper-medium-en-batch", "fake-pack",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(packs_dir),
+        "--results-dir", str(results_dir),
+        "--repeats", "1",
+        "--param", "beam_size=8",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert captured_kwargs["beam_size"] == 8  # the adapter actually received the override
+
+    [result_path] = list(results_dir.glob("*.json"))
+    written = json.loads(result_path.read_text())
+    assert written["parameters"]["beam_size"] == {"value": 8, "default": 5}
+    assert written["parameters"]["vad"] == {"value": True, "default": True}
+    assert written["schema_version"] == "0.2"
+    assert verify_result_document(written)
+
+
+def test_run_with_out_of_domain_param_fails_before_pack_resolution(tmp_path, monkeypatch):
+    """A bad --param value must fail before run 1 — before pack/audio
+    resolution or model load, not partway through."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+
+    result = runner.invoke(app, [
+        "run", "whisper-medium-en-batch", "some-pack-that-does-not-exist",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(tmp_path / "packs"),
+        "--param", "beam_size=3",
+    ])
+
+    assert result.exit_code == 1
+    assert "not in allowed values" in result.output
+    assert "Loaded" not in result.output  # never reached pack/audio resolution
 
 
 def test_resolve_pack_audio_offline_with_nothing_local_exits(tmp_path):

@@ -1,5 +1,5 @@
 id: whispercpp-base-pt-batch
-version: 1.0.0
+version: 1.1.0
 title: Whisper.cpp Base PT (Batch)
 benchmark_type: batch
 language: pt-BR
@@ -30,6 +30,13 @@ metrics:
 - ram_mb
 - energy_wh
 - temperature_c
+overridable:
+  threads:
+    range:
+      min: 1
+      max: 16
 changelog:
 - version: 1.0.0
   notes: Initial profile (bulk-generated official set).
+- version: 1.1.0
+  notes: Declare threads override-eligible (ADR-0009).

@@ -11,7 +11,7 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "string", "const": "0.1" },
+    "schema_version": { "type": "string", "const": "0.2" },
 
     "profile": {
       "type": "object",
@@ -65,6 +65,21 @@
 
     "config_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
       "description": "Hash over the fully-resolved configuration (profile.configuration + any explicit run overrides) used for this run." },
+
+    "parameters": {
+      "type": "object",
+      "description": "Present iff the profile declares any `overridable` parameter (ADR-0009) — the resolved value of every eligible parameter for this run, including untouched defaults, so a result is self-describing without a profile-catalog lookup.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["value", "default"],
+        "additionalProperties": false,
+        "properties": {
+          "value": {},
+          "default": {}
+        }
+      }
+    },
 
     "hardware_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$",
       "description": "User-asserted hardware catalog id (see the monorepo's hardware/ directory) — the canonical value leaderboards/filtering key off, since environment.cpu.model can be unrecoverably wrong under virtualization." },

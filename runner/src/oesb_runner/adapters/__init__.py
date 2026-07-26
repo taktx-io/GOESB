@@ -33,13 +33,30 @@ class Transcription:
 # different callables, same underlying runtime).
 _ADAPTERS: dict[tuple[str, str], Callable] = {}
 
+# "No silent knobs" (ADR-0009 §2): every batch adapter shares one call
+# signature for call-shape parity (docs/03-roadmap.md M2 exit criterion —
+# adapters swap without core changes), but several accept kwargs they never
+# actually apply (whisper-cpp: beam_size/vad/quantization; vosk: all of
+# them — see their own docstrings). A profile may only declare a parameter
+# `overridable` if it's in *this* set for its runtime — declaring one the
+# adapter silently ignores would sign a result asserting a value that had
+# no effect, which is worse than not having the feature. Reviewed alongside
+# each adapter's own registration, not derived from its signature (a kwarg
+# existing there proves nothing about whether the code underneath it does).
+_APPLIED_PARAMETERS: dict[tuple[str, str], frozenset[str]] = {}
 
-def register(runtime_name: str, benchmark_type: str = "batch") -> Callable[[Callable], Callable]:
+
+def register(
+    runtime_name: str,
+    benchmark_type: str = "batch",
+    applied_parameters: frozenset[str] = frozenset(),
+) -> Callable[[Callable], Callable]:
     def decorator(fn: Callable) -> Callable:
         key = (runtime_name, benchmark_type)
         if key in _ADAPTERS:
             raise ValueError(f"runtime adapter already registered: {key!r}")
         _ADAPTERS[key] = fn
+        _APPLIED_PARAMETERS[key] = applied_parameters
         return fn
 
     return decorator
@@ -52,6 +69,15 @@ def get_adapter(runtime_name: str, benchmark_type: str = "batch") -> Callable:
         raise ValueError(
             f"unknown runtime adapter: {runtime_name!r} for benchmark_type {benchmark_type!r}"
         ) from None
+
+
+def get_applied_parameters(runtime_name: str, benchmark_type: str = "batch") -> frozenset[str]:
+    """Which parameters this (runtime, benchmark_type) adapter genuinely
+    applies — the universe a profile's `overridable` block must be a
+    subset of (ADR-0009 §2). Unknown pairs default to the empty set (fail
+    closed): a future adapter that forgets to declare this applies
+    nothing, rather than silently allowing everything."""
+    return _APPLIED_PARAMETERS.get((runtime_name, benchmark_type), frozenset())
 
 
 # Built-in adapters register themselves on import.

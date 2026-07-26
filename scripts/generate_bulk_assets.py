@@ -110,6 +110,34 @@ def model_name_for(engine: str, size: str | None, lang_code: str, vosk_model: st
     return f"whisper-{size}"
 
 
+def overridable_block_for(engine: str, benchmark_type: str = "batch") -> dict[str, Any]:
+    """Which of this engine's model/configuration keys are override-eligible
+    via `goesb run --param` (ADR-0009 §2/§6) — restricted to what the
+    adapter *genuinely applies* ("no silent knobs"), verified against each
+    adapter's own code/docstring, not just what it accepts for call-shape
+    parity. In particular: whisper-cpp's adapter accepts beam_size/vad/
+    quantization only for parity with the other batch adapters and never
+    applies them (pywhispercpp's flat params don't wire beam_size; there's
+    no VAD; quantization is a ggml model-file choice) — declaring them
+    overridable would sign results asserting values that had no effect.
+    `temperature` is applied by every engine but deliberately excluded
+    everywhere: any value > 0 introduces sampling nondeterminism, which
+    conflicts with the repeat-tolerance check (FR-5.3)."""
+    if engine == "faster-whisper":
+        block = {
+            "beam_size": {"allowed": [1, 2, 4, 5, 8]},
+            "vad": {},
+            "quantization": {"allowed": ["int8", "float32"]},
+            "threads": {"range": {"min": 1, "max": 16}},
+        }
+        if benchmark_type == "streaming":
+            block["chunk_ms"] = {"allowed": [250, 500, 1000, 2000]}
+        return block
+    if engine == "whisper-cpp":
+        return {"threads": {"range": {"min": 1, "max": 16}}}
+    return {}
+
+
 def write_profile(profile_id: str, engine: str, size: str | None, lang: dict) -> None:
     path = ROOT / "profiles" / profile_id / "profile.yaml"
     if path.exists():
@@ -146,8 +174,11 @@ def write_profile(profile_id: str, engine: str, size: str | None, lang: dict) ->
         },
         "scoring": {"primary_metric": "wer", "tie_breakers": ["real_time_factor", "energy_wh"]},
         "metrics": ["wer", "cer", "real_time_factor", "cpu_pct", "ram_mb", "energy_wh", "temperature_c"],
-        "changelog": [{"version": "1.0.0", "notes": "Initial profile (bulk-generated official set)."}],
     }
+    overridable = overridable_block_for(engine)
+    if overridable:
+        doc["overridable"] = overridable
+    doc["changelog"] = [{"version": "1.0.0", "notes": "Initial profile (bulk-generated official set)."}]
     path.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True))
     print(f"wrote {path}", file=sys.stderr)
 

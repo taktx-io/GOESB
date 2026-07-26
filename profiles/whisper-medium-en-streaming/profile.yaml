@@ -2,13 +2,13 @@
 # whisper-medium-en-batch; benchmark_type + configuration.chunk_ms + streaming
 # metric set differ. Validated against schemas/benchmark-profile.schema.json.
 id: whisper-medium-en-streaming
-version: 1.0.0
+version: 1.1.0
 title: Whisper Medium English (Streaming)
 benchmark_type: streaming
 language: en-US
 runtime:
   name: faster-whisper
-  min_version: "1.0.0"
+  min_version: 1.0.0
 model:
   name: whisper-medium
   quantization: int8
@@ -25,18 +25,45 @@ normalization:
   ruleset_id: goesb-en-v1
 scoring:
   primary_metric: first_partial_latency
-  tie_breakers: [streaming_responsiveness, real_time_factor]
-metrics:
-  - wer
-  - real_time_factor
-  - cpu_pct
-  - ram_mb
-  - first_partial_latency
-  - first_final_latency
-  - end_of_speech_latency
-  - update_frequency
-  - partial_stability
+  tie_breakers:
   - streaming_responsiveness
+  - real_time_factor
+metrics:
+- wer
+- real_time_factor
+- cpu_pct
+- ram_mb
+- first_partial_latency
+- first_final_latency
+- end_of_speech_latency
+- update_frequency
+- partial_stability
+- streaming_responsiveness
+overridable:
+  beam_size:
+    allowed:
+    - 1
+    - 2
+    - 4
+    - 5
+    - 8
+  vad: {}
+  quantization:
+    allowed:
+    - int8
+    - float32
+  threads:
+    range:
+      min: 1
+      max: 16
+  chunk_ms:
+    allowed:
+    - 250
+    - 500
+    - 1000
+    - 2000
 changelog:
-  - version: 1.0.0
-    notes: Initial streaming profile (M5).
+- version: 1.0.0
+  notes: Initial streaming profile (M5).
+- version: 1.1.0
+  notes: Declare beam_size/chunk_ms/quantization/threads/vad override-eligible (ADR-0009).

@@ -5,6 +5,65 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-26
+### Added
+- **Parameterized profile configuration (ADR-0009), runner portion.** A
+  profile may now declare a bounded, reviewed set of override-eligible
+  `model`/`configuration` keys via a new `overridable` block — the
+  default stays the value already in the profile body, one source of
+  truth. `goesb run <profile> <pack> --param beam_size=8` (repeatable)
+  overrides an eligible parameter for that run only; an undeclared key or
+  out-of-domain value is a hard error before anything runs (no silent
+  fallback, no clamping — ADR-0008's error philosophy). The signed result
+  document gains a `parameters` object recording the resolved value of
+  every eligible parameter, including untouched defaults
+  (`{"beam_size": {"value": 8, "default": 5}}`) — reuses the existing
+  signing path unchanged, since it's just another field
+  `canonical_asset_sha256` already covers.
+- Every adapter now declares, alongside its own registration, the exact
+  set of parameters it *genuinely applies* — "no silent knobs" (ADR-0009
+  §2/§6): several adapters accept extra kwargs purely for call-shape
+  parity and silently ignore them (whisper-cpp: `beam_size`/`vad`/
+  `quantization`; vosk: everything), and declaring one of those
+  overridable would sign a result asserting a value that had no effect.
+  Profile validation now enforces `overridable ⊆ applied` for the
+  profile's adapter — a clear error naming both the parameter and the
+  adapter, not a schema-shape check alone.
+- All 30 faster-whisper batch profiles declare `beam_size`
+  (allowed `[1, 2, 4, 5, 8]`), `vad`, `quantization`
+  (allowed `[int8, float32]`), and `threads` (range `1-16`) as
+  override-eligible; the one streaming profile additionally declares
+  `chunk_ms` (allowed `[250, 500, 1000, 2000]`). All 30 whisper-cpp batch
+  profiles declare `threads` only — its adapter never applies `beam_size`/
+  `vad`/`quantization` despite accepting them. `temperature` is applied by
+  every engine but deliberately excluded everywhere: any value > 0
+  introduces sampling nondeterminism, conflicting with the repeat-
+  tolerance check (FR-5.3). Each profile bumped to `1.1.0` (or `1.1.0`
+  from `1.0.1` for the two hand-authored `whisper-medium-{en,nl}-batch`
+  examples) with a changelog entry. vosk profiles unchanged — its adapter
+  applies no tunable parameters at all.
+- The batch wizard gained a parameter step between engine preflight and
+  the repeats prompt, grouped **per engine** — an engine-specific
+  parameter can never leak onto an engine that lacks it. Enter accepts
+  every profile's own default (a full Enter-through is byte-identical to
+  pre-0.3.0 behavior — regression-tested); a single value overrides that
+  engine's selected cells; a comma-separated list (`1,4,8`) sweeps them,
+  cells × values (× values again if more than one parameter is swept for
+  the same engine). Values are validated against each affected profile's
+  declared domain before run 1, not run 12 of 15.
+### Fixed
+- The wizard's batch confirmation now enumerates the full expansion (one
+  line per profile × pack × parameter values) and states the honest run
+  total **including repeats** — previously it counted combos and silently
+  ignored `--repeats`, understating the real batch size (e.g. `--repeats
+  2` doubled the actual work without saying so). A soft warning now fires
+  above ~20 expanded combos.
+### Changed
+- Result schema bumped to `schema_version: "0.2"` for the new
+  `parameters` field (`additionalProperties: false` required the bump).
+  ADR-0008's `runtime.backend` field has not landed yet, so it did not
+  ride this bump — see the implementation report for details.
+
 ## [0.2.7] - 2026-07-25
 ### Changed
 - The wizard's "Submit a result" step now lets you pick multiple result

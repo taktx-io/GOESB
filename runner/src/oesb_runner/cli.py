@@ -18,7 +18,9 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from itertools import product
 from pathlib import Path
+from typing import Any
 
 import psutil
 import questionary
@@ -34,7 +36,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 
 from . import __version__
 from . import energy as energy_probe
-from .adapters import get_adapter
+from .adapters import get_adapter, get_applied_parameters
 from .audio_sources import AUTO_FETCH_SOURCE_TYPES, auto_fetch_audio, shared_audio_dir
 from .environment import capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
@@ -297,6 +299,24 @@ def _ask_matrix(matrix: _Matrix) -> list[str] | None:
         return None
 
 
+def _load_profile_for_wizard(profile_id: str, profiles_dir: str, api_url: str) -> dict | None:
+    """Best-effort full profile load for wizard-side preflight steps —
+    local dir first, else fetch_profile (cached under ~/.goesb/cache after
+    the first fetch, so a second call within the same wizard run, e.g. by
+    both _preflight_engines and _wizard_engine_parameters, is a cheap disk
+    read, not a repeat network round-trip). Returns None on any network
+    failure so callers can degrade gracefully rather than crash the
+    wizard — the per-combo `run()` call surfaces the real error properly
+    when it actually runs."""
+    profile_path = Path(profiles_dir) / profile_id / "profile.yaml"
+    try:
+        if profile_path.exists():
+            return _load_yaml(profile_path)
+        return fetch_profile(profile_id, api_url)
+    except (urllib.error.URLError, urllib.error.HTTPError):
+        return None
+
+
 def _preflight_engines(
     combos: list[tuple[str, str]], profiles_dir: str, api_url: str
 ) -> list[tuple[str, str]]:
@@ -313,15 +333,8 @@ def _preflight_engines(
     for profile_id, _pack_id in combos:
         if profile_id in runtime_by_profile:
             continue
-        profile_path = Path(profiles_dir) / profile_id / "profile.yaml"
-        try:
-            profile = (
-                _load_yaml(profile_path) if profile_path.exists()
-                else fetch_profile(profile_id, api_url)
-            )
-            runtime_by_profile[profile_id] = profile["runtime"]["name"]
-        except (urllib.error.URLError, urllib.error.HTTPError):
-            runtime_by_profile[profile_id] = None  # unresolved — let run() itself surface this
+        profile = _load_profile_for_wizard(profile_id, profiles_dir, api_url)
+        runtime_by_profile[profile_id] = profile["runtime"]["name"] if profile else None
 
     unavailable_engines: set[str] = set()
     for runtime_name in sorted({r for r in runtime_by_profile.values() if r is not None}):
@@ -341,6 +354,104 @@ def _preflight_engines(
             continue
         kept.append((profile_id, pack_id))
     return kept
+
+
+def _parse_param_sweep(raw: str) -> list[str]:
+    return [v.strip() for v in raw.split(",") if v.strip()]
+
+
+def _format_combo_label(profile_id: str, pack_id: str, overrides: dict[str, str]) -> str:
+    suffix = "   " + "  ".join(f"{k}={v}" for k, v in overrides.items()) if overrides else ""
+    return f"{profile_id}  x  {pack_id}{suffix}"
+
+
+def _profile_param_default(profile: dict, param_name: str) -> Any:
+    model_cfg = profile.get("model", {})
+    if param_name in model_cfg:
+        return model_cfg[param_name]
+    return profile.get("configuration", {}).get(param_name)
+
+
+def _wizard_engine_parameters(
+    combos: list[tuple[str, str]], profiles_dir: str, api_url: str
+) -> list[tuple[str, str, dict[str, str]]] | None:
+    """The parameter step (ADR-0009 §3), between engine preflight and the
+    repeats prompt: for each engine present in the selection, ask about
+    parameters overridable in *all* of that engine's selected profiles —
+    grouping is per engine, not per batch, so an engine-specific parameter
+    can never leak onto an engine that lacks it (a mixed whisper+vosk
+    selection asks the whisper questions and runs vosk cells as-is).
+    Enter (empty input) means "use each profile's own default" — no
+    --param is appended for that key at all, so a full Enter-through
+    reproduces today's behavior byte-for-byte. A single value overrides
+    that engine's cells; a comma-separated list (`1,4,8`) sweeps them —
+    cells x values, and values x values if more than one parameter is
+    swept for the same engine. Returns expanded
+    (profile_id, pack_id, param_overrides) triples, or None if the user
+    aborts a prompt."""
+    profile_ids = {profile_id for profile_id, _pack_id in combos}
+    profiles_by_id = {
+        profile_id: _load_profile_for_wizard(profile_id, profiles_dir, api_url)
+        for profile_id in profile_ids
+    }
+
+    combos_by_engine: dict[str | None, list[tuple[str, str]]] = {}
+    for profile_id, pack_id in combos:
+        profile = profiles_by_id.get(profile_id)
+        engine = profile["runtime"]["name"] if profile else None
+        combos_by_engine.setdefault(engine, []).append((profile_id, pack_id))
+
+    expanded: list[tuple[str, str, dict[str, str]]] = []
+    for engine in sorted(combos_by_engine, key=lambda e: e or ""):
+        engine_combos = combos_by_engine[engine]
+        if engine is None:
+            # Profile couldn't be resolved — pass through untouched, let
+            # run() itself surface the real error for this combo.
+            expanded.extend((pid, pack, {}) for pid, pack in engine_combos)
+            continue
+
+        overridable_sets = [
+            set(profiles_by_id[pid].get("overridable", {})) for pid, _pack in engine_combos
+        ]
+        common_params = set.intersection(*overridable_sets) if overridable_sets else set()
+        if not common_params:
+            expanded.extend((pid, pack, {}) for pid, pack in engine_combos)
+            continue
+
+        sweeps: dict[str, list[str]] = {}
+        for param_name in sorted(common_params):
+            default = _profile_param_default(profiles_by_id[engine_combos[0][0]], param_name)
+            raw = questionary.text(f"[{engine}] {param_name} (default {default}):").ask()
+            if raw is None:
+                return None
+            raw = raw.strip()
+            if not raw:
+                continue  # Enter: no override for this parameter at all
+            sweeps[param_name] = _parse_param_sweep(raw)
+
+        if not sweeps:
+            expanded.extend((pid, pack, {}) for pid, pack in engine_combos)
+            continue
+
+        # Validate every swept value against every affected profile's own
+        # domain now — before run 1, not run 12 of 15 (ADR-0008 error
+        # philosophy: explicit, early, never silent).
+        for pid, _pack in engine_combos:
+            profile = profiles_by_id[pid]
+            for param_name, values in sweeps.items():
+                for raw_value in values:
+                    try:
+                        _resolve_one_param(profile, param_name, raw_value)
+                    except ValueError as exc:
+                        typer.echo(f"--param error for {pid}: {exc}", err=True)
+                        raise typer.Exit(code=1) from exc
+
+        param_names = list(sweeps)
+        for pid, pack in engine_combos:
+            for combo_values in product(*(sweeps[p] for p in param_names)):
+                expanded.append((pid, pack, dict(zip(param_names, combo_values, strict=True))))
+
+    return expanded
 
 
 def _wizard_run() -> None:
@@ -388,27 +499,39 @@ def _wizard_run() -> None:
     if not combos:
         return
 
+    expanded = _wizard_engine_parameters(combos, "profiles", DEFAULT_API_URL)
+    if not expanded:
+        return
+
     repeats = questionary.text("Repeats (applied to every run in the batch):", default="2").ask()
     if repeats is None:
         return
 
-    typer.echo(f"About to run {len(combos)} benchmark(s):")
-    for profile_id, pack_id in combos:
-        typer.echo(f"  {profile_id}  x  {pack_id}")
+    total_runs = len(expanded) * int(repeats)
+    typer.echo(f"About to run {len(expanded)} benchmark(s) ({total_runs} runs incl. {repeats} repeats):")
+    for profile_id, pack_id, overrides in expanded:
+        typer.echo(f"  {_format_combo_label(profile_id, pack_id, overrides)}")
+    if len(expanded) > 20 and not questionary.confirm(
+        f"That's {len(expanded)} combos — really proceed?", default=False
+    ).ask():
+        return
     if not questionary.confirm("Proceed?", default=True).ask():
         return
 
-    outcomes: list[tuple[str, str, bool]] = []
-    for profile_id, pack_id in combos:
+    outcomes: list[tuple[str, str, dict[str, str], bool]] = []
+    for profile_id, pack_id, overrides in expanded:
+        args = ["run", profile_id, pack_id, "--repeats", repeats, "--hardware", hardware_id]
+        for key, value in overrides.items():
+            args += ["--param", f"{key}={value}"]
         try:
-            _reexec(["run", profile_id, pack_id, "--repeats", repeats, "--hardware", hardware_id])
-            outcomes.append((profile_id, pack_id, True))
+            _reexec(args)
+            outcomes.append((profile_id, pack_id, overrides, True))
         except typer.Exit:
-            outcomes.append((profile_id, pack_id, False))
+            outcomes.append((profile_id, pack_id, overrides, False))
 
     typer.echo("Batch summary:")
-    for profile_id, pack_id, ok in outcomes:
-        typer.echo(f"  {'✓' if ok else '✗'} {profile_id}  x  {pack_id}")
+    for profile_id, pack_id, overrides, ok in outcomes:
+        typer.echo(f"  {'✓' if ok else '✗'} {_format_combo_label(profile_id, pack_id, overrides)}")
 
 
 def _wizard_validate() -> None:
@@ -936,6 +1059,131 @@ def _sample_during(fn, interval_s: float = 0.2):
     return result, samples, temp_samples_c, rapl_uj_delta
 
 
+def _parse_param_overrides(param: list[str]) -> dict[str, str]:
+    """Parse repeatable `--param KEY=VALUE` options into a dict of raw
+    string values — not yet type-coerced or domain-checked, since that
+    needs the profile's own `overridable` declaration (see
+    `_resolve_parameters`)."""
+    overrides: dict[str, str] = {}
+    for raw in param:
+        key, sep, value = raw.partition("=")
+        if not sep:
+            raise ValueError(f"--param must be KEY=VALUE, got {raw!r}")
+        overrides[key] = value
+    return overrides
+
+
+def _coerce_param_value(raw: str, default: Any) -> Any:
+    """Coerce a `--param` CLI string into the type of its profile default —
+    bool needs explicit true/false parsing (Python's `bool("false")` is
+    True, a classic footgun)."""
+    if isinstance(default, bool):
+        low = raw.strip().lower()
+        if low in ("true", "1", "yes"):
+            return True
+        if low in ("false", "0", "no"):
+            return False
+        raise ValueError(f"expected true/false, got {raw!r}")
+    if isinstance(default, int):
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError(f"expected an integer, got {raw!r}") from None
+    if isinstance(default, float):
+        try:
+            return float(raw)
+        except ValueError:
+            raise ValueError(f"expected a number, got {raw!r}") from None
+    return raw
+
+
+def _check_param_domain(param_name: str, value: Any, domain: dict) -> None:
+    if "allowed" in domain and value not in domain["allowed"]:
+        raise ValueError(f"{param_name}={value!r} not in allowed values {domain['allowed']}")
+    if "range" in domain:
+        lo, hi = domain["range"]["min"], domain["range"]["max"]
+        if not (lo <= value <= hi):
+            raise ValueError(f"{param_name}={value!r} outside range [{lo}, {hi}]")
+
+
+def _resolve_one_param(profile: dict, param_name: str, raw_value: str | None) -> dict:
+    """Resolve a single profile-declared overridable parameter to
+    `{"value": ..., "default": ...}`, validating `raw_value` (a `--param`
+    CLI string, or None to just take the default) against the profile's
+    declared domain. Raises ValueError with a human-readable message on
+    any failure — callers (the CLI, the wizard's preflight) decide how to
+    present it."""
+    overridable = profile.get("overridable", {})
+    if param_name not in overridable:
+        raise ValueError(
+            f"{param_name!r} is not declared overridable by profile "
+            f"{profile['id']!r} (overridable: {sorted(overridable) or 'none'})"
+        )
+    model_cfg = profile.get("model", {})
+    configuration = profile.get("configuration", {})
+    if param_name in model_cfg:
+        default = model_cfg[param_name]
+    elif param_name in configuration:
+        default = configuration[param_name]
+    else:
+        raise ValueError(
+            f"profile {profile['id']!r} declares {param_name!r} overridable "
+            "but it isn't set in model/configuration"
+        )
+    if raw_value is None:
+        return {"value": default, "default": default}
+    value = _coerce_param_value(raw_value, default)
+    _check_param_domain(param_name, value, overridable[param_name])
+    return {"value": value, "default": default}
+
+
+def _validate_overridable_against_adapter(profile: dict) -> None:
+    """No silent knobs (ADR-0009 §2): a profile may declare a parameter
+    overridable only if its adapter genuinely applies it. Several adapters
+    accept extra kwargs purely for call-shape parity and ignore them
+    (whisper-cpp: beam_size/vad/quantization; vosk: everything) — a
+    profile declaring one of those would sign results asserting a value
+    that had no effect on the run, which is worse than not having the
+    feature. This is authoring-mistake protection (a correctly-generated
+    profile never trips it) — not expressible in JSON Schema alone, since
+    the schema has no notion of which adapter a runtime.name maps to."""
+    overridable = profile.get("overridable", {})
+    if not overridable:
+        return
+    runtime_name = profile["runtime"]["name"]
+    benchmark_type = profile["benchmark_type"]
+    applied = get_applied_parameters(runtime_name, benchmark_type)
+    silent = set(overridable) - applied
+    if silent:
+        raise ValueError(
+            f"profile declares {sorted(silent)} overridable, but adapter {runtime_name!r} "
+            f"(benchmark_type={benchmark_type!r}) doesn't apply "
+            f"{'it' if len(silent) == 1 else 'them'} — accepted for call-shape parity "
+            "only, so declaring it would sign a result asserting a value with no effect"
+        )
+
+
+def _resolve_parameters(profile: dict, param_overrides: dict[str, str]) -> dict[str, dict]:
+    """Resolve every profile-declared overridable parameter for this run —
+    `--param` overrides, else the profile default — validating each
+    against its declared domain (ADR-0009 §2). Returns
+    `{key: {"value", "default"}}` for every eligible parameter, overridden
+    or not, so results stay self-describing without a profile-catalog
+    lookup. Hard errors before anything runs — no silent fallback, no
+    clamping (ADR-0008 error philosophy)."""
+    overridable = profile.get("overridable", {})
+    unknown = set(param_overrides) - set(overridable)
+    if unknown:
+        raise ValueError(
+            "--param given for parameter(s) not declared overridable by "
+            f"this profile: {sorted(unknown)} (overridable: {sorted(overridable) or 'none'})"
+        )
+    return {
+        key: _resolve_one_param(profile, key, param_overrides.get(key))
+        for key in overridable
+    }
+
+
 @app.command()
 def run(
     profile_id: str,
@@ -977,6 +1225,14 @@ def run(
         "user-asserted override for when auto-detection is wrong (e.g. under "
         "virtualization, where the guest OS cannot see the real hardware).",
     ),
+    param: list[str] = typer.Option(  # noqa: B008 — typer's documented default_factory pattern
+        default_factory=list,
+        help="KEY=VALUE, repeatable — override a profile-declared overridable "
+        "parameter (ADR-0009) for this run only, e.g. --param beam_size=8. "
+        "The key must be in the profile's `overridable` block and the value "
+        "within its declared domain; anything else is a hard error before "
+        "anything runs, never a silent fallback.",
+    ),
 ) -> None:
     """Run a benchmark for a profile + pack and emit a signed result document."""
     profile_path = Path(profiles_dir) / profile_id / "profile.yaml"
@@ -999,6 +1255,17 @@ def run(
     if profile_errors:
         typer.echo(f"profile {profile_id} failed validation: {profile_errors}", err=True)
         raise typer.Exit(code=1)
+
+    # Resolved before anything heavier happens (engine install, pack/audio
+    # fetch, model download) — an unknown key or out-of-domain value must
+    # fail immediately, not after the user's sat through a multi-GB model
+    # download (ADR-0008 error philosophy: explicit, early, never silent).
+    try:
+        _validate_overridable_against_adapter(profile)
+        parameters = _resolve_parameters(profile, _parse_param_overrides(param))
+    except ValueError as exc:
+        typer.echo(f"--param error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
     _ensure_engine_installed(profile["runtime"]["name"])
 
@@ -1046,6 +1313,16 @@ def run(
     runtime_hash = sha256_module_source(sys.modules[adapter.__module__])
 
     model_cfg = dict(profile["model"])
+    configuration = dict(profile.get("configuration", {}))
+    # Apply this run's resolved overrides (ADR-0009) before anything below
+    # reads model_cfg/configuration, so every downstream use — the adapter
+    # call, config_sha256, the result's own model/configuration echo — sees
+    # the actual value used, with zero separate plumbing.
+    for key, entry in parameters.items():
+        if key in model_cfg:
+            model_cfg[key] = entry["value"]
+        else:
+            configuration[key] = entry["value"]
     model_name = model_override or model_cfg["name"]
     # 2-letter code from the profile's BCP-47 language (e.g. "es-419" -> "es")
     # so the adapter can condition the decoder on the actual spoken
@@ -1060,7 +1337,6 @@ def run(
         k: v for k, v in profile["normalization"].items()
         if k in ("lowercase", "remove_punctuation", "expand_numbers")
     }
-    configuration = profile.get("configuration", {})
 
     models_root_path = Path(models_root) if models_root else Path.home() / ".goesb" / "models" / model_name
     models_root_path.mkdir(parents=True, exist_ok=True)
@@ -1227,7 +1503,7 @@ def run(
     model_sha256 = sha256_dir(models_root_path)
 
     result = {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "profile": {
             "id": profile["id"],
             "version": profile["version"],
@@ -1258,6 +1534,8 @@ def run(
     }
     if hardware_id:
         result["hardware_id"] = hardware_id
+    if parameters:
+        result["parameters"] = parameters
 
     # Nothing named payload_sha256/signature exists on `result` yet, so this
     # hashes exactly the content those two fields will end up covering.

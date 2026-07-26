@@ -24,7 +24,10 @@ def _resolve_model_id(model_name: str) -> str:
     return model_name.removeprefix(prefix)
 
 
-@register("whisper-cpp", benchmark_type="batch")
+@register(
+    "whisper-cpp", benchmark_type="batch",
+    applied_parameters=frozenset({"threads", "temperature"}),
+)
 def run_batch(
     model_name: str,
     utterances: list[Utterance],

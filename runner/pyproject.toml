@@ -1,6 +1,6 @@
 [project]
 name = "goesb-runner"
-version = "0.2.7"
+version = "0.3.0"
 description = "Official Open Edge Speech Benchmark (GOESB) runner"
 requires-python = ">=3.11"
 readme = "README.md"
