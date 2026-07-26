@@ -1,0 +1,9 @@
+id: apple-macbookair-2020-intel
+display_name: MacBook Air 2020 (Intel Core i5-1030NG7)
+vendor: Apple
+category: cpu
+cores: 2
+threads: 4
+base_clock_ghz: 0.7
+max_clock_ghz: 3.5
+release_year: 2020

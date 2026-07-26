@@ -1,0 +1,8 @@
+id: raspberry-pi-zero-2-w
+display_name: Raspberry Pi Zero 2 W (RP3A0-AU)
+vendor: Raspberry Pi
+category: cpu
+cores: 4
+threads: 4
+max_clock_ghz: 1.0
+release_year: 2021

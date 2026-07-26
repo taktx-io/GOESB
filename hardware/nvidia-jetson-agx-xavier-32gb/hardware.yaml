@@ -1,0 +1,6 @@
+id: nvidia-jetson-agx-xavier-32gb
+display_name: NVIDIA Jetson AGX Xavier 32GB
+vendor: NVIDIA
+category: gpu
+vram_gb: 32
+release_year: 2018

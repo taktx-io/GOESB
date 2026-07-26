@@ -1,0 +1,8 @@
+id: nvidia-jetson-xavier-nx
+display_name: NVIDIA Jetson Xavier NX
+vendor: NVIDIA
+category: gpu
+vram_gb: 8
+release_year: 2020
+notes: Shared CPU/GPU memory (module RAM, not dedicated VRAM), same convention as
+  the other Jetson entries here.

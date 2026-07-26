@@ -1,0 +1,10 @@
+id: raspberry-pi-3-model-b-plus
+display_name: Raspberry Pi 3 Model B+ (BCM2837B0)
+vendor: Raspberry Pi
+category: cpu
+cores: 4
+threads: 4
+max_clock_ghz: 1.4
+release_year: 2018
+notes: Supersedes the original Model B (BCM2837, 1.2GHz, 2016) -- no separate entry
+  for that one; pick custom if you're specifically on the older board.

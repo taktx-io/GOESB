@@ -1,0 +1,11 @@
+id: apple-macbookpro-16-2019
+display_name: MacBook Pro 16" 2019 (Intel Core i9-9880H)
+vendor: Apple
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.3
+max_clock_ghz: 4.8
+release_year: 2019
+notes: Last-generation Intel MacBook Pro, still common -- faster-whisper has no Metal/Apple
+  GPU backend so this always runs CPU-only regardless of engine.
