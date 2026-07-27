@@ -1,4 +1,7 @@
 import stat
+import sys
+
+import pytest
 
 from oesb_runner import credentials
 
@@ -20,6 +23,9 @@ def test_environment_variable_takes_priority_over_stored_value(tmp_path, monkeyp
     assert credentials.load_credential("MDC_API_KEY", path=path) == "env-value"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX file-permission bits (chmod 0600) don't apply on Windows"
+)
 def test_save_sets_file_mode_0600(tmp_path):
     path = tmp_path / "nested" / "credentials.json"
 
