@@ -5,6 +5,47 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-27
+### Added
+- **Gated-pack credential handling (ADR-0010).** Some high-value corpora
+  (Mozilla Common Voice via the Mozilla Data Collective platform) are free
+  but access-gated behind a personal API key, since the platform's own
+  terms forbid GOESB re-hosting the audio. `audio.source.credential` is a
+  new optional pack-schema field (`env_var`/`signup_url`/`instructions`);
+  existing packs are untouched (additive/optional). The wizard gets a new
+  preflight step, `_preflight_pack_credentials`, that dedups by `env_var`
+  across a whole batch (prompts once even if several selected packs share
+  one), masks the input (`questionary.password`, never echoed), and stores
+  it in `~/.goesb/credentials.json` (mode 0600, sibling to the existing
+  `~/.goesb/keys/` signing-key convention) so it's asked at most once per
+  machine. Declining drops only the combos that needed it — never aborts
+  the batch. The credential is never sent to GOESB's own servers, and
+  never appears in `capture_environment()`'s output or a signed result
+  document. New `mozilla_data_collective` auto-fetch provider
+  (`fetch_common_voice_audio`) reuses the credential to fetch audio at run
+  time; a rejected/expired key reports a clean stderr message and fails
+  just that one combo, never a raw traceback.
+- **Wizard pack-picker.** When more than one pack targets the same profile
+  (now possible thanks to the above — e.g. an ungated FLEURS pack and a
+  gated Common-Voice variant both targeting `whisper-medium-nl-batch`),
+  the wizard asks which pack(s) to run for that cell instead of silently
+  taking the first match. Checkbox, not single-select — running more than
+  one pack for the same profile in one batch is a reasonable thing to
+  want. The first ungated pack is pre-checked by default, so Enter with no
+  changes reproduces old single-pack-per-profile behavior exactly; every
+  profile with only one matching pack (everything except the new pilot
+  pack, today) is entirely unaffected, no prompt at all.
+- **`common-voice-nl-elderly-batch` pack** — the first (pilot) consumer of
+  the above: Dutch, Common Voice's oldest self-reported age buckets
+  (seventies+eighties+nineties — the oldest bucket alone, and even the two
+  oldest combined, were too small on their own to be a meaningful eval
+  set). 40 clips, 6 distinct speakers, 270.5s total. Single-pack pilot,
+  gated on manual sign-off before any further Common-Voice packs get
+  built — see `packs/common-voice-nl-elderly-batch/README.md` for the full
+  breakdown and an explicit caveat that 6 speakers is thin, anecdotal
+  signal rather than a statistically robust read on elderly-speaker
+  performance.
+
 ## [0.3.3] - 2026-07-26
 ### Fixed
 - **`_pick_hardware_id` silently fell back to `custom` on any unmatched

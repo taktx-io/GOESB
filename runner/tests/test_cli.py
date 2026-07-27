@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -176,6 +177,7 @@ def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsy
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
@@ -202,6 +204,123 @@ def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsy
     assert "✓ whisper-medium-fr-batch  x  pack-b" in out
 
 
+def test_wizard_run_expands_combos_when_multiple_packs_chosen_for_one_profile(monkeypatch):
+    """A cell whose profile matches >1 pack and where the user checks more
+    than one of them runs all of them, not just the first match."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-nl-batch", "language": "nl-NL", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [
+            {"id": "fleurs-nl-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
+            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
+        ],
+    )
+    monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-nl-batch"])
+    monkeypatch.setattr(
+        cli_module, "_choose_packs_for_profile",
+        lambda profile_id, matching_packs, *a, **k: ["fleurs-nl-batch", "common-voice-nl-elderly-batch"],
+    )
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert reexec_calls == [
+        ["run", "whisper-medium-nl-batch", "fleurs-nl-batch", "--repeats", "1", "--hardware", "custom"],
+        ["run", "whisper-medium-nl-batch", "common-voice-nl-elderly-batch", "--repeats", "1", "--hardware", "custom"],
+    ]
+
+
+def test_wizard_run_drops_cell_silently_when_pack_choice_empty(monkeypatch):
+    """Declining every pack for an ambiguous cell drops only that cell —
+    other cells in the same batch still run."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [
+            {"id": "whisper-medium-nl-batch", "language": "nl-NL", "benchmark_type": "batch"},
+            {"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [
+            {"id": "fleurs-nl-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
+            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
+            {"id": "pack-en", "visibility": "open", "profile_id": "whisper-medium-en-batch"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_ask_matrix",
+        lambda matrix: ["whisper-medium-nl-batch", "whisper-medium-en-batch"],
+    )
+    monkeypatch.setattr(
+        cli_module, "_choose_packs_for_profile",
+        lambda profile_id, matching_packs, *a, **k: (
+            [] if profile_id == "whisper-medium-nl-batch" else [matching_packs[0]["id"]]
+        ),
+    )
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert reexec_calls == [
+        ["run", "whisper-medium-en-batch", "pack-en", "--repeats", "1", "--hardware", "custom"],
+    ]
+
+
+def test_wizard_run_aborts_when_pack_choice_cancelled(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-nl-batch", "language": "nl-NL", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [
+            {"id": "fleurs-nl-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
+            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
+        ],
+    )
+    monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-nl-batch"])
+    monkeypatch.setattr(cli_module, "_choose_packs_for_profile", lambda profile_id, matching_packs, *a, **k: None)
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert reexec_calls == []
+
+
 def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     from oesb_runner import cli as cli_module
 
@@ -217,6 +336,7 @@ def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("2"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
@@ -252,6 +372,7 @@ def test_wizard_run_hardware_back_re_shows_the_matrix(monkeypatch):
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
     monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
@@ -420,6 +541,7 @@ def test_wizard_run_confirmation_states_total_including_repeats(monkeypatch, cap
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
@@ -450,6 +572,7 @@ def test_wizard_run_warns_above_twenty_expanded_combos(monkeypatch):
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
@@ -473,6 +596,305 @@ def test_wizard_run_warns_above_twenty_expanded_combos(monkeypatch):
 
     assert any("25 combos" in p for p in confirm_prompts)
     assert reexec_calls == []  # declined the warning, never proceeded to run anything
+
+
+_MDC_CREDENTIAL = {
+    "env_var": "MDC_API_KEY",
+    "signup_url": "https://mozilladatacollective.com",
+    "instructions": "Get an API key from the MDC dashboard, then run `pip install datacollective`.",
+}
+
+
+def _write_pack_for_credential_test(packs_dir, pack_id, credential=None):
+    pack_dir = packs_dir / pack_id
+    pack_dir.mkdir(parents=True)
+    source = {"type": "mozilla_data_collective", "params": {"dataset_id": "abc123"}}
+    if credential:
+        source["credential"] = credential
+    (pack_dir / "pack.yaml").write_text(yaml.safe_dump({"id": pack_id, "audio": {"source": source}}))
+
+
+def test_preflight_pack_credentials_prompts_once_for_shared_env_var(tmp_path, monkeypatch):
+    """ADR-0010 acceptance #3: two packs declaring the same env_var are
+    asked about exactly once, not once per pack."""
+    from oesb_runner import cli as cli_module
+
+    store: dict[str, str] = {}
+    monkeypatch.setattr(cli_module.credentials, "load_credential", lambda env_var, **kw: store.get(env_var))
+    monkeypatch.setattr(
+        cli_module.credentials, "save_credential",
+        lambda env_var, value, **kw: store.__setitem__(env_var, value),
+    )
+    monkeypatch.delenv("MDC_API_KEY", raising=False)
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "pack-a", credential=_MDC_CREDENTIAL)
+    _write_pack_for_credential_test(packs_dir, "pack-b", credential=_MDC_CREDENTIAL)
+    combos = [("profile-a", "pack-a"), ("profile-b", "pack-b")]
+
+    prompts = []
+
+    def _fake_password(message):
+        prompts.append(message)
+        return _FakeAsk("the-secret-key")
+
+    monkeypatch.setattr(cli_module.questionary, "password", _fake_password)
+
+    kept = cli_module._preflight_pack_credentials(combos, str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    assert kept == combos
+    assert len(prompts) == 1
+    assert "MDC_API_KEY" in prompts[0]
+    assert store["MDC_API_KEY"] == "the-secret-key"
+    assert os.environ["MDC_API_KEY"] == "the-secret-key"  # _reexec's subprocess inherits this
+
+
+def test_preflight_pack_credentials_shows_instructions_and_signup_url(tmp_path, monkeypatch, capsys):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.credentials, "load_credential", lambda env_var, **kw: None)
+    monkeypatch.setattr(cli_module.credentials, "save_credential", lambda env_var, value, **kw: None)
+    monkeypatch.delenv("MDC_API_KEY", raising=False)
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "pack-a", credential=_MDC_CREDENTIAL)
+    monkeypatch.setattr(cli_module.questionary, "password", lambda message: _FakeAsk("the-secret-key"))
+
+    cli_module._preflight_pack_credentials([("profile-a", "pack-a")], str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    err = capsys.readouterr().err
+    assert _MDC_CREDENTIAL["instructions"] in err
+    assert _MDC_CREDENTIAL["signup_url"] in err
+
+
+def test_preflight_pack_credentials_declining_drops_only_affected_combos(tmp_path, monkeypatch, capsys):
+    """ADR-0010 acceptance #4: an empty answer drops only the combos
+    needing that credential — a batch that also has ungated packs still
+    runs those."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.credentials, "load_credential", lambda env_var, **kw: None)
+    monkeypatch.setattr(cli_module.credentials, "save_credential", lambda env_var, value, **kw: None)
+    monkeypatch.delenv("MDC_API_KEY", raising=False)
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "gated-pack", credential=_MDC_CREDENTIAL)
+    _write_pack_for_credential_test(packs_dir, "ungated-pack", credential=None)
+    combos = [("profile-a", "gated-pack"), ("profile-b", "ungated-pack")]
+
+    monkeypatch.setattr(cli_module.questionary, "password", lambda message: _FakeAsk(""))
+
+    kept = cli_module._preflight_pack_credentials(combos, str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    assert kept == [("profile-b", "ungated-pack")]
+    assert "MDC_API_KEY" not in os.environ
+    assert "profile-a  x  gated-pack — skipping" in capsys.readouterr().err
+
+
+def test_preflight_pack_credentials_skips_prompt_when_already_resolvable(tmp_path, monkeypatch):
+    """ADR-0010 acceptance #5: a credential already resolvable (env var or
+    the local store) is never prompted for."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.credentials, "load_credential", lambda env_var, **kw: "already-saved-key")
+    monkeypatch.delenv("MDC_API_KEY", raising=False)
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "pack-a", credential=_MDC_CREDENTIAL)
+    combos = [("profile-a", "pack-a")]
+
+    def _fail_if_called(message):
+        raise AssertionError("should not prompt — credential already resolvable")
+
+    monkeypatch.setattr(cli_module.questionary, "password", _fail_if_called)
+
+    kept = cli_module._preflight_pack_credentials(combos, str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    assert kept == combos
+    assert "MDC_API_KEY" not in os.environ  # never re-exported when resolved from the store
+
+
+def test_preflight_pack_credentials_returns_none_on_abort(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.credentials, "load_credential", lambda env_var, **kw: None)
+    monkeypatch.delenv("MDC_API_KEY", raising=False)
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "pack-a", credential=_MDC_CREDENTIAL)
+    monkeypatch.setattr(cli_module.questionary, "password", lambda message: _FakeAsk(None))
+
+    kept = cli_module._preflight_pack_credentials([("profile-a", "pack-a")], str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    assert kept is None
+
+
+def test_preflight_pack_credentials_no_gated_packs_never_touches_credentials_module(tmp_path, monkeypatch):
+    """Acceptance #1: a batch with no gated packs behaves byte-identically
+    to today — the credential store is never even consulted."""
+    from oesb_runner import cli as cli_module
+
+    def _fail_if_called(*a, **kw):
+        raise AssertionError("should not be called — no pack declares a credential")
+
+    monkeypatch.setattr(cli_module.credentials, "load_credential", _fail_if_called)
+    monkeypatch.setattr(cli_module.questionary, "password", _fail_if_called)
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "pack-a", credential=None)
+    combos = [("profile-a", "pack-a")]
+
+    kept = cli_module._preflight_pack_credentials(combos, str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    assert kept == combos
+
+
+def test_choose_packs_for_profile_single_match_never_prompts(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    def _fail_if_called(*a, **kw):
+        raise AssertionError("should not prompt — only one pack matches")
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", _fail_if_called)
+
+    chosen = cli_module._choose_packs_for_profile(
+        "profile-a", [{"id": "pack-a", "visibility": "open", "profile_id": "profile-a"}],
+        "irrelevant-packs-dir", cli_module.DEFAULT_API_URL,
+    )
+
+    assert chosen == ["pack-a"]
+
+
+def test_choose_packs_for_profile_multiple_matches_prompts_with_default_checked(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "gated-pack", credential=_MDC_CREDENTIAL)
+    _write_pack_for_credential_test(packs_dir, "open-pack", credential=None)
+    matching_packs = [
+        {"id": "open-pack", "visibility": "open", "profile_id": "profile-a"},
+        {"id": "gated-pack", "visibility": "open", "profile_id": "profile-a"},
+    ]
+
+    captured = {}
+
+    def _fake_checkbox(message, choices):
+        captured["message"] = message
+        captured["choices"] = choices
+        return _FakeAsk(["open-pack", "gated-pack"])
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", _fake_checkbox)
+
+    chosen = cli_module._choose_packs_for_profile(
+        "profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL
+    )
+
+    assert chosen == ["open-pack", "gated-pack"]
+    assert "profile-a" in captured["message"]
+    by_value = {c.value: c for c in captured["choices"]}
+    assert by_value["open-pack"].checked is True  # the ungated pack is the pre-checked default
+    assert by_value["gated-pack"].checked is False
+    assert "open" in by_value["open-pack"].title
+    assert "gated" in by_value["gated-pack"].title
+
+
+def test_choose_packs_for_profile_defaults_to_ungated_even_when_listed_second(tmp_path, monkeypatch):
+    """Regression test: matching_packs order comes from _pack_rows' local-dir
+    listing, which is alphabetical and has nothing to do with which pack is
+    the sensible default. A gated pack sorting before the ungated one (e.g.
+    'common-voice-nl-elderly-batch' before 'fleurs-nl-batch') must not end
+    up pre-checked ahead of it — caught live: the wizard pre-checked the
+    gated pack for whisper-medium-nl-batch because it happened to sort
+    first."""
+    from oesb_runner import cli as cli_module
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "gated-pack", credential=_MDC_CREDENTIAL)
+    _write_pack_for_credential_test(packs_dir, "open-pack", credential=None)
+    matching_packs = [
+        {"id": "gated-pack", "visibility": "open", "profile_id": "profile-a"},  # sorts/lists first
+        {"id": "open-pack", "visibility": "open", "profile_id": "profile-a"},
+    ]
+
+    captured = {}
+
+    def _fake_checkbox(message, choices):
+        captured["choices"] = choices
+        return _FakeAsk(["open-pack"])
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", _fake_checkbox)
+
+    cli_module._choose_packs_for_profile("profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    by_value = {c.value: c for c in captured["choices"]}
+    assert by_value["open-pack"].checked is True
+    assert by_value["gated-pack"].checked is False
+
+
+def test_choose_packs_for_profile_defaults_to_first_when_all_gated(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "gated-pack-a", credential=_MDC_CREDENTIAL)
+    _write_pack_for_credential_test(packs_dir, "gated-pack-b", credential=_MDC_CREDENTIAL)
+    matching_packs = [
+        {"id": "gated-pack-a", "visibility": "open", "profile_id": "profile-a"},
+        {"id": "gated-pack-b", "visibility": "open", "profile_id": "profile-a"},
+    ]
+
+    captured = {}
+
+    def _fake_checkbox(message, choices):
+        captured["choices"] = choices
+        return _FakeAsk(["gated-pack-a"])
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", _fake_checkbox)
+
+    cli_module._choose_packs_for_profile("profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    by_value = {c.value: c for c in captured["choices"]}
+    assert by_value["gated-pack-a"].checked is True
+    assert by_value["gated-pack-b"].checked is False
+
+
+def test_choose_packs_for_profile_returns_none_on_abort(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "pack-a", credential=None)
+    _write_pack_for_credential_test(packs_dir, "pack-b", credential=None)
+    matching_packs = [
+        {"id": "pack-a", "visibility": "open", "profile_id": "profile-a"},
+        {"id": "pack-b", "visibility": "open", "profile_id": "profile-a"},
+    ]
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda message, choices: _FakeAsk(None))
+
+    chosen = cli_module._choose_packs_for_profile(
+        "profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL
+    )
+
+    assert chosen is None
+
+
+def test_choose_packs_for_profile_empty_selection_returns_empty_list(tmp_path, monkeypatch):
+    """Unchecking everything is a deliberate decline, not an abort — the
+    caller drops this cell silently rather than bailing the whole wizard."""
+    from oesb_runner import cli as cli_module
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "pack-a", credential=None)
+    _write_pack_for_credential_test(packs_dir, "pack-b", credential=None)
+    matching_packs = [
+        {"id": "pack-a", "visibility": "open", "profile_id": "profile-a"},
+        {"id": "pack-b", "visibility": "open", "profile_id": "profile-a"},
+    ]
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda message, choices: _FakeAsk([]))
+
+    chosen = cli_module._choose_packs_for_profile(
+        "profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL
+    )
+
+    assert chosen == []
 
 
 def test_preflight_engines_installs_each_distinct_engine_once(monkeypatch):
@@ -1317,6 +1739,53 @@ def test_resolve_pack_audio_skips_fetch_when_shared_cache_already_complete(tmp_p
     resolved_audio_dir = cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
 
     assert resolved_audio_dir == complete_dir
+
+
+def test_resolve_pack_audio_reports_clean_message_on_gated_fetch_auth_error(tmp_path, monkeypatch, capsys):
+    """ADR-0010: a rejected/expired/revoked gated-source credential must
+    surface as a clear stderr message and a normal typer.Exit(1), never an
+    uncaught traceback."""
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    source = {"type": "mozilla_data_collective", "params": {"dataset_id": "abc123"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    def _fail(*a, **k):
+        raise cli_module.GatedFetchAuthError("Mozilla Data Collective rejected the 'abc123' request: Access denied.")
+
+    monkeypatch.setattr(cli_module, "auto_fetch_audio", _fail)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert exc_info.value.exit_code == 1
+    err = capsys.readouterr().err
+    assert "credential rejected" in err
+    assert "Access denied" in err
+
+
+def test_resolve_pack_audio_reports_clean_message_on_generic_fetch_failure(tmp_path, monkeypatch, capsys):
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    source = {"type": "mozilla_data_collective", "params": {"dataset_id": "abc123"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    def _fail(*a, **k):
+        raise RuntimeError("network exploded")
+
+    monkeypatch.setattr(cli_module, "auto_fetch_audio", _fail)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert exc_info.value.exit_code == 1
+    assert "Auto-fetch failed: network exploded" in capsys.readouterr().err
 
 
 def test_coerce_param_value_bool_parses_common_spellings():

@@ -9,17 +9,26 @@ do when building a pack from scratch; this module is the shared "just fetch
 these already-known filenames" half of that, reused by both the runner
 (`goesb run`, auto-fetch) and those scripts (initial pack authoring).
 
-Packs whose audio.source.type isn't one of AUTO_FETCH_SOURCE_TYPES (custom
-corpora, Common Voice's consent-gated download, or no declared source at
-all) aren't auto-fetchable — audio.source.fetch_instructions is the
-always-present fallback for those.
+`mozilla_data_collective` (ADR-0010) is the one auto-fetchable exception to
+"ungated": Common Voice via the Mozilla Data Collective platform, gated
+behind a personal API key rather than a plain URL. The wizard's
+`_preflight_pack_credentials` step resolves that key before this module is
+ever called; `fetch_common_voice_audio` below assumes it's already in
+`os.environ` by the time it runs.
+
+Packs whose audio.source.type isn't one of AUTO_FETCH_SOURCE_TYPES (other
+custom/consent-gated corpora, or no declared source at all) aren't
+auto-fetchable — audio.source.fetch_instructions is the always-present
+fallback for those.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tarfile
 import urllib.request
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -29,7 +38,17 @@ from .remote import CACHE_ROOT
 FLEURS_BASE_URL = "https://huggingface.co/datasets/google/fleurs/resolve/main/data"
 LIBRISPEECH_BASE_URL = "https://www.openslr.org/resources/12"
 
-AUTO_FETCH_SOURCE_TYPES = frozenset({"fleurs", "librispeech"})
+AUTO_FETCH_SOURCE_TYPES = frozenset({"fleurs", "librispeech", "mozilla_data_collective"})
+
+
+class GatedFetchAuthError(RuntimeError):
+    """Raised when a gated source (ADR-0010) rejects the credential used to
+    fetch it — a bad, expired, or revoked API key, or a dataset the account
+    hasn't been granted access to — as opposed to a network or other
+    transient failure. Callers (`cli._resolve_pack_audio`) use this to
+    report a clearer message than a generic auto-fetch failure, without
+    ever letting the underlying traceback (which could echo request/response
+    detail) reach the user."""
 
 
 def _stream_extract(
@@ -74,9 +93,78 @@ def fetch_librispeech_audio(params: dict[str, Any], wanted_names: set[str], audi
     return _stream_extract(url, wanted_names, audio_dir, name_filter=lambda name: name.startswith(prefix))
 
 
+def _extract_matching(archive_path: Path, wanted_names: set[str], audio_dir: Path) -> set[str]:
+    """Pull just `wanted_names` (matched by basename) out of a downloaded
+    .tar.gz/.tgz/.zip archive — the datacollective package hands back the
+    whole archive, not an already-filtered extraction, so this is the
+    counterpart to `_stream_extract` for a locally-downloaded file rather
+    than a streamed remote one."""
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    collected: set[str] = set()
+    if archive_path.suffix == ".zip":
+        with zipfile.ZipFile(archive_path) as zf:
+            for info in zf.infolist():
+                name = Path(info.filename).name
+                if info.is_dir() or name not in wanted_names:
+                    continue
+                with zf.open(info) as src, (audio_dir / name).open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                collected.add(name)
+                if collected == wanted_names:
+                    break
+        return collected
+
+    with tarfile.open(archive_path, mode="r:*") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            name = Path(member.name).name
+            if name not in wanted_names:
+                continue
+            extracted = tar.extractfile(member)
+            if extracted is None:
+                continue
+            (audio_dir / name).write_bytes(extracted.read())
+            collected.add(name)
+            if collected == wanted_names:
+                break
+    return collected
+
+
+def fetch_common_voice_audio(params: dict[str, Any], wanted_names: set[str], audio_dir: Path) -> set[str]:
+    """Fetch a Common Voice subset via the Mozilla Data Collective platform
+    (ADR-0010) — gated behind a personal API key (`MDC_API_KEY`), unlike
+    FLEURS/LibriSpeech above. `datacollective` is a guarded optional
+    dependency, imported lazily here, same style as the STT adapters'
+    faster_whisper/vosk/pywhispercpp imports — it is not a hard dependency
+    of the base install."""
+    try:
+        from datacollective import download_dataset
+    except ImportError as exc:
+        raise RuntimeError(
+            "datacollective is not installed; run `pip install datacollective`"
+        ) from exc
+
+    dataset_id = params["dataset_id"]
+    try:
+        archive_path = download_dataset(dataset_id, show_progress=False)
+    except (PermissionError, ValueError) as exc:
+        # PermissionError: MDC API returned 403 (key rejected, or the
+        # dataset's terms haven't been accepted on the account behind the
+        # key). ValueError: no API key present at all (datacollective reads
+        # MDC_API_KEY itself). Both are "the credential is the problem", not
+        # a network/dataset-id problem — see GatedFetchAuthError.
+        raise GatedFetchAuthError(
+            f"Mozilla Data Collective rejected the {dataset_id!r} request: {exc}"
+        ) from exc
+
+    return _extract_matching(archive_path, wanted_names, audio_dir)
+
+
 _PROVIDERS: dict[str, Callable[[dict[str, Any], set[str], Path], set[str]]] = {
     "fleurs": fetch_fleurs_audio,
     "librispeech": fetch_librispeech_audio,
+    "mozilla_data_collective": fetch_common_voice_audio,
 }
 
 

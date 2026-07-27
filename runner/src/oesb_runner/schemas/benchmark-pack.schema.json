@@ -26,14 +26,25 @@
           "type": "object",
           "description": "Where to obtain the actual audio for open/community packs. Required for visibility=open|community; omitted for private packs (audio never leaves the machine).",
           "properties": {
-            "type": { "enum": ["fleurs", "librispeech", "manual"],
+            "type": { "enum": ["fleurs", "librispeech", "mozilla_data_collective", "manual"],
               "description": "Which built-in provider `goesb run` can use to auto-fetch this pack's audio. 'manual' (or omitted) means fetch_instructions is the only path." },
             "params": { "type": "object",
-              "description": "Provider-specific parameters, e.g. {language, split} for fleurs; {speaker, chapter} for librispeech." },
+              "description": "Provider-specific parameters, e.g. {language, split} for fleurs; {speaker, chapter} for librispeech; {dataset_id} for mozilla_data_collective." },
             "url": { "type": "string", "format": "uri",
               "description": "Upstream download location (e.g. Common Voice release page/API)." },
             "fetch_instructions": { "type": "string",
-              "description": "Human-readable steps to obtain and lay out the audio locally, if not a simple direct download." }
+              "description": "Human-readable steps to obtain and lay out the audio locally, if not a simple direct download." },
+            "credential": {
+              "type": "object",
+              "description": "Declares that fetching this source needs a personal API credential (ADR-0010) — the wizard prompts for it once per env_var, stores it locally, and never sends it to goesb's own servers.",
+              "properties": {
+                "env_var": { "type": "string", "description": "Environment variable the credential is read from, e.g. MDC_API_KEY." },
+                "signup_url": { "type": "string", "format": "uri", "description": "Where to obtain an account/API key." },
+                "instructions": { "type": "string", "description": "Short human-readable steps to obtain the credential." }
+              },
+              "required": ["env_var", "signup_url", "instructions"],
+              "additionalProperties": false
+            }
           }
         }
       }

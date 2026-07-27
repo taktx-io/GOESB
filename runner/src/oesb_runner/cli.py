@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -34,10 +35,15 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 
-from . import __version__
+from . import __version__, credentials
 from . import energy as energy_probe
 from .adapters import get_adapter, get_applied_parameters
-from .audio_sources import AUTO_FETCH_SOURCE_TYPES, auto_fetch_audio, shared_audio_dir
+from .audio_sources import (
+    AUTO_FETCH_SOURCE_TYPES,
+    GatedFetchAuthError,
+    auto_fetch_audio,
+    shared_audio_dir,
+)
 from .environment import capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
 from .metrics import (
@@ -317,6 +323,86 @@ def _load_profile_for_wizard(profile_id: str, profiles_dir: str, api_url: str) -
         return None
 
 
+def _load_pack_for_wizard(pack_id: str, packs_dir: str, api_url: str) -> dict | None:
+    """Best-effort full pack.yaml load for wizard-side preflight steps — the
+    credential check needs audio.source.credential, which _pack_rows'
+    lightweight rows (id/visibility/version/profile_id) don't carry. Same
+    local-dir-first-else-fetch-and-cache shape as _load_profile_for_wizard,
+    and the same "degrade, never crash the wizard" contract on failure."""
+    pack_path = Path(packs_dir) / pack_id / "pack.yaml"
+    try:
+        if pack_path.exists():
+            return _load_yaml(pack_path)
+        return _load_yaml(fetch_pack(pack_id, api_url) / "pack.yaml")
+    except (urllib.error.URLError, urllib.error.HTTPError):
+        return None
+
+
+def _preflight_pack_credentials(
+    combos: list[tuple[str, str]], packs_dir: str, api_url: str
+) -> list[tuple[str, str]] | None:
+    """Before the batch loop starts (ADR-0010) — same rationale as
+    _preflight_engines, just for gated-pack API credentials instead of
+    engine installs: ask once per distinct env_var across the whole batch,
+    not once per combo buried hours into an unattended run. A credential
+    already resolvable (env or ~/.goesb/credentials.json) is never
+    prompted for again. Declining (empty answer) drops only the combos
+    needing that env_var — same continue-past-failure spirit
+    _preflight_engines already uses. Returns None (the wizard's own abort
+    convention) if the prompt itself is cancelled."""
+    pack_cache: dict[str, dict | None] = {}
+
+    def _pack(pack_id: str) -> dict | None:
+        if pack_id not in pack_cache:
+            pack_cache[pack_id] = _load_pack_for_wizard(pack_id, packs_dir, api_url)
+        return pack_cache[pack_id]
+
+    credential_by_env_var: dict[str, dict] = {}
+    for _profile_id, pack_id in combos:
+        pack = _pack(pack_id)
+        if pack is None:
+            continue
+        credential = pack.get("audio", {}).get("source", {}).get("credential")
+        if credential:
+            credential_by_env_var.setdefault(credential["env_var"], credential)
+
+    unresolved_env_vars: set[str] = set()
+    for env_var, credential in credential_by_env_var.items():
+        if credentials.load_credential(env_var) is not None:
+            continue  # already set in the environment or saved from a prior run
+
+        typer.echo(credential["instructions"], err=True)
+        typer.echo(f"Sign up: {credential['signup_url']}", err=True)
+        value = questionary.password(
+            f"Paste your {env_var} (leave blank to skip these packs):"
+        ).ask()
+        if value is None:
+            return None  # Ctrl-C/abort — same convention as the rest of the wizard
+        value = value.strip()
+        if not value:
+            unresolved_env_vars.add(env_var)
+            continue
+
+        os.environ[env_var] = value  # _reexec's subprocess inherits this
+        credentials.save_credential(env_var, value)
+
+    if not unresolved_env_vars:
+        return combos
+
+    kept = []
+    for profile_id, pack_id in combos:
+        pack = _pack(pack_id) or {}
+        credential = pack.get("audio", {}).get("source", {}).get("credential")
+        if credential and credential["env_var"] in unresolved_env_vars:
+            typer.echo(
+                f"  {profile_id}  x  {pack_id} — skipping (no {credential['env_var']} credential provided)",
+                err=True,
+            )
+            continue
+        kept.append((profile_id, pack_id))
+    return kept
+
+
 def _preflight_engines(
     combos: list[tuple[str, str]], profiles_dir: str, api_url: str
 ) -> list[tuple[str, str]]:
@@ -454,6 +540,53 @@ def _wizard_engine_parameters(
     return expanded
 
 
+def _choose_packs_for_profile(
+    profile_id: str, matching_packs: list[dict], packs_dir: str, api_url: str
+) -> list[str] | None:
+    """Almost every profile has exactly one matching pack — the common
+    case returns immediately, no prompt, byte-identical to before this
+    existed. When more than one pack targets the same profile (e.g. an
+    ungated FLEURS pack and a gated Common-Voice variant both targeting
+    whisper-medium-nl-batch), ask which pack(s) to run for this cell
+    instead of silently taking the first match — a checkbox, not a single
+    pick, since running more than one pack for the same profile in one
+    batch is a reasonable thing to want. The first *ungated* pack comes
+    pre-checked (falling back to matching_packs[0] only if every match
+    needs a credential) — every profile that has ever had just one match
+    had an ungated one, so this is the actual old default, not just
+    matching_packs[0]: that's `_pack_rows`' local-dir listing order
+    (alphabetical), which is incidental and would otherwise silently
+    default to whichever pack's id happens to sort first — confirmed as a
+    real bug during manual testing, where an alphabetically-earlier gated
+    pack ended up pre-checked ahead of the ungated one it was supposed to
+    match. Returns None if the prompt itself is aborted (Ctrl-C) — same
+    convention as the rest of the wizard, propagated by the caller to bail
+    the whole run. Returns [] if every choice is unchecked — that's a
+    deliberate decline, not an abort: the caller drops this cell silently,
+    same continue-past-decline spirit as a declined credential or engine
+    prompt elsewhere in this preflight."""
+    if len(matching_packs) == 1:
+        return [matching_packs[0]["id"]]
+
+    pack_info = []
+    for pack_row in matching_packs:
+        pack_id = pack_row["id"]
+        full_pack = _load_pack_for_wizard(pack_id, packs_dir, api_url)
+        gated = bool((full_pack or {}).get("audio", {}).get("source", {}).get("credential"))
+        pack_info.append((pack_id, gated))
+
+    default_pack_id = next((pid for pid, gated in pack_info if not gated), pack_info[0][0])
+    choices = [
+        questionary.Choice(f"{pid} ({'gated' if gated else 'open'})", value=pid, checked=pid == default_pack_id)
+        for pid, gated in pack_info
+    ]
+
+    return questionary.checkbox(
+        f"Multiple packs match {profile_id!r} — pick one or more (space to toggle):",
+        choices=choices,
+    ).ask()
+
+
 def _wizard_run() -> None:
     """The wizard's sole run flow: a language x engine/size matrix picker
     (single cells, whole rows, or whole columns — one selection runs one
@@ -491,7 +624,14 @@ def _wizard_run() -> None:
         if not matching_packs:
             typer.echo(f"no packs found for {profile_id!r} — skipping", err=True)
             continue
-        combos.append((profile_id, matching_packs[0]["id"]))
+        chosen_pack_ids = _choose_packs_for_profile(profile_id, matching_packs, "packs", DEFAULT_API_URL)
+        if chosen_pack_ids is None:
+            return  # aborted the pack picker
+        combos.extend((profile_id, pack_id) for pack_id in chosen_pack_ids)
+    if not combos:
+        return
+
+    combos = _preflight_pack_credentials(combos, "packs", DEFAULT_API_URL)
     if not combos:
         return
 
@@ -733,7 +873,18 @@ def _resolve_pack_audio(
         f"(source type: {source['type']}) ...",
         err=True,
     )
-    fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
+    try:
+        fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
+    except GatedFetchAuthError as exc:
+        typer.echo(f"Auto-fetch failed — credential rejected: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:  # a bad/expired key or network
+        # failure here must report cleanly and fail just this combo, never
+        # surface as a raw traceback (ADR-0010) — mirrors the missing-clips
+        # branch below, which already fails this one combo without
+        # aborting the rest of the batch.
+        typer.echo(f"Auto-fetch failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     missing = wanted_names - fetched
     if missing:
         typer.echo(

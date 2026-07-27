@@ -30,3 +30,17 @@ def test_capture_environment_is_json_serializable():
     import json
 
     json.dumps(capture_environment())
+
+
+def test_capture_environment_never_contains_a_credential_value(monkeypatch):
+    """ADR-0010: a gated-pack credential must never leak into the
+    environment fingerprint (and therefore never into a signed result
+    document, which embeds this output verbatim) — capture_environment()
+    probes specific hardware fields, it must never dump os.environ."""
+    import json
+
+    monkeypatch.setenv("MDC_API_KEY", "super-secret-test-value-should-never-leak")
+
+    env = capture_environment()
+
+    assert "super-secret-test-value-should-never-leak" not in json.dumps(env)
