@@ -39,6 +39,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 PACK_DIR = ROOT / "packs" / "librispeech-en-batch"
+# Manifests built by this script always include audio_sha256 (per-clip
+# content hash) — a runner older than this doesn't check it and would
+# silently skip that guarantee, so packs authored from here on require it.
+MIN_RUNNER_VERSION = "0.5.0"
 LIBRISPEECH_URL = "https://www.openslr.org/resources/12/dev-clean.tar.gz"
 
 sys.path.insert(0, str(ROOT / "runner" / "src"))
@@ -129,6 +133,7 @@ def update_pack_yaml(manifest_path: Path, entries: list[dict], speaker: str, cha
             f"python scripts/fetch_librispeech_subset.py --speaker {speaker} --chapter {chapter}"
         ),
     }
+    pack["min_runner_version"] = MIN_RUNNER_VERSION
     pack["sha256"] = canonical_asset_sha256(pack)
 
     pack_path.write_text(

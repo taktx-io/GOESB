@@ -34,6 +34,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 FLEURS_BASE_URL = "https://huggingface.co/datasets/google/fleurs/resolve/main/data"
+# Manifests built by this script always include audio_sha256 (per-clip
+# content hash) — a runner older than this doesn't check it and would
+# silently skip that guarantee, so packs authored from here on require it.
+MIN_RUNNER_VERSION = "0.5.0"
 
 sys.path.insert(0, str(ROOT / "runner" / "src"))
 from oesb_runner.audio import wav_duration_s  # noqa: E402
@@ -120,6 +124,7 @@ def update_pack_yaml(
             f"--pack-dir {pack_dir.as_posix()}"
         ),
     }
+    pack["min_runner_version"] = MIN_RUNNER_VERSION
     pack["sha256"] = canonical_asset_sha256(pack)
 
     pack_path.write_text(yaml.safe_dump(pack, sort_keys=False, allow_unicode=True))

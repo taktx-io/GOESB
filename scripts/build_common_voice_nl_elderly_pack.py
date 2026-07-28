@@ -67,6 +67,11 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+# Manifests built by this script always include audio_sha256 (per-clip
+# content hash) — a runner older than this doesn't check it and would
+# silently skip that guarantee, so packs authored from here on require it.
+# (mozilla_data_collective already implies >=0.4.0; this supersedes it.)
+MIN_RUNNER_VERSION = "0.5.0"
 # Common Voice's own bucket order, oldest last — used to pick "the oldest
 # available bucket(s)" without assuming which ones actually have data for
 # any given language. Note "fourties", not "forties" — that's Common
@@ -278,6 +283,7 @@ def update_pack_yaml(
     pack.setdefault("metadata", {})
     pack["metadata"]["age_group"] = "+".join(age_buckets)
     pack["metadata"]["num_speakers"] = speaker_count
+    pack["min_runner_version"] = MIN_RUNNER_VERSION
     pack["sha256"] = canonical_asset_sha256(pack)
 
     pack_path.write_text(yaml.safe_dump(pack, sort_keys=False, allow_unicode=True))

@@ -14,6 +14,7 @@ from importlib import resources
 from typing import Any
 
 from jsonschema import Draft202012Validator
+from packaging.version import Version
 
 
 def load_schema(filename: str) -> dict[str, Any]:
@@ -38,3 +39,16 @@ def unrecognized_pack_source_type(pack_data: dict[str, Any]) -> str | None:
     schema = load_schema("benchmark-pack.schema.json")
     known = schema["properties"]["audio"]["properties"]["source"]["properties"]["type"]["enum"]
     return source_type if source_type not in known else None
+
+
+def unmet_min_runner_version(pack_data: dict[str, Any], installed_version: str) -> str | None:
+    """If `pack_data.min_runner_version` is set and `installed_version` is
+    older than it, return the required version — an explicit floor a pack
+    can declare (e.g. it relies on a manifest.jsonl field an older
+    `load_pack` doesn't know to check), independent of whether the pack.yaml
+    itself happens to validate against this runner's schema. `None` if the
+    field is absent or the installed version already satisfies it."""
+    required = pack_data.get("min_runner_version")
+    if required is None:
+        return None
+    return required if Version(installed_version) < Version(required) else None

@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 
 from oesb_runner.schema_validation import (
+    unmet_min_runner_version,
     unrecognized_pack_source_type,
     validate_against,
 )
@@ -104,6 +105,21 @@ def test_unrecognized_pack_source_type_accepts_known_type():
 def test_unrecognized_pack_source_type_handles_missing_source():
     assert unrecognized_pack_source_type({"id": "x"}) is None
     assert unrecognized_pack_source_type({"audio": {}}) is None
+
+
+def test_unmet_min_runner_version_flags_an_installed_version_that_is_too_old():
+    pack = {"min_runner_version": "0.5.0"}
+    assert unmet_min_runner_version(pack, "0.4.1") == "0.5.0"
+
+
+def test_unmet_min_runner_version_accepts_a_satisfying_installed_version():
+    pack = {"min_runner_version": "0.5.0"}
+    assert unmet_min_runner_version(pack, "0.5.0") is None
+    assert unmet_min_runner_version(pack, "1.0.0") is None
+
+
+def test_unmet_min_runner_version_handles_absent_field():
+    assert unmet_min_runner_version({"id": "x"}, "0.0.1") is None
 
 
 def test_result_schema_rejects_parameters_entry_missing_default():

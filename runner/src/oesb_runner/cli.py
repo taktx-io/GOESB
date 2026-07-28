@@ -63,7 +63,11 @@ from .metrics import energy as energy_metric
 from .normalization import normalize
 from .pack import load_pack
 from .remote import DEFAULT_API_URL, fetch_pack, fetch_profile
-from .schema_validation import unrecognized_pack_source_type, validate_against
+from .schema_validation import (
+    unmet_min_runner_version,
+    unrecognized_pack_source_type,
+    validate_against,
+)
 from .signing import (
     generate_ephemeral_keypair,
     public_key_bytes_for,
@@ -1464,6 +1468,14 @@ def run(
             raise typer.Exit(code=1) from exc
 
     pack_yaml = _load_yaml(pack_dir / "pack.yaml")
+    required_version = unmet_min_runner_version(pack_yaml, __version__)
+    if required_version is not None:
+        typer.echo(
+            f"pack {pack_id} requires goesb-runner >= {required_version}, this install "
+            f"is {__version__} — run `pip install --upgrade goesb-runner` and try again.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     pack_errors = validate_against(pack_yaml, "benchmark-pack.schema.json")
     if pack_errors:
         unknown_type = unrecognized_pack_source_type(pack_yaml)

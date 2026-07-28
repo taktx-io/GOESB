@@ -13,6 +13,8 @@
       "description": "Hash over the canonical pack contents. Immutable after publication." },
     "profile_id": { "type": "string", "description": "The profile this pack is scored against." },
     "visibility": { "enum": ["open", "community", "private"] },
+    "min_runner_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Lowest goesb-runner version that can correctly run this pack (e.g. one whose oesb_runner.pack.load_pack understands a manifest.jsonl field this pack relies on, like audio_sha256). Checked against the installed runner's own version before the pack is used; older installs get a clear upgrade message instead of silently skipping whatever guarantee they don't know about. Omitted means no floor beyond schema compatibility itself." },
     "license": { "type": "string", "description": "SPDX id or explicit terms; required for open/community." },
     "audio": {
       "type": "object",

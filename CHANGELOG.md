@@ -4,6 +4,8 @@ All notable changes to GOESB are documented here. Format loosely follows
 Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
+
+## [0.5.0] - 2026-07-28
 ### Added
 - **Per-clip audio integrity check.** `manifest.jsonl` entries may now
   declare an optional `audio_sha256` (content hash of the audio as
@@ -13,12 +15,21 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
   FLEURS, LibriSpeech) silently serving different bytes behind the same
   filename, which previously went undetected and would silently change
   what a run measured. Optional/backward-compatible: manifest entries
-  without it load exactly as before. `fetch_fleurs_subset.py`,
+  without it load exactly as before.
+- **`min_runner_version` pack field.** A pack can now declare the lowest
+  `goesb-runner` version able to run it correctly. Checked against the
+  installed runner's own version before anything else — an old install
+  gets a clear `pip install --upgrade goesb-runner` message instead of
+  either a raw schema error or, worse, silently running without a
+  guarantee it doesn't know to check (exactly what would otherwise happen
+  with the new `audio_sha256` field above, since `manifest.jsonl` has no
+  schema of its own to gate on). `fetch_fleurs_subset.py`,
   `fetch_librispeech_subset.py`, and `build_common_voice_nl_elderly_pack.py`
-  now emit it for every pack authored from here on; existing already-
-  published packs are untouched (retrofitting would change manifest.jsonl's
-  bytes, breaking its already-published, immutable manifest_sha256/sha256 —
-  a separate, larger migration, not done here).
+  now stamp `min_runner_version: 0.5.0` on every pack authored from here
+  on. Existing already-published packs get neither field — retrofitting
+  either would change `manifest.jsonl`/`pack.yaml`'s bytes, breaking their
+  already-published, immutable hashes; a separate, larger migration, not
+  done here.
 
 ## [0.4.1] - 2026-07-27
 ### Fixed
