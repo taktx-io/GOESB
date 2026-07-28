@@ -4,7 +4,14 @@ All notable changes to GOESB are documented here. Format loosely follows
 Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
+
+## [0.6.0] - 2026-07-28
 ### Added
+- **Bulk hardware catalog addition: 80 -> 985 entries.** 846 CPU (Intel
+  Core/Xeon + AMD Ryzen/EPYC, 2014-2026) + 59 GPU (AMD Radeon + Intel
+  Arc, 2019-2026). No runner/API code changes — the catalog is data,
+  already served by the existing `/hardware/catalog` endpoint and
+  wizard picker.
 - **ADR-0008 implemented: explicit compute backend.** `goesb run` gains
   `--backend` (`cpu`/`cuda`), defaulting to `cpu` and always passed
   explicitly to the underlying library (`device=` for faster-whisper,
