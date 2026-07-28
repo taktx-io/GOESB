@@ -1,0 +1,16 @@
+id: common-voice-de-batch
+version: 1.0.0
+profile_id: whisper-medium-de-batch
+visibility: open
+license: CC0-1.0
+metadata:
+  language: de-DE
+  recording_environment: crowd-sourced (variable, personal devices)
+  microphone: variable (crowd-sourced personal devices)
+  background_noise: variable
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - common-voice
+  - german
+  - gated
