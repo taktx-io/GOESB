@@ -90,28 +90,38 @@ def download_and_extract(dataset_id: str) -> Path:
     return extract_dir
 
 
-def find_validated_tsv(extract_dir: Path) -> Path:
-    candidates = list(extract_dir.rglob("validated.tsv"))
+def find_validated_tsv(extract_dir: Path, tsv_name: str) -> Path:
+    candidates = list(extract_dir.rglob(tsv_name))
     if not candidates:
         raise SystemExit(
-            f"no validated.tsv found under {extract_dir} — the MDC-hosted archive "
-            "layout may differ from the standard Common Voice release; inspect "
-            f"{extract_dir} by hand and adjust this script."
+            f"no {tsv_name} found under {extract_dir} — the MDC-hosted archive "
+            "layout may differ from what --tsv-name expects; inspect "
+            f"{extract_dir} by hand (ls it) and pass the right --tsv-name "
+            "(e.g. test.tsv/dev.tsv for an MDC-curated closed-form subset, "
+            "which splits train/dev/test instead of shipping one validated.tsv)."
         )
     return candidates[0]
 
 
-def read_validated_rows(tsv_path: Path) -> list[dict]:
-    # Common Voice's validated.tsv is plain tab-separated text with no
-    # quote-escaping convention of its own — QUOTE_NONE tells the csv
-    # module to treat `"` as a literal character rather than a field
-    # delimiter. Without it, a sentence containing an unmatched `"` (real
-    # example: Portuguese) makes the default QUOTE_MINIMAL dialect swallow
-    # the rest of the file into one field until it finds a closing quote,
-    # blowing past csv's 128KB field-size limit with a confusing error far
-    # from the actual cause.
+def read_validated_rows(tsv_path: Path, csv_quoted: bool) -> list[dict]:
+    # Two real shapes seen in practice, not interchangeable:
+    #   - Raw Common Voice validated.tsv: plain tab-separated text with no
+    #     quote-escaping convention of its own. QUOTE_NONE tells the csv
+    #     module to treat `"` as a literal character rather than a field
+    #     delimiter — without it, a sentence containing an unmatched `"`
+    #     (real example: Portuguese) makes the default QUOTE_MINIMAL dialect
+    #     swallow the rest of the file into one field until it finds a
+    #     closing quote, blowing past csv's 128KB field-size limit with a
+    #     confusing error far from the actual cause.
+    #   - MDC-curated closed-form subsets (e.g. American English Female/
+    #     Male): properly CSV-quote-escaped (a literal `"` inside a
+    #     sentence is doubled: `""`). QUOTE_NONE on one of these leaves the
+    #     surrounding quotes and doubled `""` baked into reference_text
+    #     verbatim — wrong transcript text, silently poisoning WER/CER for
+    #     every clip. Pass --csv-quoted for this shape.
+    quoting = csv.QUOTE_MINIMAL if csv_quoted else csv.QUOTE_NONE
     with tsv_path.open(newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f, delimiter="\t", quoting=csv.QUOTE_NONE))
+        return list(csv.DictReader(f, delimiter="\t", quoting=quoting))
 
 
 def clip_path_for(extract_dir: Path, row: dict, clip_suffix: str) -> Path:
@@ -255,12 +265,14 @@ def main() -> int:
     parser.add_argument("--audio-dir", type=Path, default=None, help="Defaults to <pack-dir>/audio.")
     parser.add_argument("--count", type=int, default=40, help="Number of validated clips to take (first N in validated.tsv order).")
     parser.add_argument("--clip-suffix", type=str, default="", help="Override clip file extension if the archive re-encodes clips (e.g. .wav).")
+    parser.add_argument("--tsv-name", type=str, default="validated.tsv", help="TSV filename to read within the extracted archive. Raw Common Voice releases ship validated.tsv (the default); MDC-curated closed-form subsets split train/dev/test instead — use test.tsv for those.")
+    parser.add_argument("--csv-quoted", action="store_true", help="Pass this if the TSV uses proper CSV quote-escaping (a literal \" doubled as \"\" inside a field) — true for MDC-curated closed-form subsets. Omit for raw Common Voice validated.tsv, which isn't quote-escaped at all.")
     parser.add_argument("--dry-run", action="store_true", help="Stop after reporting the row count — no manifest/pack.yaml written.")
     args = parser.parse_args()
 
     extract_dir = download_and_extract(args.dataset_id)
-    tsv_path = find_validated_tsv(extract_dir)
-    rows = read_validated_rows(tsv_path)
+    tsv_path = find_validated_tsv(extract_dir, args.tsv_name)
+    rows = read_validated_rows(tsv_path, args.csv_quoted)
     locale_rows = [r for r in rows if r.get("locale", args.locale) == args.locale]
     print(f"{len(locale_rows)} validated {args.locale!r} clips available.", file=sys.stderr)
 
