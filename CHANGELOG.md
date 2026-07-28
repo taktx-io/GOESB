@@ -5,6 +5,16 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-27
+### Fixed
+- **Clearer error for a pack this runner predates.** A pack whose
+  `audio.source.type` isn't in this runner's bundled schema (e.g. a pack
+  using `mozilla_data_collective` fetched by a pre-0.4.0 install) used to
+  fail with a raw jsonschema enum-mismatch message. Now names the specific
+  unrecognized type and points at `pip install --upgrade goesb-runner`.
+  Only helps installs made from this version onward — doesn't retroactively
+  fix already-installed runners, which still need to upgrade to see it.
+
 ## [0.4.0] - 2026-07-27
 ### Added
 - **Gated-pack credential handling (ADR-0010).** Some high-value corpora
