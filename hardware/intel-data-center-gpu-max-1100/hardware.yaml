@@ -1,0 +1,6 @@
+id: intel-data-center-gpu-max-1100
+display_name: Intel Data Center GPU Max 1100
+vendor: Intel
+category: gpu
+vram_gb: 48
+release_year: 2023

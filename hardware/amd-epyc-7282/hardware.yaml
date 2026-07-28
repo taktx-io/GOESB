@@ -1,0 +1,9 @@
+id: amd-epyc-7282
+display_name: AMD EPYC 7282
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 2.8
+max_clock_ghz: 3.2
+release_year: 2019

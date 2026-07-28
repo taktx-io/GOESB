@@ -1,0 +1,9 @@
+id: intel-core-i5-1335u
+display_name: Intel Core i5-1335U
+vendor: Intel
+category: cpu
+cores: 10
+threads: 12
+base_clock_ghz: 1.3
+max_clock_ghz: 4.6
+release_year: 2023

@@ -1,0 +1,9 @@
+id: amd-ryzen-9-9900x
+display_name: AMD Ryzen 9 9900X
+vendor: AMD
+category: cpu
+cores: 12
+threads: 24
+base_clock_ghz: 4.4
+max_clock_ghz: 5.6
+release_year: 2024

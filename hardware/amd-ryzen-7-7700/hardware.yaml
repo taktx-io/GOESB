@@ -1,0 +1,9 @@
+id: amd-ryzen-7-7700
+display_name: AMD Ryzen 7 7700
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 3.8
+max_clock_ghz: 5.3
+release_year: 2023

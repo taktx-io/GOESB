@@ -1,0 +1,9 @@
+id: intel-core-i3-8130u
+display_name: Intel Core i3-8130U
+vendor: Intel
+category: cpu
+cores: 2
+threads: 4
+base_clock_ghz: 2.2
+max_clock_ghz: 3.4
+release_year: 2017

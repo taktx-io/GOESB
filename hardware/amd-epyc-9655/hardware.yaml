@@ -1,0 +1,8 @@
+id: amd-epyc-9655
+display_name: AMD EPYC 9655
+vendor: AMD
+category: cpu
+cores: 96
+threads: 192
+base_clock_ghz: 2.6
+release_year: 2024

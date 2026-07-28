@@ -1,0 +1,9 @@
+id: amd-epyc-7552
+display_name: AMD EPYC 7552
+vendor: AMD
+category: cpu
+cores: 48
+threads: 96
+base_clock_ghz: 2.2
+max_clock_ghz: 3.3
+release_year: 2019

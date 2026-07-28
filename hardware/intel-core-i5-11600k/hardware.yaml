@@ -1,0 +1,9 @@
+id: intel-core-i5-11600k
+display_name: Intel Core i5-11600K
+vendor: Intel
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.9
+max_clock_ghz: 4.9
+release_year: 2021

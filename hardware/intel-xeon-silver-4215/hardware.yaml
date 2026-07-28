@@ -1,0 +1,9 @@
+id: intel-xeon-silver-4215
+display_name: Intel Xeon Silver 4215
+vendor: Intel
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.5
+max_clock_ghz: 3.5
+release_year: 2019

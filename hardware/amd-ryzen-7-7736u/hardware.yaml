@@ -1,0 +1,10 @@
+id: amd-ryzen-7-7736u
+display_name: AMD Ryzen 7 7736U
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.7
+max_clock_ghz: 4.75
+release_year: 2023
+notes: Chromebook-focused SKU

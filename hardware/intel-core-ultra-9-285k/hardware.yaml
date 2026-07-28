@@ -1,0 +1,9 @@
+id: intel-core-ultra-9-285k
+display_name: Intel Core Ultra 9 285K
+vendor: Intel
+category: cpu
+cores: 24
+threads: 24
+base_clock_ghz: 3.7
+max_clock_ghz: 5.7
+release_year: 2024

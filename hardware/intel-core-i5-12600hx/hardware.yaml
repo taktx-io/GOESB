@@ -1,0 +1,9 @@
+id: intel-core-i5-12600hx
+display_name: Intel Core i5-12600HX
+vendor: Intel
+category: cpu
+cores: 12
+threads: 16
+base_clock_ghz: 2.5
+max_clock_ghz: 4.6
+release_year: 2022

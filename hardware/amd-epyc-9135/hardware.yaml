@@ -1,0 +1,8 @@
+id: amd-epyc-9135
+display_name: AMD EPYC 9135
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 3.6
+release_year: 2024

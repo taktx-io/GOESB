@@ -1,0 +1,7 @@
+id: amd-ryzen-7-pro-9745
+display_name: AMD Ryzen 7 PRO 9745
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+release_year: 2025

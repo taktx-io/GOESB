@@ -1,0 +1,9 @@
+id: intel-core-ultra-5-135h
+display_name: Intel Core Ultra 5 135H
+vendor: Intel
+category: cpu
+cores: 14
+threads: 18
+base_clock_ghz: 1.7
+max_clock_ghz: 4.6
+release_year: 2023

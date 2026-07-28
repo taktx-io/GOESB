@@ -1,0 +1,6 @@
+id: amd-radeon-rx-9060
+display_name: AMD Radeon RX 9060
+vendor: AMD
+category: gpu
+vram_gb: 8
+release_year: 2025

@@ -1,0 +1,9 @@
+id: amd-ryzen-5-5600ge
+display_name: AMD Ryzen 5 5600GE
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.4
+max_clock_ghz: 4.4
+release_year: 2021

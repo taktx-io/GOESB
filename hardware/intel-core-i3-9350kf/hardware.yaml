@@ -1,0 +1,9 @@
+id: intel-core-i3-9350kf
+display_name: Intel Core i3-9350KF
+vendor: Intel
+category: cpu
+cores: 4
+threads: 4
+base_clock_ghz: 4.0
+max_clock_ghz: 4.6
+release_year: 2019

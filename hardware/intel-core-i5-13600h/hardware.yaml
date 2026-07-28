@@ -1,0 +1,9 @@
+id: intel-core-i5-13600h
+display_name: Intel Core i5-13600H
+vendor: Intel
+category: cpu
+cores: 12
+threads: 16
+base_clock_ghz: 2.8
+max_clock_ghz: 4.8
+release_year: 2023

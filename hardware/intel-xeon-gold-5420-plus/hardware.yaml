@@ -1,0 +1,8 @@
+id: intel-xeon-gold-5420-plus
+display_name: Intel Xeon Gold 5420+
+vendor: Intel
+category: cpu
+cores: 28
+threads: 56
+base_clock_ghz: 2.0
+release_year: 2023

@@ -1,0 +1,9 @@
+id: intel-core-i9-13980hx
+display_name: Intel Core i9-13980HX
+vendor: Intel
+category: cpu
+cores: 24
+threads: 32
+base_clock_ghz: 2.2
+max_clock_ghz: 5.6
+release_year: 2023

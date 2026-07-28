@@ -1,0 +1,9 @@
+id: intel-xeon-gold-5120
+display_name: Intel Xeon Gold 5120
+vendor: Intel
+category: cpu
+cores: 14
+threads: 28
+base_clock_ghz: 2.2
+max_clock_ghz: 3.2
+release_year: 2017

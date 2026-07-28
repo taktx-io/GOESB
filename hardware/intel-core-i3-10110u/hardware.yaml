@@ -1,0 +1,9 @@
+id: intel-core-i3-10110u
+display_name: Intel Core i3-10110U
+vendor: Intel
+category: cpu
+cores: 2
+threads: 4
+base_clock_ghz: 2.1
+max_clock_ghz: 4.1
+release_year: 2019

@@ -1,0 +1,9 @@
+id: amd-epyc-7551
+display_name: AMD EPYC 7551
+vendor: AMD
+category: cpu
+cores: 32
+threads: 64
+base_clock_ghz: 2.0
+max_clock_ghz: 3.0
+release_year: 2017

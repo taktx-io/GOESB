@@ -1,0 +1,10 @@
+id: amd-ryzen-5-5600x3d
+display_name: AMD Ryzen 5 5600X3D
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.3
+max_clock_ghz: 4.4
+release_year: 2022
+notes: Micro Center exclusive

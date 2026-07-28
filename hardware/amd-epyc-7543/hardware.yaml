@@ -1,0 +1,9 @@
+id: amd-epyc-7543
+display_name: AMD EPYC 7543
+vendor: AMD
+category: cpu
+cores: 32
+threads: 64
+base_clock_ghz: 2.8
+max_clock_ghz: 3.7
+release_year: 2021

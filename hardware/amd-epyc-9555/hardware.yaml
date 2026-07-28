@@ -1,0 +1,9 @@
+id: amd-epyc-9555
+display_name: AMD EPYC 9555
+vendor: AMD
+category: cpu
+cores: 64
+threads: 128
+base_clock_ghz: 3.2
+max_clock_ghz: 4.4
+release_year: 2024

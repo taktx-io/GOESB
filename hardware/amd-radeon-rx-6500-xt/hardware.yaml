@@ -1,0 +1,6 @@
+id: amd-radeon-rx-6500-xt
+display_name: AMD Radeon RX 6500 XT
+vendor: AMD
+category: gpu
+vram_gb: 4
+release_year: 2022

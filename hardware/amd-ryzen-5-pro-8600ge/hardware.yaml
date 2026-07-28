@@ -1,0 +1,9 @@
+id: amd-ryzen-5-pro-8600ge
+display_name: AMD Ryzen 5 PRO 8600GE
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.9
+max_clock_ghz: 5.0
+release_year: 2024

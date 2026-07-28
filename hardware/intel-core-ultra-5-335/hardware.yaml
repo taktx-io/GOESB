@@ -1,0 +1,8 @@
+id: intel-core-ultra-5-335
+display_name: Intel Core Ultra 5 335
+vendor: Intel
+category: cpu
+cores: 8
+threads: 12
+max_clock_ghz: 4.6
+release_year: 2026

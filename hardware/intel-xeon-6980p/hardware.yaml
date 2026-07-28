@@ -1,0 +1,8 @@
+id: intel-xeon-6980p
+display_name: Intel Xeon 6980P
+vendor: Intel
+category: cpu
+cores: 128
+threads: 256
+base_clock_ghz: 2.0
+release_year: 2024

@@ -1,0 +1,9 @@
+id: amd-epyc-8224p
+display_name: AMD EPYC 8224P
+vendor: AMD
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.55
+max_clock_ghz: 3.7
+release_year: 2023

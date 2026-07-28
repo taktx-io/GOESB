@@ -1,0 +1,9 @@
+id: amd-ryzen-3-7320u
+display_name: AMD Ryzen 3 7320U
+vendor: AMD
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 2.4
+max_clock_ghz: 4.1
+release_year: 2023

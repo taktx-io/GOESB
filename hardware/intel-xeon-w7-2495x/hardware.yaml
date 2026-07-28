@@ -1,0 +1,9 @@
+id: intel-xeon-w7-2495x
+display_name: Intel Xeon w7-2495X
+vendor: Intel
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.5
+max_clock_ghz: 4.8
+release_year: 2023

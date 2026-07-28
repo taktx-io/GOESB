@@ -1,0 +1,8 @@
+id: intel-core-ultra-9-288v
+display_name: Intel Core Ultra 9 288V
+vendor: Intel
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 5.1
+release_year: 2024

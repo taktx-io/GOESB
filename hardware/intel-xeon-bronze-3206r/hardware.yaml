@@ -1,0 +1,8 @@
+id: intel-xeon-bronze-3206r
+display_name: Intel Xeon Bronze 3206R
+vendor: Intel
+category: cpu
+cores: 8
+threads: 8
+base_clock_ghz: 1.9
+release_year: 2019

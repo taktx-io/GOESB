@@ -1,0 +1,8 @@
+id: intel-core-ultra-7-265hx
+display_name: Intel Core Ultra 7 265HX
+vendor: Intel
+category: cpu
+cores: 20
+threads: 20
+max_clock_ghz: 5.3
+release_year: 2025

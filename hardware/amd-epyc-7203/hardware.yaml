@@ -1,0 +1,9 @@
+id: amd-epyc-7203
+display_name: AMD EPYC 7203
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.8
+max_clock_ghz: 3.5
+release_year: 2021

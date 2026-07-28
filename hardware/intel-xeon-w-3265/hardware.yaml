@@ -1,0 +1,9 @@
+id: intel-xeon-w-3265
+display_name: Intel Xeon W-3265
+vendor: Intel
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.7
+max_clock_ghz: 4.4
+release_year: 2019

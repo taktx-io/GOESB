@@ -1,0 +1,8 @@
+id: amd-ryzen-ai-9-465
+display_name: AMD Ryzen AI 9 465
+vendor: AMD
+category: cpu
+cores: 10
+threads: 20
+max_clock_ghz: 5.0
+release_year: 2026

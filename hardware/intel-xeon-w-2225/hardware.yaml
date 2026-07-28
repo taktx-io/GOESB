@@ -1,0 +1,9 @@
+id: intel-xeon-w-2225
+display_name: Intel Xeon W-2225
+vendor: Intel
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 4.1
+max_clock_ghz: 4.6
+release_year: 2019

@@ -1,0 +1,9 @@
+id: intel-core-i5-10500t
+display_name: Intel Core i5-10500T
+vendor: Intel
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 2.3
+max_clock_ghz: 3.8
+release_year: 2020

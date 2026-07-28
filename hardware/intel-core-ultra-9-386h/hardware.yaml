@@ -1,0 +1,8 @@
+id: intel-core-ultra-9-386h
+display_name: Intel Core Ultra 9 386H
+vendor: Intel
+category: cpu
+cores: 16
+threads: 20
+max_clock_ghz: 4.9
+release_year: 2026

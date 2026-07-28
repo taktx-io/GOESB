@@ -1,0 +1,8 @@
+id: intel-xeon-6952p
+display_name: Intel Xeon 6952P
+vendor: Intel
+category: cpu
+cores: 96
+threads: 192
+base_clock_ghz: 2.1
+release_year: 2024

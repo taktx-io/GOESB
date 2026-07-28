@@ -1,0 +1,9 @@
+id: intel-core-i9-10900t
+display_name: Intel Core i9-10900T
+vendor: Intel
+category: cpu
+cores: 10
+threads: 20
+base_clock_ghz: 1.9
+max_clock_ghz: 4.5
+release_year: 2020

@@ -1,0 +1,10 @@
+id: amd-ryzen-3-3250u
+display_name: AMD Ryzen 3 3250U
+vendor: AMD
+category: cpu
+cores: 2
+threads: 4
+base_clock_ghz: 2.6
+max_clock_ghz: 3.5
+release_year: 2020
+notes: Dali silicon (budget Zen)

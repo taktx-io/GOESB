@@ -1,0 +1,9 @@
+id: intel-core-i9-12900t
+display_name: Intel Core i9-12900T
+vendor: Intel
+category: cpu
+cores: 16
+threads: 24
+base_clock_ghz: 1.4
+max_clock_ghz: 4.9
+release_year: 2022

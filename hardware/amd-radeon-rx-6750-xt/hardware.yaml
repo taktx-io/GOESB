@@ -1,0 +1,6 @@
+id: amd-radeon-rx-6750-xt
+display_name: AMD Radeon RX 6750 XT
+vendor: AMD
+category: gpu
+vram_gb: 12
+release_year: 2022

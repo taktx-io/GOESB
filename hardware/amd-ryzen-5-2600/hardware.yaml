@@ -1,0 +1,9 @@
+id: amd-ryzen-5-2600
+display_name: AMD Ryzen 5 2600
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.4
+max_clock_ghz: 3.9
+release_year: 2018

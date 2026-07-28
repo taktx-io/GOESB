@@ -1,0 +1,6 @@
+id: amd-radeon-pro-w6600
+display_name: AMD Radeon PRO W6600
+vendor: AMD
+category: gpu
+vram_gb: 8
+release_year: 2021

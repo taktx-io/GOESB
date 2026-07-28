@@ -1,0 +1,8 @@
+id: amd-ryzen-ai-5-435
+display_name: AMD Ryzen AI 5 435
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+max_clock_ghz: 4.6
+release_year: 2026

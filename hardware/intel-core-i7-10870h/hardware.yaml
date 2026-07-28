@@ -1,0 +1,9 @@
+id: intel-core-i7-10870h
+display_name: Intel Core i7-10870H
+vendor: Intel
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.2
+max_clock_ghz: 5.0
+release_year: 2020

@@ -1,0 +1,9 @@
+id: intel-xeon-platinum-8280
+display_name: Intel Xeon Platinum 8280
+vendor: Intel
+category: cpu
+cores: 28
+threads: 56
+base_clock_ghz: 2.7
+max_clock_ghz: 4.0
+release_year: 2019

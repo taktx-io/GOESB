@@ -1,0 +1,6 @@
+id: intel-arc-pro-a50
+display_name: Intel Arc Pro A50
+vendor: Intel
+category: gpu
+vram_gb: 6
+release_year: 2023

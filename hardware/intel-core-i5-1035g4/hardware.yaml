@@ -1,0 +1,9 @@
+id: intel-core-i5-1035g4
+display_name: Intel Core i5-1035G4
+vendor: Intel
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 1.1
+max_clock_ghz: 3.7
+release_year: 2019

@@ -1,0 +1,9 @@
+id: intel-xeon-w9-3475x
+display_name: Intel Xeon w9-3475X
+vendor: Intel
+category: cpu
+cores: 36
+threads: 72
+base_clock_ghz: 2.2
+max_clock_ghz: 4.8
+release_year: 2023

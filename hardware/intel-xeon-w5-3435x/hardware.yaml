@@ -1,0 +1,9 @@
+id: intel-xeon-w5-3435x
+display_name: Intel Xeon w5-3435X
+vendor: Intel
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 3.1
+max_clock_ghz: 4.7
+release_year: 2023

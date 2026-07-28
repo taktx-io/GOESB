@@ -1,0 +1,9 @@
+id: intel-xeon-w9-3495x
+display_name: Intel Xeon w9-3495X
+vendor: Intel
+category: cpu
+cores: 56
+threads: 112
+base_clock_ghz: 1.9
+max_clock_ghz: 4.8
+release_year: 2023

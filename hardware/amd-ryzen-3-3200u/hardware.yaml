@@ -1,0 +1,10 @@
+id: amd-ryzen-3-3200u
+display_name: AMD Ryzen 3 3200U
+vendor: AMD
+category: cpu
+cores: 2
+threads: 4
+base_clock_ghz: 2.6
+max_clock_ghz: 3.5
+release_year: 2019
+notes: Dali silicon (budget Zen), distinct from the Picasso-based 3300U

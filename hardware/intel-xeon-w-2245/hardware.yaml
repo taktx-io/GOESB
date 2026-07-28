@@ -1,0 +1,9 @@
+id: intel-xeon-w-2245
+display_name: Intel Xeon W-2245
+vendor: Intel
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 3.9
+max_clock_ghz: 4.7
+release_year: 2019

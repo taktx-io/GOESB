@@ -1,0 +1,9 @@
+id: amd-ryzen-ai-7-350
+display_name: AMD Ryzen AI 7 350
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.0
+max_clock_ghz: 5.0
+release_year: 2024

@@ -1,0 +1,9 @@
+id: amd-ryzen-7-5800hs
+display_name: AMD Ryzen 7 5800HS
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.8
+max_clock_ghz: 4.4
+release_year: 2021

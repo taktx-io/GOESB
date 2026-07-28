@@ -1,0 +1,9 @@
+id: amd-epyc-9274f
+display_name: AMD EPYC 9274F
+vendor: AMD
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 4.05
+max_clock_ghz: 4.3
+release_year: 2022

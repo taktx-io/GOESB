@@ -1,0 +1,9 @@
+id: intel-xeon-silver-4216
+display_name: Intel Xeon Silver 4216
+vendor: Intel
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 2.1
+max_clock_ghz: 3.2
+release_year: 2019

@@ -1,0 +1,6 @@
+id: amd-radeon-rx-7600
+display_name: AMD Radeon RX 7600
+vendor: AMD
+category: gpu
+vram_gb: 8
+release_year: 2023

@@ -1,0 +1,7 @@
+id: amd-radeon-rx-6700
+display_name: AMD Radeon RX 6700
+vendor: AMD
+category: gpu
+vram_gb: 10
+release_year: 2022
+notes: China-market exclusive SKU

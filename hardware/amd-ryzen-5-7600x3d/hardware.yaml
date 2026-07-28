@@ -1,0 +1,10 @@
+id: amd-ryzen-5-7600x3d
+display_name: AMD Ryzen 5 7600X3D
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 4.1
+max_clock_ghz: 4.7
+release_year: 2024
+notes: Micro Center exclusive

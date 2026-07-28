@@ -1,0 +1,9 @@
+id: amd-epyc-7643
+display_name: AMD EPYC 7643
+vendor: AMD
+category: cpu
+cores: 48
+threads: 96
+base_clock_ghz: 2.3
+max_clock_ghz: 3.6
+release_year: 2021

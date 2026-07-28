@@ -1,0 +1,9 @@
+id: amd-epyc-7502
+display_name: AMD EPYC 7502
+vendor: AMD
+category: cpu
+cores: 32
+threads: 64
+base_clock_ghz: 2.5
+max_clock_ghz: 3.35
+release_year: 2019

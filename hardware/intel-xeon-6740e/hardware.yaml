@@ -1,0 +1,8 @@
+id: intel-xeon-6740e
+display_name: Intel Xeon 6740E
+vendor: Intel
+category: cpu
+cores: 96
+threads: 96
+base_clock_ghz: 2.4
+release_year: 2024

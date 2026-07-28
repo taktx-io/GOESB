@@ -1,0 +1,9 @@
+id: amd-ryzen-7-7745hx
+display_name: AMD Ryzen 7 7745HX
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 3.6
+max_clock_ghz: 5.1
+release_year: 2023

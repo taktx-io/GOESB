@@ -1,0 +1,8 @@
+id: amd-epyc-9455
+display_name: AMD EPYC 9455
+vendor: AMD
+category: cpu
+cores: 48
+threads: 96
+base_clock_ghz: 3.15
+release_year: 2024

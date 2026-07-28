@@ -1,0 +1,9 @@
+id: amd-epyc-7443
+display_name: AMD EPYC 7443
+vendor: AMD
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.85
+max_clock_ghz: 4.0
+release_year: 2021

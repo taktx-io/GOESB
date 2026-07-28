@@ -1,0 +1,6 @@
+id: amd-instinct-mi300x
+display_name: AMD Instinct MI300X
+vendor: AMD
+category: gpu
+vram_gb: 192
+release_year: 2023

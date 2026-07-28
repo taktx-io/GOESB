@@ -1,0 +1,8 @@
+id: intel-core-ultra-5-225h
+display_name: Intel Core Ultra 5 225H
+vendor: Intel
+category: cpu
+cores: 16
+threads: 16
+max_clock_ghz: 4.8
+release_year: 2025

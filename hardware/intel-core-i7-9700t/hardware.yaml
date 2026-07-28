@@ -1,0 +1,9 @@
+id: intel-core-i7-9700t
+display_name: Intel Core i7-9700T
+vendor: Intel
+category: cpu
+cores: 8
+threads: 8
+base_clock_ghz: 2.0
+max_clock_ghz: 4.3
+release_year: 2019

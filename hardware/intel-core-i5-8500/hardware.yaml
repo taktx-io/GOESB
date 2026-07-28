@@ -1,0 +1,9 @@
+id: intel-core-i5-8500
+display_name: Intel Core i5-8500
+vendor: Intel
+category: cpu
+cores: 6
+threads: 6
+base_clock_ghz: 3.0
+max_clock_ghz: 4.1
+release_year: 2018

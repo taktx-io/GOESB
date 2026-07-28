@@ -1,0 +1,6 @@
+id: amd-radeon-rx-5600-xt
+display_name: AMD Radeon RX 5600 XT
+vendor: AMD
+category: gpu
+vram_gb: 6
+release_year: 2020

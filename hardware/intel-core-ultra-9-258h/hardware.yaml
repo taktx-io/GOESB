@@ -1,0 +1,8 @@
+id: intel-core-ultra-9-258h
+display_name: Intel Core Ultra 9 258H
+vendor: Intel
+category: cpu
+cores: 16
+threads: 16
+max_clock_ghz: 5.4
+release_year: 2025

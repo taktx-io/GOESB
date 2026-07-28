@@ -1,0 +1,9 @@
+id: amd-ryzen-5-1600
+display_name: AMD Ryzen 5 1600
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.2
+max_clock_ghz: 3.6
+release_year: 2017

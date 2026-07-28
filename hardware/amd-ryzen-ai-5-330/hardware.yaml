@@ -1,0 +1,9 @@
+id: amd-ryzen-ai-5-330
+display_name: AMD Ryzen AI 5 330
+vendor: AMD
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 2.0
+max_clock_ghz: 4.6
+release_year: 2025

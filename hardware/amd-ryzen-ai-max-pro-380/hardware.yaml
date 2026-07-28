@@ -1,0 +1,9 @@
+id: amd-ryzen-ai-max-pro-380
+display_name: AMD Ryzen AI Max PRO 380
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.6
+max_clock_ghz: 4.9
+release_year: 2025

@@ -1,0 +1,8 @@
+id: intel-xeon-w5-3423
+display_name: Intel Xeon w5-3423
+vendor: Intel
+category: cpu
+cores: 12
+threads: 24
+base_clock_ghz: 2.1
+release_year: 2023

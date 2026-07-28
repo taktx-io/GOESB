@@ -1,0 +1,9 @@
+id: intel-xeon-gold-6238r
+display_name: Intel Xeon Gold 6238R
+vendor: Intel
+category: cpu
+cores: 28
+threads: 56
+base_clock_ghz: 2.2
+max_clock_ghz: 4.0
+release_year: 2020

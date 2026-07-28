@@ -1,0 +1,6 @@
+id: intel-arc-a770-8gb
+display_name: Intel Arc A770 8GB
+vendor: Intel
+category: gpu
+vram_gb: 8
+release_year: 2022

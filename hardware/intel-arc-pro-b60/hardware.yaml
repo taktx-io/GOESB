@@ -1,0 +1,6 @@
+id: intel-arc-pro-b60
+display_name: Intel Arc Pro B60
+vendor: Intel
+category: gpu
+vram_gb: 24
+release_year: 2025

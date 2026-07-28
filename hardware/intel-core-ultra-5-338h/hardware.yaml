@@ -1,0 +1,8 @@
+id: intel-core-ultra-5-338h
+display_name: Intel Core Ultra 5 338H
+vendor: Intel
+category: cpu
+cores: 12
+threads: 16
+max_clock_ghz: 4.7
+release_year: 2026

@@ -1,0 +1,9 @@
+id: intel-xeon-w-2195
+display_name: Intel Xeon W-2195
+vendor: Intel
+category: cpu
+cores: 18
+threads: 36
+base_clock_ghz: 2.3
+max_clock_ghz: 4.3
+release_year: 2017

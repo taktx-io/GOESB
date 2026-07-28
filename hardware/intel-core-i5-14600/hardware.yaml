@@ -1,0 +1,9 @@
+id: intel-core-i5-14600
+display_name: Intel Core i5-14600
+vendor: Intel
+category: cpu
+cores: 14
+threads: 20
+base_clock_ghz: 2.7
+max_clock_ghz: 5.2
+release_year: 2024

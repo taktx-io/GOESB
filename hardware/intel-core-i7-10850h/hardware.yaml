@@ -1,0 +1,9 @@
+id: intel-core-i7-10850h
+display_name: Intel Core i7-10850H
+vendor: Intel
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 2.7
+max_clock_ghz: 5.1
+release_year: 2020

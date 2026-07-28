@@ -1,0 +1,9 @@
+id: intel-xeon-gold-6128
+display_name: Intel Xeon Gold 6128
+vendor: Intel
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.4
+max_clock_ghz: 3.7
+release_year: 2017

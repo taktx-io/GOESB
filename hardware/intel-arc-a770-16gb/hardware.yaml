@@ -1,0 +1,6 @@
+id: intel-arc-a770-16gb
+display_name: Intel Arc A770 16GB
+vendor: Intel
+category: gpu
+vram_gb: 16
+release_year: 2022

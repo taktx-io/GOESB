@@ -1,0 +1,6 @@
+id: amd-radeon-rx-7600-xt
+display_name: AMD Radeon RX 7600 XT
+vendor: AMD
+category: gpu
+vram_gb: 16
+release_year: 2024

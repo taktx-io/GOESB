@@ -1,0 +1,9 @@
+id: intel-xeon-platinum-8360y
+display_name: Intel Xeon Platinum 8360Y
+vendor: Intel
+category: cpu
+cores: 36
+threads: 72
+base_clock_ghz: 2.4
+max_clock_ghz: 3.5
+release_year: 2021

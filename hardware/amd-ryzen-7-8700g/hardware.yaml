@@ -1,0 +1,9 @@
+id: amd-ryzen-7-8700g
+display_name: AMD Ryzen 7 8700G
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 4.2
+max_clock_ghz: 5.1
+release_year: 2024

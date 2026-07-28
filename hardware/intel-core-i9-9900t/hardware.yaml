@@ -1,0 +1,9 @@
+id: intel-core-i9-9900t
+display_name: Intel Core i9-9900T
+vendor: Intel
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.1
+max_clock_ghz: 4.4
+release_year: 2019

@@ -1,0 +1,8 @@
+id: amd-epyc-9365
+display_name: AMD EPYC 9365
+vendor: AMD
+category: cpu
+cores: 36
+threads: 72
+base_clock_ghz: 3.3
+release_year: 2024

@@ -1,0 +1,9 @@
+id: amd-ryzen-7-9700x3d
+display_name: AMD Ryzen 7 9700X3D
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 4.5
+max_clock_ghz: 5.0
+release_year: 2025

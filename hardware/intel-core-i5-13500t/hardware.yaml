@@ -1,0 +1,9 @@
+id: intel-core-i5-13500t
+display_name: Intel Core i5-13500T
+vendor: Intel
+category: cpu
+cores: 14
+threads: 20
+base_clock_ghz: 1.6
+max_clock_ghz: 4.6
+release_year: 2023

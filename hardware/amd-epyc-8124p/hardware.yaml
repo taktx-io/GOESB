@@ -1,0 +1,9 @@
+id: amd-epyc-8124p
+display_name: AMD EPYC 8124P
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 2.45
+max_clock_ghz: 3.7
+release_year: 2023

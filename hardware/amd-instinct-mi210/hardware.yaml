@@ -1,0 +1,6 @@
+id: amd-instinct-mi210
+display_name: AMD Instinct MI210
+vendor: AMD
+category: gpu
+vram_gb: 64
+release_year: 2022

@@ -1,0 +1,9 @@
+id: amd-epyc-7453
+display_name: AMD EPYC 7453
+vendor: AMD
+category: cpu
+cores: 28
+threads: 56
+base_clock_ghz: 2.75
+max_clock_ghz: 3.45
+release_year: 2021

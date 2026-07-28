@@ -1,0 +1,8 @@
+id: intel-xeon-6780e
+display_name: Intel Xeon 6780E
+vendor: Intel
+category: cpu
+cores: 144
+threads: 144
+base_clock_ghz: 2.2
+release_year: 2024

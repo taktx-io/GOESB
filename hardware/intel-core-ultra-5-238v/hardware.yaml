@@ -1,0 +1,8 @@
+id: intel-core-ultra-5-238v
+display_name: Intel Core Ultra 5 238V
+vendor: Intel
+category: cpu
+cores: 8
+threads: 8
+max_clock_ghz: 4.7
+release_year: 2024

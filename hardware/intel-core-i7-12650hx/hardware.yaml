@@ -1,0 +1,9 @@
+id: intel-core-i7-12650hx
+display_name: Intel Core i7-12650HX
+vendor: Intel
+category: cpu
+cores: 14
+threads: 20
+base_clock_ghz: 2.1
+max_clock_ghz: 4.7
+release_year: 2022

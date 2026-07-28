@@ -1,0 +1,6 @@
+id: amd-radeon-rx-6800
+display_name: AMD Radeon RX 6800
+vendor: AMD
+category: gpu
+vram_gb: 16
+release_year: 2020

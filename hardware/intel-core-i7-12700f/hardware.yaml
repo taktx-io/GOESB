@@ -1,0 +1,9 @@
+id: intel-core-i7-12700f
+display_name: Intel Core i7-12700F
+vendor: Intel
+category: cpu
+cores: 12
+threads: 20
+base_clock_ghz: 2.1
+max_clock_ghz: 4.9
+release_year: 2022

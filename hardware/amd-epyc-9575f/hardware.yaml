@@ -1,0 +1,9 @@
+id: amd-epyc-9575f
+display_name: AMD EPYC 9575F
+vendor: AMD
+category: cpu
+cores: 64
+threads: 128
+base_clock_ghz: 3.3
+max_clock_ghz: 5.0
+release_year: 2024

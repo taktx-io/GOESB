@@ -1,0 +1,9 @@
+id: intel-xeon-w-3175x
+display_name: Intel Xeon W-3175X
+vendor: Intel
+category: cpu
+cores: 28
+threads: 56
+base_clock_ghz: 3.1
+max_clock_ghz: 4.5
+release_year: 2018

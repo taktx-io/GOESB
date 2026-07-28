@@ -1,0 +1,8 @@
+id: amd-ryzen-7-pro-250
+display_name: AMD Ryzen 7 PRO 250
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 3.3
+release_year: 2025

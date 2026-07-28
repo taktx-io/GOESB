@@ -1,0 +1,9 @@
+id: intel-core-ultra-7-265kf
+display_name: Intel Core Ultra 7 265KF
+vendor: Intel
+category: cpu
+cores: 20
+threads: 20
+base_clock_ghz: 3.9
+max_clock_ghz: 5.5
+release_year: 2024

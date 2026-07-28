@@ -1,0 +1,9 @@
+id: intel-core-i7-14700kf
+display_name: Intel Core i7-14700KF
+vendor: Intel
+category: cpu
+cores: 20
+threads: 28
+base_clock_ghz: 3.4
+max_clock_ghz: 5.6
+release_year: 2023

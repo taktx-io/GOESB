@@ -1,0 +1,9 @@
+id: intel-xeon-w-3335
+display_name: Intel Xeon W-3335
+vendor: Intel
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 3.4
+max_clock_ghz: 4.0
+release_year: 2021

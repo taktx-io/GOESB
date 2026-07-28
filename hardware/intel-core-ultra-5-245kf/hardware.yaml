@@ -1,0 +1,9 @@
+id: intel-core-ultra-5-245kf
+display_name: Intel Core Ultra 5 245KF
+vendor: Intel
+category: cpu
+cores: 14
+threads: 14
+base_clock_ghz: 4.2
+max_clock_ghz: 5.2
+release_year: 2024

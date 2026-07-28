@@ -1,0 +1,8 @@
+id: intel-core-ultra-7-366h
+display_name: Intel Core Ultra 7 366H
+vendor: Intel
+category: cpu
+cores: 16
+threads: 20
+max_clock_ghz: 4.8
+release_year: 2026

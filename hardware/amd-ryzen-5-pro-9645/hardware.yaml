@@ -1,0 +1,7 @@
+id: amd-ryzen-5-pro-9645
+display_name: AMD Ryzen 5 PRO 9645
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+release_year: 2025

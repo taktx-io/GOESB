@@ -1,0 +1,7 @@
+id: amd-radeon-rx-6750-gre-12gb
+display_name: AMD Radeon RX 6750 GRE 12GB
+vendor: AMD
+category: gpu
+vram_gb: 12
+release_year: 2023
+notes: China-market exclusive SKU

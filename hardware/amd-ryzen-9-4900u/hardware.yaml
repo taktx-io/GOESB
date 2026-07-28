@@ -1,0 +1,10 @@
+id: amd-ryzen-9-4900u
+display_name: AMD Ryzen 9 4900U
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.0
+max_clock_ghz: 4.4
+release_year: 2020
+notes: Rare OEM-only SKU, distinct from the far more common Ryzen 7 4800U

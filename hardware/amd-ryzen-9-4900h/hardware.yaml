@@ -1,0 +1,9 @@
+id: amd-ryzen-9-4900h
+display_name: AMD Ryzen 9 4900H
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 3.3
+max_clock_ghz: 4.4
+release_year: 2020

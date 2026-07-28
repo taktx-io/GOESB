@@ -1,0 +1,6 @@
+id: intel-arc-a380
+display_name: Intel Arc A380
+vendor: Intel
+category: gpu
+vram_gb: 6
+release_year: 2022

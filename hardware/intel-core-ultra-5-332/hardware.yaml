@@ -1,0 +1,8 @@
+id: intel-core-ultra-5-332
+display_name: Intel Core Ultra 5 332
+vendor: Intel
+category: cpu
+cores: 6
+threads: 8
+max_clock_ghz: 4.4
+release_year: 2026

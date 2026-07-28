@@ -1,0 +1,9 @@
+id: amd-epyc-7302
+display_name: AMD EPYC 7302
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 3.0
+max_clock_ghz: 3.3
+release_year: 2019

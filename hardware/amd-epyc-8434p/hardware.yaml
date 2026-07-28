@@ -1,0 +1,9 @@
+id: amd-epyc-8434p
+display_name: AMD EPYC 8434P
+vendor: AMD
+category: cpu
+cores: 48
+threads: 96
+base_clock_ghz: 2.5
+max_clock_ghz: 3.3
+release_year: 2023

@@ -1,0 +1,9 @@
+id: intel-core-ultra-9-185h
+display_name: Intel Core Ultra 9 185H
+vendor: Intel
+category: cpu
+cores: 16
+threads: 22
+base_clock_ghz: 2.3
+max_clock_ghz: 5.1
+release_year: 2023

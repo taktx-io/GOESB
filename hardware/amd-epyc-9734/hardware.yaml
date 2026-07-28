@@ -1,0 +1,9 @@
+id: amd-epyc-9734
+display_name: AMD EPYC 9734
+vendor: AMD
+category: cpu
+cores: 112
+threads: 224
+base_clock_ghz: 2.2
+max_clock_ghz: 3.0
+release_year: 2023

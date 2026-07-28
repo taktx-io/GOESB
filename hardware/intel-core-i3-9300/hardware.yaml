@@ -1,0 +1,9 @@
+id: intel-core-i3-9300
+display_name: Intel Core i3-9300
+vendor: Intel
+category: cpu
+cores: 4
+threads: 4
+base_clock_ghz: 3.7
+max_clock_ghz: 4.3
+release_year: 2019

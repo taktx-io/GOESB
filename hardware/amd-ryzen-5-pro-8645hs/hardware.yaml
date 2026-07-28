@@ -1,0 +1,9 @@
+id: amd-ryzen-5-pro-8645hs
+display_name: AMD Ryzen 5 PRO 8645HS
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 4.3
+max_clock_ghz: 5.0
+release_year: 2024

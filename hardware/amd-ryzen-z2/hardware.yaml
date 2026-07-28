@@ -1,0 +1,10 @@
+id: amd-ryzen-z2
+display_name: AMD Ryzen Z2
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 3.3
+max_clock_ghz: 5.1
+release_year: 2024
+notes: Handheld gaming APU

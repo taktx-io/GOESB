@@ -1,0 +1,8 @@
+id: intel-xeon-silver-4514y
+display_name: Intel Xeon Silver 4514Y
+vendor: Intel
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 2.0
+release_year: 2024

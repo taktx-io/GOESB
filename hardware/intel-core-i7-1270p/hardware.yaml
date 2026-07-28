@@ -1,0 +1,9 @@
+id: intel-core-i7-1270p
+display_name: Intel Core i7-1270P
+vendor: Intel
+category: cpu
+cores: 12
+threads: 16
+base_clock_ghz: 2.2
+max_clock_ghz: 4.7
+release_year: 2022

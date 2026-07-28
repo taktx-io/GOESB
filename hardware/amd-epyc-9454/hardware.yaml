@@ -1,0 +1,9 @@
+id: amd-epyc-9454
+display_name: AMD EPYC 9454
+vendor: AMD
+category: cpu
+cores: 48
+threads: 96
+base_clock_ghz: 2.75
+max_clock_ghz: 3.8
+release_year: 2022

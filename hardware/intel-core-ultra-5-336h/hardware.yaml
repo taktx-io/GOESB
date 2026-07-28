@@ -1,0 +1,8 @@
+id: intel-core-ultra-5-336h
+display_name: Intel Core Ultra 5 336H
+vendor: Intel
+category: cpu
+cores: 12
+threads: 16
+max_clock_ghz: 4.6
+release_year: 2026

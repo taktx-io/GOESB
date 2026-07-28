@@ -1,0 +1,9 @@
+id: intel-core-i9-9880h
+display_name: Intel Core i9-9880H
+vendor: Intel
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.3
+max_clock_ghz: 4.8
+release_year: 2019

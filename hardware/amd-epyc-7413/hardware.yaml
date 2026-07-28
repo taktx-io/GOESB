@@ -1,0 +1,9 @@
+id: amd-epyc-7413
+display_name: AMD EPYC 7413
+vendor: AMD
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.65
+max_clock_ghz: 3.6
+release_year: 2021

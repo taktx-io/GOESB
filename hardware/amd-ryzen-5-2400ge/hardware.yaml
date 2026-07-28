@@ -1,0 +1,9 @@
+id: amd-ryzen-5-2400ge
+display_name: AMD Ryzen 5 2400GE
+vendor: AMD
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 3.2
+max_clock_ghz: 3.8
+release_year: 2018

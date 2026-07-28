@@ -1,0 +1,9 @@
+id: amd-ryzen-5-pro-4650g
+display_name: AMD Ryzen 5 PRO 4650G
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.7
+max_clock_ghz: 4.2
+release_year: 2020

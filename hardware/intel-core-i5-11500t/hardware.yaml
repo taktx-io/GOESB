@@ -1,0 +1,9 @@
+id: intel-core-i5-11500t
+display_name: Intel Core i5-11500T
+vendor: Intel
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 1.5
+max_clock_ghz: 3.9
+release_year: 2021

@@ -1,0 +1,6 @@
+id: intel-arc-a580
+display_name: Intel Arc A580
+vendor: Intel
+category: gpu
+vram_gb: 8
+release_year: 2023

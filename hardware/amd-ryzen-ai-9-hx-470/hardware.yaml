@@ -1,0 +1,8 @@
+id: amd-ryzen-ai-9-hx-470
+display_name: AMD Ryzen AI 9 HX 470
+vendor: AMD
+category: cpu
+cores: 12
+threads: 24
+max_clock_ghz: 5.2
+release_year: 2026

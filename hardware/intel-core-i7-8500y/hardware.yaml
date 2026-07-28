@@ -1,0 +1,9 @@
+id: intel-core-i7-8500y
+display_name: Intel Core i7-8500Y
+vendor: Intel
+category: cpu
+cores: 2
+threads: 4
+base_clock_ghz: 1.5
+max_clock_ghz: 4.2
+release_year: 2018

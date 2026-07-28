@@ -1,0 +1,6 @@
+id: amd-radeon-rx-7700-xt
+display_name: AMD Radeon RX 7700 XT
+vendor: AMD
+category: gpu
+vram_gb: 12
+release_year: 2023

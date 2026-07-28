@@ -1,0 +1,9 @@
+id: intel-core-i7-12800h
+display_name: Intel Core i7-12800H
+vendor: Intel
+category: cpu
+cores: 14
+threads: 20
+base_clock_ghz: 2.4
+max_clock_ghz: 4.8
+release_year: 2022

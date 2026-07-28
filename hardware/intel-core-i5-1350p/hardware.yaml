@@ -1,0 +1,9 @@
+id: intel-core-i5-1350p
+display_name: Intel Core i5-1350P
+vendor: Intel
+category: cpu
+cores: 12
+threads: 16
+base_clock_ghz: 1.9
+max_clock_ghz: 4.7
+release_year: 2023

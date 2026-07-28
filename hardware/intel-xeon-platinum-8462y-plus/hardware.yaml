@@ -1,0 +1,8 @@
+id: intel-xeon-platinum-8462y-plus
+display_name: Intel Xeon Platinum 8462Y+
+vendor: Intel
+category: cpu
+cores: 32
+threads: 64
+base_clock_ghz: 2.8
+release_year: 2023

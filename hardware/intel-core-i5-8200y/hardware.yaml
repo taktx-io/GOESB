@@ -1,0 +1,9 @@
+id: intel-core-i5-8200y
+display_name: Intel Core i5-8200Y
+vendor: Intel
+category: cpu
+cores: 2
+threads: 4
+base_clock_ghz: 1.3
+max_clock_ghz: 3.9
+release_year: 2018

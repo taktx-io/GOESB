@@ -1,0 +1,9 @@
+id: intel-core-i7-1195g7
+display_name: Intel Core i7-1195G7
+vendor: Intel
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 2.9
+max_clock_ghz: 5.0
+release_year: 2021

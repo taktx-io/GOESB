@@ -1,0 +1,9 @@
+id: intel-core-i5-8400h
+display_name: Intel Core i5-8400H
+vendor: Intel
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 2.5
+max_clock_ghz: 4.2
+release_year: 2018

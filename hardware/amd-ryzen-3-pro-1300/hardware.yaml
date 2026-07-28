@@ -1,0 +1,9 @@
+id: amd-ryzen-3-pro-1300
+display_name: AMD Ryzen 3 PRO 1300
+vendor: AMD
+category: cpu
+cores: 4
+threads: 4
+base_clock_ghz: 3.5
+max_clock_ghz: 3.7
+release_year: 2017

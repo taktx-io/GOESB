@@ -1,0 +1,8 @@
+id: intel-xeon-6960p
+display_name: Intel Xeon 6960P
+vendor: Intel
+category: cpu
+cores: 72
+threads: 144
+base_clock_ghz: 2.7
+release_year: 2024

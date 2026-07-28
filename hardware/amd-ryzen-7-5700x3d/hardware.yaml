@@ -1,0 +1,9 @@
+id: amd-ryzen-7-5700x3d
+display_name: AMD Ryzen 7 5700X3D
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 3.0
+max_clock_ghz: 4.1
+release_year: 2023

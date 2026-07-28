@@ -1,0 +1,9 @@
+id: intel-xeon-platinum-8480-plus
+display_name: Intel Xeon Platinum 8480+
+vendor: Intel
+category: cpu
+cores: 56
+threads: 112
+base_clock_ghz: 2.0
+max_clock_ghz: 3.8
+release_year: 2023

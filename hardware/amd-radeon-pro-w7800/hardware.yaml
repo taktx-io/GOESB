@@ -1,0 +1,6 @@
+id: amd-radeon-pro-w7800
+display_name: AMD Radeon PRO W7800
+vendor: AMD
+category: gpu
+vram_gb: 32
+release_year: 2023

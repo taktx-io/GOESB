@@ -1,0 +1,9 @@
+id: intel-xeon-platinum-8352y
+display_name: Intel Xeon Platinum 8352Y
+vendor: Intel
+category: cpu
+cores: 32
+threads: 64
+base_clock_ghz: 2.2
+max_clock_ghz: 3.4
+release_year: 2021

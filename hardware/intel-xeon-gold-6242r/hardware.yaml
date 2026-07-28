@@ -1,0 +1,9 @@
+id: intel-xeon-gold-6242r
+display_name: Intel Xeon Gold 6242R
+vendor: Intel
+category: cpu
+cores: 20
+threads: 40
+base_clock_ghz: 3.1
+max_clock_ghz: 4.1
+release_year: 2020

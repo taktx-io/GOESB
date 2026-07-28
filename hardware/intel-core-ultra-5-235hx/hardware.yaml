@@ -1,0 +1,8 @@
+id: intel-core-ultra-5-235hx
+display_name: Intel Core Ultra 5 235HX
+vendor: Intel
+category: cpu
+cores: 14
+threads: 14
+max_clock_ghz: 5.1
+release_year: 2025

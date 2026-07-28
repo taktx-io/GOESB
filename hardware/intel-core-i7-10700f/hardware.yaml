@@ -1,0 +1,9 @@
+id: intel-core-i7-10700f
+display_name: Intel Core i7-10700F
+vendor: Intel
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.9
+max_clock_ghz: 4.8
+release_year: 2020

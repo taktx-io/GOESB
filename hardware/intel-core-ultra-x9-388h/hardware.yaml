@@ -1,0 +1,8 @@
+id: intel-core-ultra-x9-388h
+display_name: Intel Core Ultra X9 388H
+vendor: Intel
+category: cpu
+cores: 16
+threads: 20
+max_clock_ghz: 5.1
+release_year: 2026

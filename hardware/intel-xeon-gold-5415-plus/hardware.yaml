@@ -1,0 +1,8 @@
+id: intel-xeon-gold-5415-plus
+display_name: Intel Xeon Gold 5415+
+vendor: Intel
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 2.9
+release_year: 2023

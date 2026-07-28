@@ -1,0 +1,6 @@
+id: amd-radeon-rx-5500-xt-4gb
+display_name: AMD Radeon RX 5500 XT 4GB
+vendor: AMD
+category: gpu
+vram_gb: 4
+release_year: 2019

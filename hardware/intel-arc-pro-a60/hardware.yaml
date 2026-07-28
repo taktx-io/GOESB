@@ -1,0 +1,6 @@
+id: intel-arc-pro-a60
+display_name: Intel Arc Pro A60
+vendor: Intel
+category: gpu
+vram_gb: 12
+release_year: 2023

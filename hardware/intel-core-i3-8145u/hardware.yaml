@@ -1,0 +1,9 @@
+id: intel-core-i3-8145u
+display_name: Intel Core i3-8145U
+vendor: Intel
+category: cpu
+cores: 2
+threads: 4
+base_clock_ghz: 2.1
+max_clock_ghz: 3.9
+release_year: 2018

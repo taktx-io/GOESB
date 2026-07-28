@@ -1,0 +1,9 @@
+id: intel-xeon-gold-5318y
+display_name: Intel Xeon Gold 5318Y
+vendor: Intel
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.1
+max_clock_ghz: 3.4
+release_year: 2021

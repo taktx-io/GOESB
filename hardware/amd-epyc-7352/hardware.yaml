@@ -1,0 +1,9 @@
+id: amd-epyc-7352
+display_name: AMD EPYC 7352
+vendor: AMD
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.3
+max_clock_ghz: 3.2
+release_year: 2019

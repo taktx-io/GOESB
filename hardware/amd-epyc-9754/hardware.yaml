@@ -1,0 +1,9 @@
+id: amd-epyc-9754
+display_name: AMD EPYC 9754
+vendor: AMD
+category: cpu
+cores: 128
+threads: 256
+base_clock_ghz: 2.25
+max_clock_ghz: 3.1
+release_year: 2023

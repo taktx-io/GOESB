@@ -1,0 +1,9 @@
+id: amd-ryzen-9-3900x
+display_name: AMD Ryzen 9 3900X
+vendor: AMD
+category: cpu
+cores: 12
+threads: 24
+base_clock_ghz: 3.8
+max_clock_ghz: 4.6
+release_year: 2019

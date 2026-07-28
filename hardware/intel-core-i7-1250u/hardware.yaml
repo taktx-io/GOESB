@@ -1,0 +1,9 @@
+id: intel-core-i7-1250u
+display_name: Intel Core i7-1250U
+vendor: Intel
+category: cpu
+cores: 10
+threads: 12
+base_clock_ghz: 1.1
+max_clock_ghz: 4.7
+release_year: 2022

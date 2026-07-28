@@ -1,0 +1,9 @@
+id: intel-core-i7-8565u
+display_name: Intel Core i7-8565U
+vendor: Intel
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 1.8
+max_clock_ghz: 4.6
+release_year: 2018

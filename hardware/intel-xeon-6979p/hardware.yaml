@@ -1,0 +1,8 @@
+id: intel-xeon-6979p
+display_name: Intel Xeon 6979P
+vendor: Intel
+category: cpu
+cores: 120
+threads: 240
+base_clock_ghz: 2.1
+release_year: 2024

@@ -1,0 +1,6 @@
+id: amd-radeon-rx-6650-xt
+display_name: AMD Radeon RX 6650 XT
+vendor: AMD
+category: gpu
+vram_gb: 8
+release_year: 2022

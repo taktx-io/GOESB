@@ -1,0 +1,9 @@
+id: intel-xeon-gold-6354
+display_name: Intel Xeon Gold 6354
+vendor: Intel
+category: cpu
+cores: 18
+threads: 36
+base_clock_ghz: 3.0
+max_clock_ghz: 3.6
+release_year: 2021

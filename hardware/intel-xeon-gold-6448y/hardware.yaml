@@ -1,0 +1,9 @@
+id: intel-xeon-gold-6448y
+display_name: Intel Xeon Gold 6448Y
+vendor: Intel
+category: cpu
+cores: 32
+threads: 64
+base_clock_ghz: 2.1
+max_clock_ghz: 4.1
+release_year: 2023

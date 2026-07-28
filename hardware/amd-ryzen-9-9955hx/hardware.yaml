@@ -1,0 +1,9 @@
+id: amd-ryzen-9-9955hx
+display_name: AMD Ryzen 9 9955HX
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 2.5
+max_clock_ghz: 5.4
+release_year: 2025

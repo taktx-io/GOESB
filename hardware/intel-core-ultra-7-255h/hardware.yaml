@@ -1,0 +1,8 @@
+id: intel-core-ultra-7-255h
+display_name: Intel Core Ultra 7 255H
+vendor: Intel
+category: cpu
+cores: 16
+threads: 16
+max_clock_ghz: 5.1
+release_year: 2025

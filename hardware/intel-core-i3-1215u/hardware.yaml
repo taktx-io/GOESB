@@ -1,0 +1,9 @@
+id: intel-core-i3-1215u
+display_name: Intel Core i3-1215U
+vendor: Intel
+category: cpu
+cores: 6
+threads: 8
+base_clock_ghz: 1.2
+max_clock_ghz: 4.4
+release_year: 2022

@@ -1,0 +1,9 @@
+id: intel-xeon-e3-1230-v6
+display_name: Intel Xeon E3-1230 v6
+vendor: Intel
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 3.5
+max_clock_ghz: 3.9
+release_year: 2017

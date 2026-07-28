@@ -1,0 +1,6 @@
+id: intel-arc-b570
+display_name: Intel Arc B570
+vendor: Intel
+category: gpu
+vram_gb: 10
+release_year: 2024

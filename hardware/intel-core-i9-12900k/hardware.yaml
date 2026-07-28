@@ -1,0 +1,9 @@
+id: intel-core-i9-12900k
+display_name: Intel Core i9-12900K
+vendor: Intel
+category: cpu
+cores: 16
+threads: 24
+base_clock_ghz: 3.2
+max_clock_ghz: 5.2
+release_year: 2021

@@ -1,0 +1,9 @@
+id: amd-epyc-7351
+display_name: AMD EPYC 7351
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 2.4
+max_clock_ghz: 2.9
+release_year: 2017

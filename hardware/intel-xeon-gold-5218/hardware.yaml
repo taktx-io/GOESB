@@ -1,0 +1,9 @@
+id: intel-xeon-gold-5218
+display_name: Intel Xeon Gold 5218
+vendor: Intel
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 2.3
+max_clock_ghz: 3.9
+release_year: 2019

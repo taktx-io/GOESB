@@ -1,0 +1,8 @@
+id: intel-core-ultra-7-355h
+display_name: Intel Core Ultra 7 355H
+vendor: Intel
+category: cpu
+cores: 8
+threads: 12
+max_clock_ghz: 4.7
+release_year: 2026

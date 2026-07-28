@@ -1,0 +1,9 @@
+id: amd-ryzen-7-3800xt
+display_name: AMD Ryzen 7 3800XT
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+base_clock_ghz: 4.2
+max_clock_ghz: 4.7
+release_year: 2020

@@ -1,0 +1,8 @@
+id: intel-xeon-silver-4416-plus
+display_name: Intel Xeon Silver 4416+
+vendor: Intel
+category: cpu
+cores: 20
+threads: 40
+base_clock_ghz: 2.0
+release_year: 2023

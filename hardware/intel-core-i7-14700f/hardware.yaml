@@ -1,0 +1,9 @@
+id: intel-core-i7-14700f
+display_name: Intel Core i7-14700F
+vendor: Intel
+category: cpu
+cores: 20
+threads: 28
+base_clock_ghz: 2.1
+max_clock_ghz: 5.4
+release_year: 2024

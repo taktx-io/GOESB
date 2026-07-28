@@ -1,0 +1,8 @@
+id: amd-ryzen-ai-7-450
+display_name: AMD Ryzen AI 7 450
+vendor: AMD
+category: cpu
+cores: 8
+threads: 16
+max_clock_ghz: 5.1
+release_year: 2026

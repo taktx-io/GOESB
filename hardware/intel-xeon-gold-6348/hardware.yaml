@@ -1,0 +1,9 @@
+id: intel-xeon-gold-6348
+display_name: Intel Xeon Gold 6348
+vendor: Intel
+category: cpu
+cores: 28
+threads: 56
+base_clock_ghz: 2.6
+max_clock_ghz: 3.5
+release_year: 2021

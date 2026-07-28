@@ -1,0 +1,9 @@
+id: amd-epyc-9654
+display_name: AMD EPYC 9654
+vendor: AMD
+category: cpu
+cores: 96
+threads: 192
+base_clock_ghz: 2.4
+max_clock_ghz: 3.55
+release_year: 2022

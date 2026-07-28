@@ -1,0 +1,9 @@
+id: amd-epyc-7742
+display_name: AMD EPYC 7742
+vendor: AMD
+category: cpu
+cores: 64
+threads: 128
+base_clock_ghz: 2.25
+max_clock_ghz: 3.4
+release_year: 2019

@@ -1,0 +1,9 @@
+id: amd-ryzen-3-pro-4450u
+display_name: AMD Ryzen 3 PRO 4450U
+vendor: AMD
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 2.5
+max_clock_ghz: 4.1
+release_year: 2020

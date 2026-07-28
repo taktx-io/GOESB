@@ -1,0 +1,9 @@
+id: amd-ryzen-5-4600g
+display_name: AMD Ryzen 5 4600G
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.7
+max_clock_ghz: 4.2
+release_year: 2020

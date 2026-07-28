@@ -1,0 +1,6 @@
+id: amd-instinct-mi300a
+display_name: AMD Instinct MI300A
+vendor: AMD
+category: gpu
+vram_gb: 128
+release_year: 2023

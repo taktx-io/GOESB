@@ -1,0 +1,8 @@
+id: amd-epyc-9334
+display_name: AMD EPYC 9334
+vendor: AMD
+category: cpu
+cores: 32
+threads: 64
+base_clock_ghz: 2.7
+release_year: 2022

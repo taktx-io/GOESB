@@ -1,0 +1,9 @@
+id: amd-ryzen-5-1400
+display_name: AMD Ryzen 5 1400
+vendor: AMD
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 3.2
+max_clock_ghz: 3.4
+release_year: 2017

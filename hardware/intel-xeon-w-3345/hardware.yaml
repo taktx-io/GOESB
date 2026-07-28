@@ -1,0 +1,9 @@
+id: intel-xeon-w-3345
+display_name: Intel Xeon W-3345
+vendor: Intel
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 3.0
+max_clock_ghz: 4.0
+release_year: 2021

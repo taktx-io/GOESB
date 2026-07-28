@@ -1,0 +1,9 @@
+id: intel-core-i5-1245u
+display_name: Intel Core i5-1245U
+vendor: Intel
+category: cpu
+cores: 10
+threads: 12
+base_clock_ghz: 1.6
+max_clock_ghz: 4.4
+release_year: 2022

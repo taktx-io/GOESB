@@ -1,0 +1,8 @@
+id: intel-core-ultra-7-365
+display_name: Intel Core Ultra 7 365
+vendor: Intel
+category: cpu
+cores: 8
+threads: 12
+max_clock_ghz: 4.8
+release_year: 2026

@@ -1,0 +1,9 @@
+id: amd-ryzen-9-3950x
+display_name: AMD Ryzen 9 3950X
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 3.5
+max_clock_ghz: 4.7
+release_year: 2019

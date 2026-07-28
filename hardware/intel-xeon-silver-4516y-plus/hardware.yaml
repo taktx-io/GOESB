@@ -1,0 +1,8 @@
+id: intel-xeon-silver-4516y-plus
+display_name: Intel Xeon Silver 4516Y+
+vendor: Intel
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.2
+release_year: 2024

@@ -1,0 +1,11 @@
+id: amd-ryzen-5-1600af
+display_name: AMD Ryzen 5 1600 AF
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 3.2
+max_clock_ghz: 3.6
+release_year: 2019
+notes: 12nm respin of the 1600 sold under the original Ryzen 1000 branding but released
+  in 2019

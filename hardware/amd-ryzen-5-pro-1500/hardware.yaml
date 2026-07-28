@@ -1,0 +1,9 @@
+id: amd-ryzen-5-pro-1500
+display_name: AMD Ryzen 5 PRO 1500
+vendor: AMD
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 3.5
+max_clock_ghz: 3.7
+release_year: 2017

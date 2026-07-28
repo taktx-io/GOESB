@@ -1,0 +1,9 @@
+id: amd-ryzen-3-pro-2200ge
+display_name: AMD Ryzen 3 PRO 2200GE
+vendor: AMD
+category: cpu
+cores: 4
+threads: 4
+base_clock_ghz: 3.2
+max_clock_ghz: 3.6
+release_year: 2018

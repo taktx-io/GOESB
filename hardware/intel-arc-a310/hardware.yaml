@@ -1,0 +1,6 @@
+id: intel-arc-a310
+display_name: Intel Arc A310
+vendor: Intel
+category: gpu
+vram_gb: 4
+release_year: 2022

@@ -1,0 +1,7 @@
+id: amd-radeon-rx-9070-gre
+display_name: AMD Radeon RX 9070 GRE
+vendor: AMD
+category: gpu
+vram_gb: 16
+release_year: 2025
+notes: China-market exclusive SKU

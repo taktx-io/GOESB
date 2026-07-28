@@ -1,0 +1,8 @@
+id: amd-ryzen-9-9950x3d2
+display_name: AMD Ryzen 9 9950X3D2
+vendor: AMD
+category: cpu
+cores: 16
+threads: 32
+release_year: 2026
+notes: Later variant/stepping of the 9950X3D; exact clocks not confidently sourced

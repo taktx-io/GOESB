@@ -1,0 +1,8 @@
+id: intel-core-ultra-5-134u
+display_name: Intel Core Ultra 5 134U
+vendor: Intel
+category: cpu
+cores: 12
+threads: 14
+max_clock_ghz: 4.4
+release_year: 2023

@@ -1,0 +1,9 @@
+id: intel-xeon-gold-5118
+display_name: Intel Xeon Gold 5118
+vendor: Intel
+category: cpu
+cores: 12
+threads: 24
+base_clock_ghz: 2.3
+max_clock_ghz: 3.2
+release_year: 2017

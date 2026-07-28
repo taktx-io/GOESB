@@ -1,0 +1,9 @@
+id: intel-core-i7-13700
+display_name: Intel Core i7-13700
+vendor: Intel
+category: cpu
+cores: 16
+threads: 24
+base_clock_ghz: 2.1
+max_clock_ghz: 5.2
+release_year: 2023

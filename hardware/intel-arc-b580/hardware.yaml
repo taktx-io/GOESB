@@ -1,0 +1,6 @@
+id: intel-arc-b580
+display_name: Intel Arc B580
+vendor: Intel
+category: gpu
+vram_gb: 12
+release_year: 2024

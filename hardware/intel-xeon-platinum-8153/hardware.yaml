@@ -1,0 +1,9 @@
+id: intel-xeon-platinum-8153
+display_name: Intel Xeon Platinum 8153
+vendor: Intel
+category: cpu
+cores: 16
+threads: 32
+base_clock_ghz: 2.0
+max_clock_ghz: 2.8
+release_year: 2017

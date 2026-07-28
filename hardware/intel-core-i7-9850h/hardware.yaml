@@ -1,0 +1,9 @@
+id: intel-core-i7-9850h
+display_name: Intel Core i7-9850H
+vendor: Intel
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 2.6
+max_clock_ghz: 4.6
+release_year: 2019

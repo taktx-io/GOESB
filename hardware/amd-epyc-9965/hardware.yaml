@@ -1,0 +1,9 @@
+id: amd-epyc-9965
+display_name: AMD EPYC 9965
+vendor: AMD
+category: cpu
+cores: 192
+threads: 384
+base_clock_ghz: 2.25
+max_clock_ghz: 3.7
+release_year: 2024

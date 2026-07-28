@@ -1,0 +1,9 @@
+id: amd-epyc-9254
+display_name: AMD EPYC 9254
+vendor: AMD
+category: cpu
+cores: 24
+threads: 48
+base_clock_ghz: 2.9
+max_clock_ghz: 4.15
+release_year: 2022

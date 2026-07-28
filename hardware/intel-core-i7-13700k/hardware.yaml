@@ -1,0 +1,9 @@
+id: intel-core-i7-13700k
+display_name: Intel Core i7-13700K
+vendor: Intel
+category: cpu
+cores: 16
+threads: 24
+base_clock_ghz: 3.4
+max_clock_ghz: 5.4
+release_year: 2022

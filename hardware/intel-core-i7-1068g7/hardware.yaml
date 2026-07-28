@@ -1,0 +1,9 @@
+id: intel-core-i7-1068g7
+display_name: Intel Core i7-1068G7
+vendor: Intel
+category: cpu
+cores: 4
+threads: 8
+base_clock_ghz: 2.3
+max_clock_ghz: 4.1
+release_year: 2019

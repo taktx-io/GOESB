@@ -1,0 +1,8 @@
+id: amd-ryzen-5-240
+display_name: AMD Ryzen 5 240
+vendor: AMD
+category: cpu
+cores: 6
+threads: 12
+base_clock_ghz: 4.3
+release_year: 2025
