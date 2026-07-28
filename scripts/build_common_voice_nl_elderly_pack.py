@@ -123,8 +123,16 @@ def find_validated_tsv(extract_dir: Path) -> Path:
 
 
 def read_validated_rows(tsv_path: Path) -> list[dict]:
+    # Common Voice's validated.tsv is plain tab-separated text with no
+    # quote-escaping convention of its own — QUOTE_NONE tells the csv
+    # module to treat `"` as a literal character rather than a field
+    # delimiter. Without it, a sentence containing an unmatched `"` makes
+    # the default QUOTE_MINIMAL dialect swallow the rest of the file into
+    # one field until it finds a closing quote, blowing past csv's 128KB
+    # field-size limit with a confusing error far from the actual cause
+    # (hit in practice building common-voice-pt-batch).
     with tsv_path.open(newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f, delimiter="\t"))
+        return list(csv.DictReader(f, delimiter="\t", quoting=csv.QUOTE_NONE))
 
 
 def report_age_distribution(rows: list[dict]) -> Counter:
