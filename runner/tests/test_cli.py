@@ -196,9 +196,21 @@ def test_bare_invocation_shows_help_instead_of_hanging():
 # --- ADR-0008: `goesb doctor` reports, never runs anything ---
 
 
+def _assume_all_engines_installed(monkeypatch, cli_module):
+    """`doctor` reports differently for an engine it can't even import
+    ("not installed — supports [...] once installed"). CI's runner matrix
+    installs only `./runner[dev]` (no faster-whisper/vosk/whisper-cpp
+    extras — see ci.yml), so the doctor scenarios below, which are about
+    backend *readiness* given an installed engine, must not depend on
+    whatever happens to actually be pip-installed in the environment the
+    test runs in."""
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+
 def test_doctor_reports_no_gpu_and_exits_cleanly(monkeypatch):
     from oesb_runner import cli as cli_module
 
+    _assume_all_engines_installed(monkeypatch, cli_module)
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
 
     result = runner.invoke(app, ["doctor"])
@@ -215,6 +227,7 @@ def test_doctor_reports_gpu_present_but_cudnn_missing_with_a_next_step(monkeypat
     partial/crashed state."""
     from oesb_runner import cli as cli_module
 
+    _assume_all_engines_installed(monkeypatch, cli_module)
     fake_gpu = {"model": "NVIDIA RTX 3060", "driver": "550.54.14", "vram": "12288 MiB"}
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
     monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 0)
@@ -232,6 +245,7 @@ def test_doctor_reports_gpu_present_but_cudnn_missing_with_a_next_step(monkeypat
 def test_doctor_reports_gpu_ready_when_cuda_devices_visible(monkeypatch):
     from oesb_runner import cli as cli_module
 
+    _assume_all_engines_installed(monkeypatch, cli_module)
     fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
     monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 1)
@@ -240,6 +254,20 @@ def test_doctor_reports_gpu_ready_when_cuda_devices_visible(monkeypatch):
 
     assert result.exit_code == 0
     assert "cuda ready (1 device(s) visible to ctranslate2)" in result.output
+
+
+def test_doctor_reports_not_installed_engines_with_an_install_hint(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert 'not installed — supports' in result.output
+    assert 'pip install "goesb-runner[faster-whisper]"' in result.output
+    assert 'pip install "goesb-runner[vosk]"' in result.output
 
 
 def test_doctor_never_touches_disk_beyond_reading(monkeypatch, tmp_path):
