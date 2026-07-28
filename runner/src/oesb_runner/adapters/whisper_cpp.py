@@ -24,9 +24,26 @@ def _resolve_model_id(model_name: str) -> str:
     return model_name.removeprefix(prefix)
 
 
+# ADR-0008: leaving context_params unset lets pywhispercpp fall back to
+# whisper.cpp's own compiled-in default (whisper_context_default_params()),
+# which silently uses whatever `use_gpu` value the binary was built with —
+# same "library decides, not us" failure mode ADR-0008 rejects for
+# faster-whisper. `use_gpu` is whisper.cpp's own accelerator toggle: it's
+# not vendor-specific the way faster-whisper's `device=` is (it means
+# "whichever GPU backend this binary was compiled with" — CUDA, Metal, or
+# Vulkan) — this adapter only distinguishes cpu vs cuda per the current
+# --backend surface, so "cuda" here means "ask whisper.cpp to use its
+# compiled-in GPU backend," which is a no-op rather than a hard error if
+# that binary wasn't actually built with GPU support. `goesb doctor` and
+# this adapter's own model-load failure are the signals for that gap until
+# pywhispercpp exposes a way to introspect build-time GPU support.
+_USE_GPU_BY_BACKEND = {"cpu": False, "cuda": True}
+
+
 @register(
     "whisper-cpp", benchmark_type="batch",
     applied_parameters=frozenset({"threads", "temperature"}),
+    backends=frozenset(_USE_GPU_BY_BACKEND),
 )
 def run_batch(
     model_name: str,
@@ -39,6 +56,7 @@ def run_batch(
     threads: int = 4,
     download_root: str | Path | None = None,
     language: str | None = None,
+    backend: str = "cpu",
 ) -> list[Transcription]:
     """Transcribe every utterance once, batch-style, and time each call.
 
@@ -62,6 +80,10 @@ def run_batch(
     default — except for an English-only (`.en`) model, which has no other
     language to detect and produces near-random noise (confirmed: "detected"
     unrelated languages at ~1% confidence) if asked to try.
+
+    `backend` (ADR-0008) sets `use_gpu` explicitly via `context_params` —
+    the CLI has already validated it against this adapter's declared
+    supported set before calling in.
     """
     try:
         from pywhispercpp.model import Model
@@ -85,6 +107,7 @@ def run_batch(
         temperature=temperature,
         print_realtime=False,
         print_progress=False,
+        context_params={"use_gpu": _USE_GPU_BY_BACKEND[backend]},
         **language_params,
     )
 

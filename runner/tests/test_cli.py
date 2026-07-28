@@ -193,6 +193,87 @@ def test_bare_invocation_shows_help_instead_of_hanging():
     assert "Usage:" in result.stdout
 
 
+# --- ADR-0008: `goesb doctor` reports, never runs anything ---
+
+
+def test_doctor_reports_no_gpu_and_exits_cleanly(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "GPU: none detected" in result.output
+    assert "cuda unavailable (no NVIDIA GPU detected)" in result.output
+    assert "vosk (batch): cpu ready" in result.output
+
+
+def test_doctor_reports_gpu_present_but_cudnn_missing_with_a_next_step(monkeypatch):
+    """Acceptance criterion 4: GPU present but cuDNN not found -> reports it
+    plainly with an actionable next step, exits cleanly (0), never a
+    partial/crashed state."""
+    from oesb_runner import cli as cli_module
+
+    fake_gpu = {"model": "NVIDIA RTX 3060", "driver": "550.54.14", "vram": "12288 MiB"}
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
+    monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 0)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "NVIDIA RTX 3060" in result.output
+    assert "driver 550.54.14" in result.output
+    assert "cuBLAS/cuDNN is likely missing" in result.output
+    assert "developer.nvidia.com/cudnn" in result.output  # the actionable next step
+    assert "--backend cpu" in result.output  # the escape hatch
+
+
+def test_doctor_reports_gpu_ready_when_cuda_devices_visible(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
+    monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 1)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "cuda ready (1 device(s) visible to ctranslate2)" in result.output
+
+
+def test_doctor_never_touches_disk_beyond_reading(monkeypatch, tmp_path):
+    """Detection informs the human, it never changes the experiment (ADR-0008
+    §2) — confirm doctor writes nothing, regardless of what it detects."""
+    from oesb_runner import cli as cli_module
+
+    fake_gpu = {"model": "NVIDIA RTX 3060", "driver": "550.54.14", "vram": "12288 MiB"}
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
+    monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 0)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert list(tmp_path.iterdir()) == []  # nothing written anywhere
+
+
+def test_doctor_survives_an_unexpected_probe_failure(monkeypatch):
+    """A report command must never itself crash or leave a partial/garbled
+    state — even if a probe raises something entirely unanticipated."""
+    from oesb_runner import cli as cli_module
+
+    def _boom(unavailable):
+        raise RuntimeError("simulated probe failure")
+
+    monkeypatch.setattr(cli_module, "_capture_gpu", _boom)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "bug" in result.output.lower()
+
+
 def test_wizard_list_profiles_reexecs_the_subcommand(monkeypatch):
     from oesb_runner import cli as cli_module
 
@@ -2114,7 +2195,7 @@ def test_run_with_param_override_records_parameters_and_verifies(tmp_path, monke
     written = json.loads(result_path.read_text())
     assert written["parameters"]["beam_size"] == {"value": 8, "default": 5}
     assert written["parameters"]["vad"] == {"value": True, "default": True}
-    assert written["schema_version"] == "0.2"
+    assert written["schema_version"] == "0.3"
     assert verify_result_document(written)
 
 
@@ -2134,6 +2215,121 @@ def test_run_with_out_of_domain_param_fails_before_pack_resolution(tmp_path, mon
 
     assert result.exit_code == 1
     assert "not in allowed values" in result.output
+    assert "Loaded" not in result.output  # never reached pack/audio resolution
+
+
+def _run_with_backend(tmp_path, monkeypatch, backend_args):
+    """Shared setup for the --backend passthrough tests below — same fake
+    pack/adapter/audio-archive scaffolding as
+    test_run_with_param_override_records_parameters_and_verifies, just
+    varying --backend instead of --param. Returns (captured_kwargs, written
+    result dict)."""
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+    from oesb_runner.adapters import Transcription
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+
+    captured_kwargs = {}
+
+    def _fake_get_adapter(runtime_name, benchmark_type="batch"):
+        def _fake_run_batch(model_name, utterances, **kwargs):
+            captured_kwargs.update(kwargs)
+            return [
+                Transcription(
+                    utterance_id=u.utterance_id, hypothesis_text=u.reference_text, processing_time_s=0.01
+                )
+                for u in utterances
+            ]
+        return _fake_run_batch
+
+    monkeypatch.setattr(cli_module, "get_adapter", _fake_get_adapter)
+
+    source = {"type": "fleurs", "params": {"language": "xx_xx", "split": "dev"}}
+    packs_dir = tmp_path / "packs"
+    pack_dir = packs_dir / "fake-pack"
+    _fake_pack(pack_dir, source)
+    pack_yaml_path = pack_dir / "pack.yaml"
+    pack_yaml = yaml.safe_load(pack_yaml_path.read_text())
+    pack_yaml["profile_id"] = "whisper-medium-en-batch"
+    del pack_yaml["sha256"]
+    from oesb_runner.hashing import canonical_asset_sha256
+    pack_yaml["sha256"] = canonical_asset_sha256(pack_yaml)
+    pack_yaml_path.write_text(yaml.safe_dump(pack_yaml))
+
+    archive_buf = io.BytesIO()
+    with tarfile.open(fileobj=archive_buf, mode="w:gz") as tar:
+        content = b"fake audio bytes"
+        info = tarfile.TarInfo(name="xx_xx/audio/dev/wanted.wav")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+    archive_bytes = archive_buf.getvalue()
+    monkeypatch.setattr(
+        audio_sources.urllib.request, "urlopen",
+        lambda url, **kw: _FakeAudioResponse(archive_bytes),
+    )
+
+    results_dir = tmp_path / "results"
+    result = runner.invoke(app, [
+        "run", "whisper-medium-en-batch", "fake-pack",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(packs_dir),
+        "--results-dir", str(results_dir),
+        "--repeats", "1",
+        *backend_args,
+    ])
+    assert result.exit_code == 0, result.output
+
+    [result_path] = list(results_dir.glob("*.json"))
+    written = json.loads(result_path.read_text())
+    return captured_kwargs, written
+
+
+def test_run_defaults_to_cpu_backend_and_records_it(tmp_path, monkeypatch):
+    """Acceptance criterion 3: no --backend flag -> runs on cpu, never left
+    to the underlying library's own auto-selection, and that choice is
+    recorded on the signed result."""
+    from oesb_runner.signing import verify_result_document
+
+    captured_kwargs, written = _run_with_backend(tmp_path, monkeypatch, [])
+
+    assert captured_kwargs["backend"] == "cpu"
+    assert written["runtime"]["backend"] == "cpu"
+    assert verify_result_document(written)
+
+
+def test_run_with_explicit_backend_flag_passes_through_and_records_it(tmp_path, monkeypatch):
+    from oesb_runner.signing import verify_result_document
+
+    captured_kwargs, written = _run_with_backend(tmp_path, monkeypatch, ["--backend", "cuda"])
+
+    assert captured_kwargs["backend"] == "cuda"
+    assert written["runtime"]["backend"] == "cuda"
+    assert verify_result_document(written)
+
+
+def test_run_rejects_backend_unsupported_by_this_runtime_before_engine_install(tmp_path, monkeypatch):
+    """Acceptance criterion 5's general case: an adapter that never declared
+    a backend (vosk is genuinely cpu-only) must refuse --backend cuda
+    immediately — before the engine-install prompt, before pack resolution
+    — never a silent fallback to cpu."""
+    from oesb_runner import cli as cli_module
+
+    install_calls = []
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: install_calls.append(runtime_name))
+
+    result = runner.invoke(app, [
+        "run", "vosk-small-fr-batch", "some-pack-that-does-not-exist",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(tmp_path / "packs"),
+        "--backend", "cuda",
+    ])
+
+    assert result.exit_code == 1
+    assert "not supported by 'vosk'" in result.output
+    assert "cpu" in result.output  # names what it does support
+    assert install_calls == []  # never reached engine-install
     assert "Loaded" not in result.output  # never reached pack/audio resolution
 
 

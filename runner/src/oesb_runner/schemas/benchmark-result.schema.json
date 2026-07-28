@@ -11,7 +11,7 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "string", "const": "0.2" },
+    "schema_version": { "type": "string", "const": "0.3" },
 
     "profile": {
       "type": "object",
@@ -41,13 +41,15 @@
 
     "runtime": {
       "type": "object",
-      "required": ["name", "version", "sha256"],
+      "required": ["name", "version", "sha256", "backend"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string", "description": "Runtime adapter id, e.g. 'faster-whisper'." },
         "version": { "type": "string" },
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$",
-          "description": "Hash identifying the exact adapter code + pinned dependency version." }
+          "description": "Hash identifying the exact adapter code + pinned dependency version." },
+        "backend": { "type": "string",
+          "description": "Compute backend this run actually used, e.g. 'cpu', 'cuda' (ADR-0008) — explicitly passed via `goesb run --backend`, defaulting to 'cpu', never auto-selected by the underlying runtime library. Owned by the adapter registry, not a fixed schema enum: which values are valid depends on which backends the runner's own installed adapters declare support for, checked by the runner before a run starts, not by this schema." }
       }
     },
 

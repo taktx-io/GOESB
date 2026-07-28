@@ -132,3 +132,5 @@ esac
 
 echo ""
 echo "Run 'goesb --help' to get started."
+echo "If you're on an NVIDIA GPU machine, run 'goesb doctor' first to check whether"
+echo "--backend cuda will actually work here before your first real run."

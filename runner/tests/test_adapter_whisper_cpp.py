@@ -116,3 +116,24 @@ def test_run_batch_english_only_model_never_tries_to_detect(monkeypatch, tmp_pat
 
     assert _FakeModel.last_init_kwargs.get("language") == "en"
     assert "detect_language" not in _FakeModel.last_init_kwargs
+
+
+def test_run_batch_passes_use_gpu_false_for_default_cpu_backend(monkeypatch, tmp_path):
+    """ADR-0008: leaving context_params unset lets pywhispercpp fall back to
+    whisper.cpp's own compiled-in default rather than an explicit choice —
+    must always be passed explicitly, even for the default backend."""
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    run_batch("tiny", [_fake_utterance(tmp_path)])
+
+    assert _FakeModel.last_init_kwargs.get("context_params") == {"use_gpu": False}
+
+
+def test_run_batch_passes_use_gpu_true_for_cuda_backend(monkeypatch, tmp_path):
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    run_batch("tiny", [_fake_utterance(tmp_path)], backend="cuda")
+
+    assert _FakeModel.last_init_kwargs.get("context_params") == {"use_gpu": True}

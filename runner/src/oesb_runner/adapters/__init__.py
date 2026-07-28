@@ -33,6 +33,14 @@ class Transcription:
 # different callables, same underlying runtime).
 _ADAPTERS: dict[tuple[str, str], Callable] = {}
 
+# Which compute backends this (runtime, benchmark_type) adapter actually
+# accepts (ADR-0008): the set `--backend` is validated against before the
+# adapter is ever called — requesting one outside this set is a hard error,
+# never a silent fallback to whatever the underlying library would have
+# auto-selected. Defaults to cpu-only, matching every adapter that doesn't
+# declare otherwise (vosk is genuinely CPU-only and needs no entry here).
+_SUPPORTED_BACKENDS: dict[tuple[str, str], frozenset[str]] = {}
+
 # "No silent knobs" (ADR-0009 §2): every batch adapter shares one call
 # signature for call-shape parity (docs/03-roadmap.md M2 exit criterion —
 # adapters swap without core changes), but several accept kwargs they never
@@ -50,6 +58,7 @@ def register(
     runtime_name: str,
     benchmark_type: str = "batch",
     applied_parameters: frozenset[str] = frozenset(),
+    backends: frozenset[str] = frozenset({"cpu"}),
 ) -> Callable[[Callable], Callable]:
     def decorator(fn: Callable) -> Callable:
         key = (runtime_name, benchmark_type)
@@ -57,6 +66,7 @@ def register(
             raise ValueError(f"runtime adapter already registered: {key!r}")
         _ADAPTERS[key] = fn
         _APPLIED_PARAMETERS[key] = applied_parameters
+        _SUPPORTED_BACKENDS[key] = backends
         return fn
 
     return decorator
@@ -78,6 +88,21 @@ def get_applied_parameters(runtime_name: str, benchmark_type: str = "batch") -> 
     closed): a future adapter that forgets to declare this applies
     nothing, rather than silently allowing everything."""
     return _APPLIED_PARAMETERS.get((runtime_name, benchmark_type), frozenset())
+
+
+def registered_adapters() -> list[tuple[str, str]]:
+    """Every (runtime_name, benchmark_type) pair currently registered —
+    `goesb doctor` iterates this to report per-engine backend readiness
+    without hardcoding the runtime list a second time."""
+    return sorted(_ADAPTERS)
+
+
+def get_supported_backends(runtime_name: str, benchmark_type: str = "batch") -> frozenset[str]:
+    """Which `--backend` values this (runtime, benchmark_type) adapter
+    accepts (ADR-0008). Unknown pairs default to cpu-only — fail toward the
+    one backend every machine has, not toward permitting an unregistered
+    combination to claim GPU support it never declared."""
+    return _SUPPORTED_BACKENDS.get((runtime_name, benchmark_type), frozenset({"cpu"}))
 
 
 # Built-in adapters register themselves on import.

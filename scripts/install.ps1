@@ -68,3 +68,9 @@ if ($UserPath -notlike "*$InstallDir*") {
 
 Write-Host ""
 Write-Host "Run 'goesb --help' to get started (after restarting your terminal, if PATH was just updated)."
+if ($Engine -eq "faster-whisper") {
+    Write-Host ""
+    Write-Host "If you have an NVIDIA GPU: Windows doesn't bundle CUDA/cuDNN the way the Linux"
+    Write-Host "pip wheel does, so 'goesb run --backend cuda' can fail even with a GPU present."
+    Write-Host "Run 'goesb doctor' first to check readiness before your first real run."
+}

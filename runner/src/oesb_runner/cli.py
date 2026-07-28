@@ -37,14 +37,19 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 
 from . import __version__, credentials
 from . import energy as energy_probe
-from .adapters import get_adapter, get_applied_parameters
+from .adapters import (
+    get_adapter,
+    get_applied_parameters,
+    get_supported_backends,
+    registered_adapters,
+)
 from .audio_sources import (
     AUTO_FETCH_SOURCE_TYPES,
     GatedFetchAuthError,
     auto_fetch_audio,
     shared_audio_dir,
 )
-from .environment import capture_environment
+from .environment import _capture_gpu, capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
 from .metrics import (
     cer,
@@ -1196,6 +1201,84 @@ def list_hardware_cmd(
         typer.echo(f"{r['id']:<32} {r['display_name']:<40} {r['vendor']:<14} {r['category']}")
 
 
+def _cuda_device_count() -> int | None:
+    """`None` means "couldn't check" (ctranslate2 not installed, or the
+    probe itself raised) — distinct from `0`, which means ctranslate2 loaded
+    fine but genuinely sees no usable CUDA device (the actual "cuBLAS/cuDNN
+    missing" signal `goesb doctor` cares about). Read-only: this never
+    initializes a model, just asks ctranslate2 what it can see."""
+    try:
+        import ctranslate2
+    except ImportError:
+        return None
+    try:
+        return ctranslate2.get_cuda_device_count()
+    except Exception:  # noqa: BLE001 - a probe must never itself crash `doctor`
+        return None
+
+
+def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] | None) -> str:
+    label = f"  {runtime_name} ({benchmark_type})"
+    backends = get_supported_backends(runtime_name, benchmark_type)
+    module_name = _ENGINE_MODULE_NAMES.get(runtime_name)
+    installed = module_name is not None and importlib.util.find_spec(module_name) is not None
+
+    if not installed:
+        return (
+            f"{label}: not installed — supports {sorted(backends)} once installed "
+            f'(`pip install "goesb-runner[{runtime_name}]"`).'
+        )
+    if backends == {"cpu"}:
+        return f"{label}: cpu ready (installed, cpu-only engine)."
+    if gpu is None:
+        return f"{label}: cpu ready; cuda unavailable (no NVIDIA GPU detected)."
+
+    if runtime_name == "faster-whisper":
+        cuda_count = _cuda_device_count()
+        if cuda_count is None:
+            return f"{label}: cpu ready; cuda readiness unknown (ctranslate2 not installed or probe failed)."
+        if cuda_count > 0:
+            return f"{label}: cpu ready; cuda ready ({cuda_count} device(s) visible to ctranslate2)."
+        return (
+            f"{label}: cpu ready; {gpu['model']} detected (driver {gpu['driver']}) but "
+            "ctranslate2 sees 0 usable CUDA devices — cuBLAS/cuDNN is likely missing or "
+            "mismatched with that driver. Install the CUDA Toolkit + cuDNN matching your "
+            "driver version (https://developer.nvidia.com/cudnn) to unlock --backend cuda, "
+            "or continue on --backend cpu."
+        )
+    if runtime_name == "whisper-cpp":
+        return (
+            f"{label}: cpu ready; {gpu['model']} detected (driver {gpu['driver']}) — "
+            "whisper.cpp's GPU support depends on whether your installed pywhispercpp build "
+            "was compiled with it, which can't be checked without running a real "
+            "transcription. Try --backend cuda; a crash or CPU-speed timing means it wasn't."
+        )
+    return f"{label}: installed, supports {sorted(backends)}."
+
+
+@app.command()
+def doctor() -> None:
+    """Report detected accelerators and which `--backend` values this
+    machine can actually use, per installed engine — without running
+    anything (ADR-0008: detection informs the human, it never changes the
+    experiment). Reuses the same GPU probe environment capture uses."""
+    try:
+        typer.echo("GOESB doctor — detecting hardware and backend readiness (nothing is run).\n", err=True)
+
+        unavailable: dict[str, str] = {}
+        gpu = _capture_gpu(unavailable)
+        if gpu is None:
+            typer.echo(f"GPU: none detected ({unavailable.get('gpu', 'no probe available')}).", err=True)
+        else:
+            typer.echo(f"GPU: {gpu['model']} — driver {gpu['driver']}, {gpu['vram']} VRAM (via nvidia-smi).", err=True)
+
+        typer.echo("\nPer-engine backend readiness:", err=True)
+        for runtime_name, benchmark_type in registered_adapters():
+            typer.echo(_doctor_engine_line(runtime_name, benchmark_type, gpu), err=True)
+    except Exception as exc:  # noqa: BLE001 - a report command must never itself crash or leave a partial state
+        typer.echo(f"\ndoctor: an internal probe failed unexpectedly ({exc}) — this is a bug, please report it.", err=True)
+
+
 def _sample_during(fn, interval_s: float = 0.2):
     """Run `fn()` while sampling CPU/RAM/temperature in the background, and
     RAPL energy once before and once after (a monotonic counter, so a single
@@ -1416,6 +1499,13 @@ def run(
         "within its declared domain; anything else is a hard error before "
         "anything runs, never a silent fallback.",
     ),
+    backend: str = typer.Option(
+        "cpu",
+        help="Compute backend to run on (ADR-0008) — never auto-selected, "
+        "always this exact value. Run `goesb doctor` to see which backends "
+        "this machine can actually use. Requesting one this profile's "
+        "runtime doesn't support is a hard error before anything runs.",
+    ),
 ) -> None:
     """Run a benchmark for a profile + pack and emit a signed result document."""
     profile_path = Path(profiles_dir) / profile_id / "profile.yaml"
@@ -1449,6 +1539,21 @@ def run(
     except ValueError as exc:
         typer.echo(f"--param error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+    # Same "explicit, early, never silent" placement as the --param check
+    # above (ADR-0008): a backend this profile's runtime doesn't support
+    # must fail before the engine install prompt, not after, and never
+    # silently fall back to whatever the underlying library would have
+    # auto-selected.
+    supported_backends = get_supported_backends(profile["runtime"]["name"], profile["benchmark_type"])
+    if backend not in supported_backends:
+        typer.echo(
+            f"--backend {backend!r} is not supported by {profile['runtime']['name']!r} "
+            f"({profile['benchmark_type']!r}) — this runtime supports: "
+            f"{', '.join(sorted(supported_backends))}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     _ensure_engine_installed(profile["runtime"]["name"])
 
@@ -1563,6 +1668,7 @@ def run(
                     threads=configuration.get("threads", 4),
                     download_root=models_root_path,
                     language=language_code,
+                    backend=backend,
                 )
 
             transcriptions, samples, temp_samples_c, rapl_uj_delta = _sample_during(_do_transcribe)
@@ -1608,6 +1714,7 @@ def run(
                     threads=configuration.get("threads", 4),
                     download_root=models_root_path,
                     language=language_code,
+                    backend=backend,
                 )
 
             traces, samples, temp_samples_c, rapl_uj_delta = _sample_during(_do_transcribe)
@@ -1703,7 +1810,10 @@ def run(
     model_sha256 = sha256_dir(models_root_path)
 
     result = {
-        "schema_version": "0.2",
+        # 0.3: runtime.backend (ADR-0008) — 0.2 was already claimed by
+        # ADR-0009's `parameters` field (see CHANGELOG [0.3.0]); backend
+        # didn't ride that bump, so this is its own.
+        "schema_version": "0.3",
         "profile": {
             "id": profile["id"],
             "version": profile["version"],
@@ -1719,6 +1829,7 @@ def run(
             "name": runtime_name,
             "version": profile["runtime"].get("min_version", "unknown"),
             "sha256": runtime_hash,
+            "backend": backend,
         },
         "model": {
             "name": model_name,

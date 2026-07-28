@@ -72,12 +72,22 @@ def test_overridable_rejects_unknown_domain_shape():
     assert errors
 
 
-def test_result_schema_version_is_0_2():
+def test_result_schema_version_is_0_3():
     example = yaml.safe_load(
         (REPO_ROOT / "schemas" / "examples" / "benchmark-result.example.json").read_text()
     )
-    assert example["schema_version"] == "0.2"
+    assert example["schema_version"] == "0.3"
     assert validate_against(example, "benchmark-result.schema.json") == []
+
+
+def test_result_schema_requires_runtime_backend():
+    example = yaml.safe_load(
+        (REPO_ROOT / "schemas" / "examples" / "benchmark-result.example.json").read_text()
+    )
+    assert example["runtime"]["backend"] == "cpu"
+    del example["runtime"]["backend"]
+    errors = validate_against(example, "benchmark-result.schema.json")
+    assert errors
 
 
 def test_result_schema_accepts_parameters_field():

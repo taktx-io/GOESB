@@ -98,9 +98,10 @@ class _FakeWhisperModel:
     .transcribe() was called with instead of running real inference."""
 
     last_transcribe_kwargs: ClassVar[dict] = {}
+    last_init_kwargs: ClassVar[dict] = {}
 
-    def __init__(self, *_args, **_kwargs):
-        pass
+    def __init__(self, *_args, **kwargs):
+        _FakeWhisperModel.last_init_kwargs = kwargs
 
     def transcribe(self, *_args, **kwargs):
         _FakeWhisperModel.last_transcribe_kwargs = kwargs
@@ -132,3 +133,61 @@ def test_run_streaming_passes_language_to_the_model(monkeypatch, tmp_path):
     run_streaming("tiny", [_fake_utterance(tmp_path)], chunk_ms=1000, language="es")
 
     assert _FakeWhisperModel.last_transcribe_kwargs.get("language") == "es"
+
+
+def test_run_batch_passes_device_explicitly_default_cpu(monkeypatch, tmp_path):
+    """ADR-0008: device= must always be passed explicitly, never left to
+    ctranslate2's own device="auto" default — even for the default backend."""
+    monkeypatch.setattr("faster_whisper.WhisperModel", _FakeWhisperModel)
+
+    run_batch("tiny", [_fake_utterance(tmp_path)])
+
+    assert _FakeWhisperModel.last_init_kwargs.get("device") == "cpu"
+
+
+def test_run_batch_passes_device_explicitly_for_cuda_backend(monkeypatch, tmp_path):
+    monkeypatch.setattr("faster_whisper.WhisperModel", _FakeWhisperModel)
+
+    run_batch("tiny", [_fake_utterance(tmp_path)], backend="cuda")
+
+    assert _FakeWhisperModel.last_init_kwargs.get("device") == "cuda"
+
+
+def test_run_streaming_passes_device_explicitly_for_cuda_backend(monkeypatch, tmp_path):
+    monkeypatch.setattr("faster_whisper.WhisperModel", _FakeWhisperModel)
+    monkeypatch.setattr("faster_whisper.audio.decode_audio", lambda *a, **k: [0.0] * 16000)
+
+    run_streaming("tiny", [_fake_utterance(tmp_path)], chunk_ms=1000, backend="cuda")
+
+    assert _FakeWhisperModel.last_init_kwargs.get("device") == "cuda"
+
+
+def test_run_batch_wraps_cuda_unavailable_error_with_clear_message(monkeypatch, tmp_path):
+    """A CTranslate2 build without CUDA support raises a raw ValueError deep
+    inside model construction — must surface as a clear, actionable
+    RuntimeError (ADR-0008: fails immediately, never a silent CPU
+    fallback), not a bare third-party stack trace."""
+
+    class _RaisingWhisperModel:
+        def __init__(self, *_args, **_kwargs):
+            raise ValueError("This CTranslate2 package was not compiled with CUDA support")
+
+    monkeypatch.setattr("faster_whisper.WhisperModel", _RaisingWhisperModel)
+
+    with pytest.raises(RuntimeError, match="goesb doctor"):
+        run_batch("tiny", [_fake_utterance(tmp_path)], backend="cuda")
+
+
+def test_run_batch_does_not_mask_unrelated_value_errors(monkeypatch, tmp_path):
+    """Only the specific "not compiled with CUDA support" failure gets the
+    friendlier wrapping — an unrelated ValueError must propagate as-is, not
+    be silently reinterpreted as a CUDA problem it isn't."""
+
+    class _RaisingWhisperModel:
+        def __init__(self, *_args, **_kwargs):
+            raise ValueError("some unrelated model-loading problem")
+
+    monkeypatch.setattr("faster_whisper.WhisperModel", _RaisingWhisperModel)
+
+    with pytest.raises(ValueError, match="unrelated model-loading problem"):
+        run_batch("tiny", [_fake_utterance(tmp_path)], backend="cuda")

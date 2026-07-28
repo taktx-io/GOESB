@@ -4,6 +4,36 @@ All notable changes to GOESB are documented here. Format loosely follows
 Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
+### Added
+- **ADR-0008 implemented: explicit compute backend.** `goesb run` gains
+  `--backend` (`cpu`/`cuda`), defaulting to `cpu` and always passed
+  explicitly to the underlying library (`device=` for faster-whisper,
+  `context_params={"use_gpu": ...}` for whisper.cpp) — never left to
+  ctranslate2's own `device="auto"` default, which silently tried CUDA
+  whenever a GPU looked present. Root cause of a real Windows install
+  failure: cuBLAS/cuDNN often come bundled for free via the Linux pip
+  wheel, so `device="auto"` mostly worked by accident there; Windows has
+  no equivalent auto-bundling, so "GPU present, CUDA libraries not
+  installed" failed deep inside model load with a confusing error.
+  Requesting a backend an adapter doesn't declare support for (a new
+  per-adapter `backends` registration, defaulting to cpu-only — vosk
+  needs no change, it's genuinely CPU-only) is a hard error before the
+  engine-install prompt, pack resolution, or any model load, same
+  explicit/early/never-silent standard as ADR-0009's `--param`
+  validation. `--backend cuda` on a CTranslate2 build without CUDA
+  support now fails with a clear, actionable message instead of a bare
+  third-party stack trace.
+- **`goesb doctor`.** Reports detected accelerators (reusing
+  `environment.py`'s existing `nvidia-smi`-based GPU probe) and, per
+  installed engine, whether the backends it declares are actually usable
+  right now — for faster-whisper, a real (read-only) check via
+  `ctranslate2.get_cuda_device_count()`, not just "a GPU exists." Detects
+  and suggests; never runs anything or changes any state. `pip install
+  "goesb-runner[faster-whisper]"` (macOS/Linux) and the Windows installer
+  both nudge toward it as the next step after install.
+- **Result schema bumped to `schema_version: "0.3"`** for `runtime.backend`
+  (required, `additionalProperties: false`) — `"0.2"` was already claimed
+  by `[0.3.0]`'s `parameters` field and backend didn't ride that bump.
 
 ## [0.5.0] - 2026-07-28
 ### Added

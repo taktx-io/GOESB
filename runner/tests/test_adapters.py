@@ -5,8 +5,10 @@ import pytest
 from oesb_runner.adapters import (
     get_adapter,
     get_applied_parameters,
+    get_supported_backends,
     log_progress,
     register,
+    registered_adapters,
 )
 from oesb_runner.adapters.vosk import _MODEL_URLS
 
@@ -70,6 +72,42 @@ def test_get_applied_parameters_unknown_pair_defaults_to_empty_fail_closed():
     nothing by default, not everything — fail closed, not open."""
     register("test-only-unregistered-params-runtime", benchmark_type="batch")(lambda: None)
     assert get_applied_parameters("test-only-unregistered-params-runtime", "batch") == frozenset()
+
+
+# --- ADR-0008 "explicit, never auto-selected": backend registry ---
+
+
+def test_get_supported_backends_faster_whisper_includes_cuda():
+    assert get_supported_backends("faster-whisper", "batch") == {"cpu", "cuda"}
+    assert get_supported_backends("faster-whisper", "streaming") == {"cpu", "cuda"}
+
+
+def test_get_supported_backends_whisper_cpp_includes_cuda():
+    assert get_supported_backends("whisper-cpp", "batch") == {"cpu", "cuda"}
+
+
+def test_get_supported_backends_vosk_is_cpu_only():
+    """vosk never declares `backends` at registration — confirms the
+    cpu-only default actually applies rather than silently permitting
+    everything, matching this adapter's genuine CPU-only nature."""
+    assert get_supported_backends("vosk", "batch") == {"cpu"}
+
+
+def test_get_supported_backends_unknown_pair_defaults_to_cpu_only():
+    """Fail toward the one backend every machine has, not toward permitting
+    an unregistered (runtime, benchmark_type) to claim GPU support it never
+    declared — same fail-closed posture as get_applied_parameters, just
+    failing to {"cpu"} instead of to empty."""
+    register("test-only-unregistered-backends-runtime", benchmark_type="batch")(lambda: None)
+    assert get_supported_backends("test-only-unregistered-backends-runtime", "batch") == {"cpu"}
+
+
+def test_registered_adapters_includes_all_built_ins():
+    adapters = registered_adapters()
+    assert ("faster-whisper", "batch") in adapters
+    assert ("faster-whisper", "streaming") in adapters
+    assert ("whisper-cpp", "batch") in adapters
+    assert ("vosk", "batch") in adapters
 
 
 def test_log_progress_writes_to_stderr(capsys):

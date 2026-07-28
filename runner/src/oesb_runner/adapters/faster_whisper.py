@@ -24,9 +24,53 @@ def _resolve_model_id(model_name: str) -> str:
     return model_name.removeprefix(prefix)
 
 
+# ADR-0008: ctranslate2's own default (device="auto") silently tries CUDA
+# whenever a GPU looks present — on Linux, cuBLAS/cuDNN often come along for
+# free via pip wheel dependencies, so this mostly worked by accident; on
+# Windows there's no equivalent auto-bundling, so "GPU present, CUDA
+# libraries not actually installed" failed deep inside model load, not at
+# install time. `backend` must always be passed explicitly as `device=`
+# instead of ever leaving it to ctranslate2's own default.
+_DEVICE_BY_BACKEND = {"cpu": "cpu", "cuda": "cuda"}
+
+
+def _load_model(model_name: str, backend: str, quantization: str, threads: int, download_root):
+    """Shared `WhisperModel(...)` construction for both run_batch and
+    run_streaming. `--backend cuda` on a CTranslate2 build without CUDA
+    support raises a raw ValueError deep inside ctranslate2 — caught and
+    re-raised as a clear, actionable RuntimeError (ADR-0008: fails
+    immediately, before any model weights load, never a silent CPU
+    fallback) rather than surfacing a bare third-party stack trace as the
+    only explanation."""
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise RuntimeError(
+            "faster-whisper is not installed; run "
+            "`pip install goesb-runner[faster-whisper]`"
+        ) from exc
+
+    try:
+        return WhisperModel(
+            _resolve_model_id(model_name),
+            device=_DEVICE_BY_BACKEND[backend],
+            compute_type=quantization,
+            cpu_threads=threads,
+            download_root=str(download_root) if download_root is not None else None,
+        )
+    except ValueError as exc:
+        if backend == "cuda" and "CUDA" in str(exc):
+            raise RuntimeError(
+                f"--backend cuda failed: {exc}. Run `goesb doctor` to check what's "
+                "missing, or use --backend cpu."
+            ) from exc
+        raise
+
+
 @register(
     "faster-whisper", benchmark_type="batch",
     applied_parameters=frozenset({"quantization", "beam_size", "temperature", "vad", "threads"}),
+    backends=frozenset(_DEVICE_BY_BACKEND),
 )
 def run_batch(
     model_name: str,
@@ -39,6 +83,7 @@ def run_batch(
     threads: int = 4,
     download_root: str | Path | None = None,
     language: str | None = None,
+    backend: str = "cpu",
 ) -> list[Transcription]:
     """Transcribe every utterance once, batch-style, and time each call.
 
@@ -55,21 +100,12 @@ def run_batch(
     auto-detect) should be set from the profile whenever it's known —
     auto-detection is not required to fail, but it's strictly less reliable
     than telling the decoder the language up front.
-    """
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise RuntimeError(
-            "faster-whisper is not installed; run "
-            "`pip install goesb-runner[faster-whisper]`"
-        ) from exc
 
-    model = WhisperModel(
-        _resolve_model_id(model_name),
-        compute_type=quantization,
-        cpu_threads=threads,
-        download_root=str(download_root) if download_root is not None else None,
-    )
+    `backend` (ADR-0008) is passed straight through as `device=` — the CLI
+    has already validated it against this adapter's declared supported set
+    before calling in, so an unsupported value never reaches here.
+    """
+    model = _load_model(model_name, backend, quantization, threads, download_root)
 
     results: list[Transcription] = []
     for i, utterance in enumerate(utterances, start=1):
@@ -97,6 +133,7 @@ def run_batch(
     applied_parameters=frozenset(
         {"quantization", "beam_size", "temperature", "vad", "threads", "chunk_ms"}
     ),
+    backends=frozenset(_DEVICE_BY_BACKEND),
 )
 def run_streaming(
     model_name: str,
@@ -110,6 +147,7 @@ def run_streaming(
     threads: int = 4,
     download_root: str | Path | None = None,
     language: str | None = None,
+    backend: str = "cpu",
 ) -> list[StreamTrace]:
     """Feed each utterance to faster-whisper in `chunk_ms` chunks, re-decoding
     the growing buffer after every chunk (faster-whisper has no incremental
@@ -119,7 +157,6 @@ def run_streaming(
     hypothesis timeline for the streaming metric plugins to score.
     """
     try:
-        from faster_whisper import WhisperModel
         from faster_whisper.audio import decode_audio
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise RuntimeError(
@@ -130,12 +167,7 @@ def run_streaming(
     sample_rate = 16000
     chunk_samples = max(1, int(chunk_ms / 1000 * sample_rate))
 
-    model = WhisperModel(
-        _resolve_model_id(model_name),
-        compute_type=quantization,
-        cpu_threads=threads,
-        download_root=str(download_root) if download_root is not None else None,
-    )
+    model = _load_model(model_name, backend, quantization, threads, download_root)
 
     traces: list[StreamTrace] = []
     for i, utterance in enumerate(utterances, start=1):

@@ -71,6 +71,7 @@ def run_batch(
     threads: int = 4,
     download_root: str | Path | None = None,
     language: str | None = None,
+    backend: str = "cpu",
 ) -> list[Transcription]:
     """Transcribe every utterance once, batch-style, and time each call.
 
@@ -80,8 +81,10 @@ def run_batch(
     changes) but unused — vosk's Kaldi decoder has no equivalent tunables
     exposed through its Python API, and each vosk model is already
     per-language (the profile's `model.name` picks the language, not a
-    runtime parameter).
-    """
+    runtime parameter). `backend` (ADR-0008) is accepted for the same
+    call-shape-parity reason but unused — this adapter is genuinely
+    CPU-only (no `backends` declared at registration means it defaults to
+    cpu-only, so the CLI never calls in with anything else)."""
     try:
         import vosk
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
