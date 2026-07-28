@@ -69,7 +69,7 @@ implied.
   A genuinely new locale gets the same onboarding any language already gets: a
   profile declaring that `language` (it also drives `normalization.ruleset_id`),
   a pack with a matching `metadata.language`. `pack.metadata.dialect` (already
-  schema-defined, already used by `librispeech-en-batch`) is the right place for
+  schema-defined, already used by `librispeech-en`) is the right place for
   a same-tag accent variant that should still count as the same locale for
   eligibility purposes.
 
@@ -84,9 +84,9 @@ recounted directly against `packs/`, not estimated) are retired outright as part
 of this same change, not deprecated in place: every result referencing them is our
 own internal benchmark run, reproducible on the same hardware, so there is no
 external consumer whose data would be orphaned by removing them. The audio-source
-packs they duplicated (`fleurs-de-batch`, `fleurs-es-batch`, `fleurs-fr-batch`,
-`fleurs-nl-batch`, `fleurs-pt-batch`, `librispeech-en-batch`, plus the
-hand-authored `librispeech-en-whispercpp-batch` / `librispeech-en-vosk-batch` /
+packs they duplicated (`fleurs-de`, `fleurs-es`, `fleurs-fr`,
+`fleurs-nl`, `fleurs-pt`, `librispeech-en`, plus the
+hand-authored `librispeech-en-whispercpp` / `librispeech-en-vosk` /
 `librispeech-en-streaming`) are untouched and now directly cover every batch
 profile in their language on their own.
 

@@ -34,12 +34,12 @@ Usage:
     export MDC_API_KEY=...
     python scripts/build_common_voice_pack.py \
       --dataset-id <id> --locale de \
-      --pack-dir packs/common-voice-de-batch \
+      --pack-dir packs/common-voice-de \
       --dry-run   # inspect the row count first
 
     python scripts/build_common_voice_pack.py \
       --dataset-id <id> --locale de \
-      --pack-dir packs/common-voice-de-batch --count 40
+      --pack-dir packs/common-voice-de --count 40
 """
 from __future__ import annotations
 
@@ -261,7 +261,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset-id", required=True, help="MDC dataset id, from its dataset page URL.")
     parser.add_argument("--locale", required=True, help="Common Voice locale code to filter validated.tsv rows by, e.g. de, es, fr, pt.")
-    parser.add_argument("--pack-dir", type=Path, required=True, help="Existing pack directory, e.g. packs/common-voice-de-batch.")
+    parser.add_argument("--pack-dir", type=Path, required=True, help="Existing pack directory, e.g. packs/common-voice-de.")
     parser.add_argument("--audio-dir", type=Path, default=None, help="Defaults to <pack-dir>/audio.")
     parser.add_argument("--count", type=int, default=40, help="Number of validated clips to take (first N in validated.tsv order).")
     parser.add_argument("--clip-suffix", type=str, default="", help="Override clip file extension if the archive re-encodes clips (e.g. .wav).")

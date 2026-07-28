@@ -20,7 +20,7 @@ What it does:
 
 Usage:
     python scripts/fetch_fleurs_subset.py --language nl_nl \
-      --pack-dir packs/fleurs-nl-batch
+      --pack-dir packs/fleurs-nl
 """
 from __future__ import annotations
 
@@ -144,7 +144,7 @@ def main() -> int:
     parser.add_argument("--count", type=int, default=15,
                          help="How many clips to fetch, taken in tsv order.")
     parser.add_argument("--pack-dir", type=Path, required=True,
-                         help="Existing pack directory, e.g. packs/fleurs-nl-batch.")
+                         help="Existing pack directory, e.g. packs/fleurs-nl.")
     parser.add_argument("--audio-dir", type=Path, default=None,
                          help="Defaults to <pack-dir>/audio.")
     parser.add_argument("--skip-download", action="store_true",

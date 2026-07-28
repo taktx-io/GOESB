@@ -15,7 +15,7 @@ faster_whisper = pytest.importorskip(
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "librispeech-en-batch" / "audio"
+BATCH_AUDIO_DIR = REPO_ROOT / "packs" / "librispeech-en" / "audio"
 
 pytestmark = [
     pytest.mark.slow,

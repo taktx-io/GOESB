@@ -19,7 +19,7 @@ from oesb_runner.metrics import rtf, wer
 from oesb_runner.pack import Utterance
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PACK_DIR = REPO_ROOT / "packs" / "librispeech-en-batch"
+PACK_DIR = REPO_ROOT / "packs" / "librispeech-en"
 
 pytestmark = pytest.mark.skipif(
     not (PACK_DIR / "audio").exists(),

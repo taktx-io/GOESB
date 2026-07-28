@@ -1,7 +1,7 @@
-id: librispeech-en-streaming
+id: librispeech-en-vosk
 version: 1.0.0
-sha256: 58543a9bd473abd34a43bbf8c42a0a7df94aa3b3df807f3379294637b3b96937
-profile_id: whisper-medium-en-streaming
+sha256: a1d0533fab7a160921a59da795a57743d1fa7b49880b84be1c34a3386eef84f7
+profile_id: vosk-small-en-batch
 visibility: open
 license: CC-BY-4.0
 audio:
@@ -18,7 +18,7 @@ audio:
     fetch_instructions: 'Identical audio to librispeech-en — auto-fetched the same
       way (same speaker/chapter). Manual fallback: run scripts/fetch_librispeech_subset.py
       for that pack, then pass `--audio-dir packs/librispeech-en/audio` to `goesb
-      run`, or symlink/copy that pack''s audio/ directory here.'
+      run`.'
 metadata:
   language: en-US
   dialect: general-american
@@ -34,4 +34,4 @@ metadata:
   - librispeech
   - english
   - clean
-  - streaming
+  - vosk

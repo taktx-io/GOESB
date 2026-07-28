@@ -1,0 +1,26 @@
+id: fleurs-de
+version: 1.0.0
+sha256: 2ad5320ed01f693dcf8be85064c5c00ab4042ef4fa894c6d03ea1dc5f4eacd19
+profile_id: whisper-medium-de-batch
+visibility: open
+license: CC-BY-4.0
+metadata:
+  language: de-DE
+  recording_environment: studio
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - fleurs
+  - de
+audio:
+  count: 15
+  total_duration_s: 166.44
+  sample_rate_hz: 16000
+  manifest_sha256: 6a24e87d7876018ba67f1a021af3d46b712169e1c5a9b303e3fc583301616d8d
+  source:
+    type: fleurs
+    params:
+      language: de_de
+      split: dev
+    fetch_instructions: python scripts/fetch_fleurs_subset.py --language de_de --pack-dir
+      packs/fleurs-de

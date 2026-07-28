@@ -12,8 +12,8 @@ identified by an `id`, `version`, and `sha256`.
   and results are stored, and they never appear on public leaderboards.
 
 Every pack declares its `language` (BCP-47) in metadata, and packs exist for any
-language — the ones here are English (`librispeech-en-batch`) and Dutch
-(`fleurs-nl-batch`), both fully working end to end (`goesb run` fetches their
+language — the ones here are English (`librispeech-en`) and Dutch
+(`fleurs-nl`), both fully working end to end (`goesb run` fetches their
 audio automatically). Multilingual open datasets such as FLEURS and Common
 Voice span 100+ languages; a pack targets one language at a time and is
 scored by a matching per-language profile.

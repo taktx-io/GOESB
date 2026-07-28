@@ -13,9 +13,9 @@ scripts/fetch_fleurs_subset.py) — every other combo for that language is a
 "sibling" pack that reuses the same audio via the same
 audio.source.type/params auto-fetch mechanism `goesb run` already
 implements (runner/src/oesb_runner/audio_sources.py), exactly matching the
-existing librispeech-en-vosk-batch/librispeech-en-whispercpp-batch pattern.
+existing librispeech-en-vosk/librispeech-en-whispercpp pattern.
 English itself needs no new audio fetch at all — its siblings reuse the
-already-committed librispeech-en-batch manifest.
+already-committed librispeech-en manifest.
 
 Idempotent: skips any file/pack that already exists, so a partial run (e.g.
 a dropped connection mid-language) can be safely re-run.
@@ -46,44 +46,44 @@ ID_PREFIX = {"faster-whisper": "whisper", "whisper-cpp": "whispercpp", "vosk": "
 TITLE_ENGINE = {"faster-whisper": "Whisper", "whisper-cpp": "Whisper.cpp", "vosk": "Vosk"}
 
 # New languages: fetched fresh via FLEURS, no existing combos.
-# English: no new audio fetch (reuses librispeech-en-batch), and 3 of its
+# English: no new audio fetch (reuses librispeech-en), and 3 of its
 # 11 combos already exist as hand-authored profiles/packs from before this
 # bulk effort — those are left untouched, not regenerated.
 LANGUAGES: list[dict[str, Any]] = [
     {
         "code": "es", "bcp47": "es-419", "fleurs": "es_419",
         "vosk_model": "vosk-model-small-es-0.42",
-        "primary_pack_id": "fleurs-es-batch", "source_type": "fleurs",
+        "primary_pack_id": "fleurs-es", "source_type": "fleurs",
         "existing_combos": set(),
     },
     {
         "code": "fr", "bcp47": "fr-FR", "fleurs": "fr_fr",
         "vosk_model": "vosk-model-small-fr-0.22",
-        "primary_pack_id": "fleurs-fr-batch", "source_type": "fleurs",
+        "primary_pack_id": "fleurs-fr", "source_type": "fleurs",
         "existing_combos": set(),
     },
     {
         "code": "pt", "bcp47": "pt-BR", "fleurs": "pt_br",
         "vosk_model": "vosk-model-small-pt-0.3",
-        "primary_pack_id": "fleurs-pt-batch", "source_type": "fleurs",
+        "primary_pack_id": "fleurs-pt", "source_type": "fleurs",
         "existing_combos": set(),
     },
     {
         "code": "de", "bcp47": "de-DE", "fleurs": "de_de",
         "vosk_model": "vosk-model-small-de-0.15",
-        "primary_pack_id": "fleurs-de-batch", "source_type": "fleurs",
+        "primary_pack_id": "fleurs-de", "source_type": "fleurs",
         "existing_combos": set(),
     },
     {
         "code": "en", "bcp47": "en-US", "fleurs": None,
         "vosk_model": "vosk-model-small-en-us-0.15",
-        "primary_pack_id": "librispeech-en-batch", "source_type": "librispeech",
+        "primary_pack_id": "librispeech-en", "source_type": "librispeech",
         "existing_combos": {("faster-whisper", "medium"), ("whisper-cpp", "base"), ("vosk", None)},
     },
     {
         "code": "nl", "bcp47": "nl-NL", "fleurs": "nl_nl",
         "vosk_model": "vosk-model-small-nl-0.22",
-        "primary_pack_id": "fleurs-nl-batch", "source_type": "fleurs",
+        "primary_pack_id": "fleurs-nl", "source_type": "fleurs",
         "existing_combos": {("faster-whisper", "medium")},
     },
 ]
@@ -186,7 +186,7 @@ def write_profile(profile_id: str, engine: str, size: str | None, lang: dict) ->
 def fetch_primary_pack(lang: dict, primary_profile_id: str) -> Path:
     pack_dir = ROOT / "packs" / lang["primary_pack_id"]
     if lang["code"] == "en":
-        return pack_dir  # librispeech-en-batch already exists, nothing to fetch
+        return pack_dir  # librispeech-en already exists, nothing to fetch
 
     pack_path = pack_dir / "pack.yaml"
     if pack_path.exists() and (pack_dir / "manifest.jsonl").exists() and (pack_dir / "audio").exists():
@@ -218,7 +218,7 @@ def fetch_primary_pack(lang: dict, primary_profile_id: str) -> Path:
     print(f"Fetching real FLEURS audio for {lang['code']} ...", file=sys.stderr)
     # Relative --pack-dir (not the absolute `pack_dir` Path) so the
     # fetch_instructions this writes into pack.yaml stay portable
-    # (matching e.g. fleurs-nl-batch's "packs/fleurs-nl-batch", not this
+    # (matching e.g. fleurs-nl's "packs/fleurs-nl", not this
     # machine's absolute filesystem path).
     subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "fetch_fleurs_subset.py"),

@@ -8,7 +8,7 @@ from oesb_runner.hashing import canonical_asset_sha256, sha256_bytes, sha256_fil
 from oesb_runner.pack import PackAudioMissingError, PackIntegrityError, load_pack
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PACK_DIR = REPO_ROOT / "packs" / "librispeech-en-batch"
+PACK_DIR = REPO_ROOT / "packs" / "librispeech-en"
 
 requires_fetched_audio = pytest.mark.skipif(
     not (PACK_DIR / "audio").exists(),
@@ -38,7 +38,7 @@ def _write_pack(pack_dir: Path, audio_dir: Path, manifest_entry: dict, audio_byt
 @requires_fetched_audio
 def test_load_pack_verifies_and_returns_utterances():
     pack = load_pack(PACK_DIR)
-    assert pack.id == "librispeech-en-batch"
+    assert pack.id == "librispeech-en"
     assert pack.profile_id == "whisper-medium-en-batch"
     assert len(pack.utterances) == 15
     assert all(u.audio_path.exists() for u in pack.utterances)

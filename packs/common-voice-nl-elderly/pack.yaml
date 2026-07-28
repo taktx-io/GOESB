@@ -1,0 +1,37 @@
+id: common-voice-nl-elderly
+version: 1.0.0
+sha256: 0b4e0369c3a491f9bdd633ad205a9e38559b7242390d53797c5778bb80c00e23
+profile_id: whisper-medium-nl-batch
+visibility: open
+license: CC0-1.0
+metadata:
+  language: nl-NL
+  recording_environment: crowd-sourced (variable, personal devices)
+  microphone: variable (crowd-sourced personal devices)
+  background_noise: variable
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - common-voice
+  - dutch
+  - elderly
+  - gated
+  age_group: nineties+eighties+seventies
+  num_speakers: 6
+audio:
+  count: 40
+  manifest_sha256: f618b62629564841490cc20ca7b4b5d0c64fc6d810f48ab45ba5bb6d2f2869dc
+  source:
+    type: mozilla_data_collective
+    params:
+      dataset_id: cmqinokkq00wwnr07hv5oax8l
+    credential:
+      env_var: MDC_API_KEY
+      signup_url: https://mozilladatacollective.com
+      instructions: Create a free Mozilla Data Collective account at https://mozilladatacollective.com,
+        agree to the Common Voice dataset's terms on its dataset page, then generate
+        an API key from the dashboard (https://mozilladatacollective.com/api-reference).
+        Install the client with `pip install datacollective`, then set MDC_API_KEY
+        to your key.
+  total_duration_s: 270.481
+  sample_rate_hz: 32000

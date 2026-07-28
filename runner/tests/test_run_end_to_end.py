@@ -15,7 +15,7 @@ faster_whisper = pytest.importorskip(
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PACK_DIR = REPO_ROOT / "packs" / "librispeech-en-batch"
+PACK_DIR = REPO_ROOT / "packs" / "librispeech-en"
 
 pytestmark = [
     pytest.mark.slow,
@@ -31,7 +31,7 @@ runner = CliRunner()
 def test_run_produces_valid_signed_reproducible_result(tmp_path):
     results_dir = tmp_path / "results"
     result = runner.invoke(app, [
-        "run", "whisper-medium-en-batch", "librispeech-en-batch",
+        "run", "whisper-medium-en-batch", "librispeech-en",
         "--repeats", "2",
         "--model-override", "tiny",
         "--profiles-dir", str(REPO_ROOT / "profiles"),

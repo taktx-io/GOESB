@@ -5,6 +5,20 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-28
+### Changed
+- **Pack ids drop their `-batch` suffix.** Leftover from when every pack
+  was authored against a batch profile specifically (ADR-0011's own
+  eligibility rule is language-only, benchmark_type isn't checked) — the
+  suffix implied a constraint that no longer holds, confirmed by
+  `librispeech-en-streaming`'s audio being byte-identical to
+  `librispeech-en`'s. `common-voice-de-batch` -> `common-voice-de`,
+  `fleurs-nl-batch` -> `fleurs-nl`, `librispeech-en-batch` -> `librispeech-en`,
+  and 13 more — every currently-published pack except
+  `librispeech-en-streaming` (not `-batch`-suffixed, untouched). New ids,
+  new hashes (id is part of a pack's canonical content) — old ids are
+  gone, not aliased.
+
 ## [0.7.0] - 2026-07-28
 ### Changed
 - **ADR-0011: packs decoupled from profiles, joined on language instead of

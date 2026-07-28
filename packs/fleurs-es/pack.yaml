@@ -1,0 +1,26 @@
+id: fleurs-es
+version: 1.0.0
+sha256: 824cd729b95442049571b9cf85ba87b1e9375b3d01eb7cbf5be5549b24d59297
+profile_id: whisper-medium-es-batch
+visibility: open
+license: CC-BY-4.0
+metadata:
+  language: es-419
+  recording_environment: studio
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - fleurs
+  - es
+audio:
+  count: 15
+  total_duration_s: 169.56
+  sample_rate_hz: 16000
+  manifest_sha256: ac2ed74c576bdaa319a5ba27e6e36d5ad2504ff43d9c089a7903cec569b42d48
+  source:
+    type: fleurs
+    params:
+      language: es_419
+      split: dev
+    fetch_instructions: python scripts/fetch_fleurs_subset.py --language es_419 --pack-dir
+      packs/fleurs-es

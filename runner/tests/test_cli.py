@@ -35,7 +35,7 @@ def test_validate_valid_profile():
 
 
 def test_validate_valid_pack():
-    path = REPO_ROOT / "packs" / "librispeech-en-batch" / "pack.yaml"
+    path = REPO_ROOT / "packs" / "librispeech-en" / "pack.yaml"
     result = runner.invoke(app, ["validate", str(path)])
     assert result.exit_code == 0
     assert "valid" in result.stdout
@@ -61,7 +61,7 @@ def test_list_packs_offline_lists_local_packs():
         app, ["list-packs", "--offline", "--packs-dir", str(REPO_ROOT / "packs")]
     )
     assert result.exit_code == 0
-    assert "librispeech-en-batch" in result.stdout
+    assert "librispeech-en" in result.stdout
     assert "open" in result.stdout
 
 
@@ -474,14 +474,14 @@ def test_wizard_run_expands_combos_when_multiple_packs_chosen_for_one_profile(mo
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "fleurs-nl-batch", "visibility": "open", "language": "nl-NL"},
-            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "language": "nl-NL"},
+            {"id": "fleurs-nl", "visibility": "open", "language": "nl-NL"},
+            {"id": "common-voice-nl-elderly", "visibility": "open", "language": "nl-NL"},
         ],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-nl-batch"])
     monkeypatch.setattr(
         cli_module, "_choose_packs_for_profile",
-        lambda profile_id, matching_packs, *a, **k: ["fleurs-nl-batch", "common-voice-nl-elderly-batch"],
+        lambda profile_id, matching_packs, *a, **k: ["fleurs-nl", "common-voice-nl-elderly"],
     )
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
@@ -498,8 +498,8 @@ def test_wizard_run_expands_combos_when_multiple_packs_chosen_for_one_profile(mo
     cli_module._wizard_run()
 
     assert reexec_calls == [
-        ["run", "whisper-medium-nl-batch", "fleurs-nl-batch", "--repeats", "1", "--hardware", "custom"],
-        ["run", "whisper-medium-nl-batch", "common-voice-nl-elderly-batch", "--repeats", "1", "--hardware", "custom"],
+        ["run", "whisper-medium-nl-batch", "fleurs-nl", "--repeats", "1", "--hardware", "custom"],
+        ["run", "whisper-medium-nl-batch", "common-voice-nl-elderly", "--repeats", "1", "--hardware", "custom"],
     ]
 
 
@@ -518,8 +518,8 @@ def test_wizard_run_drops_cell_silently_when_pack_choice_empty(monkeypatch):
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "fleurs-nl-batch", "visibility": "open", "language": "nl-NL"},
-            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "language": "nl-NL"},
+            {"id": "fleurs-nl", "visibility": "open", "language": "nl-NL"},
+            {"id": "common-voice-nl-elderly", "visibility": "open", "language": "nl-NL"},
             {"id": "pack-en", "visibility": "open", "language": "en-US"},
         ],
     )
@@ -562,8 +562,8 @@ def test_wizard_run_aborts_when_pack_choice_cancelled(monkeypatch):
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "fleurs-nl-batch", "visibility": "open", "language": "nl-NL"},
-            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "language": "nl-NL"},
+            {"id": "fleurs-nl", "visibility": "open", "language": "nl-NL"},
+            {"id": "common-voice-nl-elderly", "visibility": "open", "language": "nl-NL"},
         ],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-nl-batch"])
@@ -1060,7 +1060,7 @@ def test_choose_packs_for_profile_defaults_to_ungated_even_when_listed_second(tm
     """Regression test: matching_packs order comes from _pack_rows' local-dir
     listing, which is alphabetical and has nothing to do with which pack is
     the sensible default. A gated pack sorting before the ungated one (e.g.
-    'common-voice-nl-elderly-batch' before 'fleurs-nl-batch') must not end
+    'common-voice-nl-elderly' before 'fleurs-nl') must not end
     up pre-checked ahead of it — caught live: the wizard pre-checked the
     gated pack for whisper-medium-nl-batch because it happened to sort
     first."""

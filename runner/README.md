@@ -14,7 +14,7 @@ pip install -e ".[dev,faster-whisper]"
 goesb --help
 goesb env          # print captured environment fingerprint
 goesb validate profiles/whisper-medium-en-batch/profile.yaml
-goesb validate packs/librispeech-en-batch/pack.yaml
+goesb validate packs/librispeech-en/pack.yaml
 
 # Fetch this pack's audio (not committed to git — FR-3.5) before running
 # against it. Reruns are safe with --skip-download.
@@ -22,7 +22,7 @@ python ../scripts/fetch_librispeech_subset.py
 
 # Run a batch benchmark end-to-end: environment capture, transcription,
 # normalization + WER/CER/RTF/CPU/RAM, a signed+hashed result on disk.
-goesb run whisper-medium-en-batch librispeech-en-batch --repeats 2
+goesb run whisper-medium-en-batch librispeech-en --repeats 2
 ```
 
 Pass `--model-override tiny` (or `base`) to `goesb run` for a fast local smoke

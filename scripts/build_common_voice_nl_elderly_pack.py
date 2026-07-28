@@ -44,12 +44,12 @@ Usage:
     export MDC_API_KEY=...
     python scripts/build_common_voice_nl_elderly_pack.py \
       --dataset-id cmn2g7nu901fmo107a1ydn0n5 \
-      --pack-dir packs/common-voice-nl-elderly-batch \
+      --pack-dir packs/common-voice-nl-elderly \
       --dry-run   # inspect the age-bucket distribution first
 
     python scripts/build_common_voice_nl_elderly_pack.py \
       --dataset-id cmn2g7nu901fmo107a1ydn0n5 \
-      --pack-dir packs/common-voice-nl-elderly-batch \
+      --pack-dir packs/common-voice-nl-elderly \
       --age-buckets eighties,nineties --count 40
 """
 from __future__ import annotations
@@ -130,7 +130,7 @@ def read_validated_rows(tsv_path: Path) -> list[dict]:
     # the default QUOTE_MINIMAL dialect swallow the rest of the file into
     # one field until it finds a closing quote, blowing past csv's 128KB
     # field-size limit with a confusing error far from the actual cause
-    # (hit in practice building common-voice-pt-batch).
+    # (hit in practice building common-voice-pt).
     with tsv_path.open(newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f, delimiter="\t", quoting=csv.QUOTE_NONE))
 
@@ -305,7 +305,7 @@ def update_pack_yaml(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset-id", required=True, help="MDC dataset id for Common Voice NL, from its dataset page URL.")
-    parser.add_argument("--pack-dir", type=Path, required=True, help="Existing pack directory, e.g. packs/common-voice-nl-elderly-batch.")
+    parser.add_argument("--pack-dir", type=Path, required=True, help="Existing pack directory, e.g. packs/common-voice-nl-elderly.")
     parser.add_argument("--audio-dir", type=Path, default=None, help="Defaults to <pack-dir>/audio.")
     parser.add_argument("--count", type=int, default=40, help="Target clip count from the chosen bucket(s).")
     parser.add_argument("--age-buckets", type=str, default=None, help="Comma-separated bucket names to force (e.g. eighties,nineties) instead of auto-picking the oldest viable set.")
