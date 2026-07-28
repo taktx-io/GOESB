@@ -12,8 +12,12 @@ What it does:
    reads each FLAC's duration (see oesb_runner.audio.flac_duration_s).
 3. Writes `packs/librispeech-en-batch/manifest.jsonl` — the
    deterministic, committed list of {utterance_id, relative_path,
-   reference_text, duration_s}. No audio bytes are committed (FR-3.5); this
-   manifest is text-only metadata.
+   reference_text, duration_s, audio_sha256}. No audio bytes are committed
+   (FR-3.5); this manifest is text-only metadata. audio_sha256 is a content
+   hash of the FLAC as fetched here — checked against the actual fetched
+   audio at `goesb run` time (oesb_runner.pack.load_pack) so upstream
+   silently serving different bytes behind the same filename is caught
+   instead of scored.
 4. Writes the actual FLAC files to `--audio-dir` (default: a gitignored
    `audio/` folder next to the pack), and updates the pack.yaml's
    audio.count / audio.total_duration_s / audio.manifest_sha256 / sha256 to
@@ -96,6 +100,7 @@ def build_manifest(speaker: str, chapter: str, audio_dir: Path) -> list[dict]:
             "relative_path": flac_path.name,
             "reference_text": references[utt_id],
             "duration_s": round(flac_duration_s(flac_path), 3),
+            "audio_sha256": sha256_file(flac_path),
         })
     return entries
 

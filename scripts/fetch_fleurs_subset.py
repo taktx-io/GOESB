@@ -80,6 +80,7 @@ def build_manifest(rows: list[dict], audio_dir: Path) -> list[dict]:
             "relative_path": row["filename"],
             "reference_text": row["reference_text"],
             "duration_s": round(wav_duration_s(path), 3),
+            "audio_sha256": sha256_file(path),
         })
     return entries
 

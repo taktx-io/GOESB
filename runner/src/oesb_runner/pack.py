@@ -79,6 +79,16 @@ def load_pack(pack_dir: Path, audio_dir: Path | None = None) -> Pack:
         if not audio_path.exists():
             missing.append(entry["relative_path"])
             continue
+        declared_audio_sha256 = entry.get("audio_sha256")
+        if declared_audio_sha256 is not None:
+            actual_audio_sha256 = sha256_file(audio_path)
+            if actual_audio_sha256 != declared_audio_sha256:
+                raise PackIntegrityError(
+                    f"audio content hash mismatch for {entry['relative_path']!r} in "
+                    f"{pack_yaml['id']}: declared {declared_audio_sha256}, computed "
+                    f"{actual_audio_sha256} — the fetched audio doesn't match what "
+                    "this pack was built from."
+                )
         utterances.append(Utterance(
             utterance_id=entry["utterance_id"],
             audio_path=audio_path,

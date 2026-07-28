@@ -4,6 +4,21 @@ All notable changes to GOESB are documented here. Format loosely follows
 Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
+### Added
+- **Per-clip audio integrity check.** `manifest.jsonl` entries may now
+  declare an optional `audio_sha256` (content hash of the audio as
+  originally captured when the pack was authored). `oesb_runner.pack.
+  load_pack` checks fetched/local audio against it when present and raises
+  `PackIntegrityError` on mismatch — catches upstream (Common Voice/MDC,
+  FLEURS, LibriSpeech) silently serving different bytes behind the same
+  filename, which previously went undetected and would silently change
+  what a run measured. Optional/backward-compatible: manifest entries
+  without it load exactly as before. `fetch_fleurs_subset.py`,
+  `fetch_librispeech_subset.py`, and `build_common_voice_nl_elderly_pack.py`
+  now emit it for every pack authored from here on; existing already-
+  published packs are untouched (retrofitting would change manifest.jsonl's
+  bytes, breaking its already-published, immutable manifest_sha256/sha256 —
+  a separate, larger migration, not done here).
 
 ## [0.4.1] - 2026-07-27
 ### Fixed

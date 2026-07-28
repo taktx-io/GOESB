@@ -211,6 +211,7 @@ def build_manifest(
             "relative_path": dest.name,
             "reference_text": row["sentence"],
             "duration_s": duration_s,
+            "audio_sha256": sha256_file(dest),
             "speaker_age_bucket": row.get("age", "").strip() or None,
             "speaker_gender": row.get("gender", "").strip() or None,
         })
