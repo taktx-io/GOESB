@@ -111,6 +111,42 @@ def test_run_prints_fetch_instructions_for_a_pack_with_no_manifest_yet(tmp_path,
     assert "example.invalid/dataset" in result.output
 
 
+def test_run_hints_at_upgrade_for_a_pack_source_type_this_runner_predates(tmp_path, monkeypatch):
+    # A pack whose audio.source.type this runner's bundled schema doesn't
+    # know about (simulates an old install fetching a pack.yaml built for a
+    # newer platform, e.g. a future provider added after this runner
+    # shipped) — should point at `pip install --upgrade goesb-runner`, not
+    # dump a raw jsonschema enum-mismatch message.
+    from oesb_runner import cli as cli_module
+    from oesb_runner.hashing import canonical_asset_sha256
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+
+    pack = {
+        "id": "future-pack",
+        "version": "1.0.0",
+        "profile_id": "whisper-medium-en-batch",
+        "visibility": "open",
+        "license": "CC0-1.0",
+        "audio": {"source": {"type": "some_future_provider", "params": {}}},
+        "metadata": {"language": "en-US", "recording_environment": "quiet", "speech_style": "read"},
+    }
+    pack["sha256"] = canonical_asset_sha256(pack)
+    packs_dir = tmp_path / "packs" / "future-pack"
+    packs_dir.mkdir(parents=True)
+    (packs_dir / "pack.yaml").write_text(yaml.safe_dump(pack, sort_keys=False))
+
+    result = runner.invoke(app, [
+        "run", "whisper-medium-en-batch", "future-pack",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(tmp_path / "packs"),
+    ])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "pip install --upgrade goesb-runner" in result.output
+    assert "some_future_provider" in result.output
+
+
 def test_bare_invocation_shows_help_instead_of_hanging():
     # CliRunner's stdin isn't a tty, same as any piped/scripted invocation —
     # exercises the non-interactive fallback path, not the wizard itself.

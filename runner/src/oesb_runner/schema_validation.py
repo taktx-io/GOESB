@@ -23,3 +23,18 @@ def load_schema(filename: str) -> dict[str, Any]:
 def validate_against(data: dict[str, Any], schema_filename: str) -> list[str]:
     validator = Draft202012Validator(load_schema(schema_filename))
     return [err.message for err in validator.iter_errors(data)]
+
+
+def unrecognized_pack_source_type(pack_data: dict[str, Any]) -> str | None:
+    """If `pack_data.audio.source.type` is set to a value this runner's own
+    bundled schema doesn't know about, return it — signals a pack fetched
+    from a newer platform than this runner understands (e.g. a new
+    `mozilla_data_collective`-style provider), as opposed to any other kind
+    of schema failure. `None` if the type is absent, known, or the pack has
+    no `audio.source` at all."""
+    source_type = pack_data.get("audio", {}).get("source", {}).get("type")
+    if source_type is None:
+        return None
+    schema = load_schema("benchmark-pack.schema.json")
+    known = schema["properties"]["audio"]["properties"]["source"]["properties"]["type"]["enum"]
+    return source_type if source_type not in known else None

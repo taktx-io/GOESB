@@ -63,7 +63,7 @@ from .metrics import energy as energy_metric
 from .normalization import normalize
 from .pack import load_pack
 from .remote import DEFAULT_API_URL, fetch_pack, fetch_profile
-from .schema_validation import validate_against
+from .schema_validation import unrecognized_pack_source_type, validate_against
 from .signing import (
     generate_ephemeral_keypair,
     public_key_bytes_for,
@@ -1466,7 +1466,16 @@ def run(
     pack_yaml = _load_yaml(pack_dir / "pack.yaml")
     pack_errors = validate_against(pack_yaml, "benchmark-pack.schema.json")
     if pack_errors:
-        typer.echo(f"pack {pack_id} failed validation: {pack_errors}", err=True)
+        unknown_type = unrecognized_pack_source_type(pack_yaml)
+        if unknown_type is not None:
+            typer.echo(
+                f"pack {pack_id} uses audio source type {unknown_type!r}, which this "
+                "version of goesb-runner doesn't know about — run `pip install "
+                "--upgrade goesb-runner` and try again.",
+                err=True,
+            )
+        else:
+            typer.echo(f"pack {pack_id} failed validation: {pack_errors}", err=True)
         raise typer.Exit(code=1)
     if pack_yaml["profile_id"] != profile_id:
         typer.echo(

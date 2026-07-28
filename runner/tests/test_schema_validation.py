@@ -2,7 +2,10 @@ from pathlib import Path
 
 import yaml
 
-from oesb_runner.schema_validation import validate_against
+from oesb_runner.schema_validation import (
+    unrecognized_pack_source_type,
+    validate_against,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -82,6 +85,25 @@ def test_result_schema_accepts_parameters_field():
     )
     example["parameters"] = {"beam_size": {"value": 8, "default": 5}}
     assert validate_against(example, "benchmark-result.schema.json") == []
+
+
+def test_unrecognized_pack_source_type_flags_a_type_this_runner_does_not_know():
+    """Simulates an old runner's bundled schema fetching a pack.yaml built
+    for a newer platform (e.g. a hypothetical future provider this runner
+    predates) — should name the offending type, not silently pass or
+    surface only the raw jsonschema enum-mismatch message."""
+    pack = {"audio": {"source": {"type": "some_future_provider"}}}
+    assert unrecognized_pack_source_type(pack) == "some_future_provider"
+
+
+def test_unrecognized_pack_source_type_accepts_known_type():
+    pack = {"audio": {"source": {"type": "mozilla_data_collective"}}}
+    assert unrecognized_pack_source_type(pack) is None
+
+
+def test_unrecognized_pack_source_type_handles_missing_source():
+    assert unrecognized_pack_source_type({"id": "x"}) is None
+    assert unrecognized_pack_source_type({"audio": {}}) is None
 
 
 def test_result_schema_rejects_parameters_entry_missing_default():
