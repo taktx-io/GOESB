@@ -5,6 +5,28 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-28
+### Changed
+- **ADR-0011: packs decoupled from profiles, joined on language instead of
+  `profile_id`.** `pack.yaml`'s `profile_id` is no longer required (kept,
+  informational only) — `goesb run` now checks `pack.metadata.language ==
+  profile.language` instead of an exact `profile_id` pin, both a hard error
+  before anything runs if they don't match. One pack per (language × audio
+  source) is now usable across every profile in that language — no more
+  authoring ~11 near-identical packs per language to fake an (engine × size)
+  matrix. The wizard's pack-picker checkbox (already built for "more than
+  one pack matches") now fires for most languages instead of almost never;
+  no UI changes needed for that. `list-packs` gained a LANGUAGE column.
+- **Retired the sibling-pack workaround.** The ~58 duplicate packs
+  `scripts/generate_bulk_assets.py` generated to fake the old matrix (10 per
+  language across the `de`/`es`/`fr`/`pt`/`nl` FLEURS set, 8 for the `en`
+  LibriSpeech set) are deleted — every result referencing them is an
+  internal benchmark run, reproducible on the same hardware, so nothing
+  external is orphaned. The audio-source packs they duplicated
+  (`fleurs-*-batch`, `librispeech-en-batch`, and the hand-authored
+  `librispeech-en-whispercpp-batch`/`librispeech-en-vosk-batch`) are
+  untouched and now cover every batch profile in their language directly.
+
 ## [0.6.0] - 2026-07-28
 ### Added
 - **Bulk hardware catalog addition: 80 -> 985 entries.** 846 CPU (Intel

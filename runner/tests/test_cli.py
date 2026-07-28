@@ -185,6 +185,81 @@ def test_run_refuses_a_pack_that_declares_a_newer_min_runner_version(tmp_path, m
     assert "0.4.1" in result.output
 
 
+def test_run_refuses_a_pack_whose_language_does_not_match_the_profile(tmp_path, monkeypatch):
+    """ADR-0011: eligibility is decided by language, not by a pack pinning
+    one exact profile_id — a pack for a different language must still be
+    refused, hard, before anything runs."""
+    from oesb_runner import cli as cli_module
+    from oesb_runner.hashing import canonical_asset_sha256
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+
+    pack = {
+        "id": "wrong-language-pack",
+        "version": "1.0.0",
+        "visibility": "open",
+        "license": "CC0-1.0",
+        "audio": {"source": {"fetch_instructions": "n/a"}},
+        "metadata": {"language": "de-DE", "recording_environment": "quiet", "speech_style": "read"},
+    }
+    pack["sha256"] = canonical_asset_sha256(pack)
+    packs_dir = tmp_path / "packs" / "wrong-language-pack"
+    packs_dir.mkdir(parents=True)
+    (packs_dir / "pack.yaml").write_text(yaml.safe_dump(pack, sort_keys=False))
+
+    result = runner.invoke(app, [
+        "run", "whisper-medium-en-batch", "wrong-language-pack",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(tmp_path / "packs"),
+    ])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "wrong-language-pack" in result.output
+    assert "'de-DE'" in result.output
+    assert "'en-US'" in result.output
+
+
+def test_run_refuses_a_pack_when_profile_has_no_language_declared(tmp_path, monkeypatch):
+    """A profile with no `language` at all (schema-legal — language is
+    optional) can't be verified eligible for any pack — refuse rather than
+    silently letting it through."""
+    from oesb_runner import cli as cli_module
+    from oesb_runner.hashing import canonical_asset_sha256
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+
+    profile = {
+        "id": "no-language-profile", "version": "1.0.0", "benchmark_type": "batch",
+        "runtime": {"name": "faster-whisper"},
+        "model": {"name": "whisper-medium"},
+        "scoring": {"primary_metric": "wer"},
+        "metrics": ["wer"],
+    }
+    profiles_dir = tmp_path / "profiles" / "no-language-profile"
+    profiles_dir.mkdir(parents=True)
+    (profiles_dir / "profile.yaml").write_text(yaml.safe_dump(profile, sort_keys=False))
+
+    pack = {
+        "id": "some-pack", "version": "1.0.0", "visibility": "open", "license": "CC0-1.0",
+        "audio": {"source": {"fetch_instructions": "n/a"}},
+        "metadata": {"language": "en-US", "recording_environment": "quiet", "speech_style": "read"},
+    }
+    pack["sha256"] = canonical_asset_sha256(pack)
+    packs_dir = tmp_path / "packs" / "some-pack"
+    packs_dir.mkdir(parents=True)
+    (packs_dir / "pack.yaml").write_text(yaml.safe_dump(pack, sort_keys=False))
+
+    result = runner.invoke(app, [
+        "run", "no-language-profile", "some-pack",
+        "--profiles-dir", str(tmp_path / "profiles"),
+        "--packs-dir", str(tmp_path / "packs"),
+    ])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "no-language-profile" in result.output
+    assert "no `language` declared" in result.output
+
+
 def test_bare_invocation_shows_help_instead_of_hanging():
     # CliRunner's stdin isn't a tty, same as any piped/scripted invocation —
     # exercises the non-interactive fallback path, not the wizard itself.
@@ -348,9 +423,9 @@ def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsy
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"},
-            {"id": "pack-b", "visibility": "open", "profile_id": "whisper-medium-fr-batch"},
-            {"id": "unrelated-pack", "visibility": "open", "profile_id": "some-other-profile"},
+            {"id": "pack-a", "visibility": "open", "language": "en-US"},
+            {"id": "pack-b", "visibility": "open", "language": "fr-FR"},
+            {"id": "unrelated-pack", "visibility": "open", "language": "de-DE"},
         ],
     )
     monkeypatch.setattr(
@@ -399,8 +474,8 @@ def test_wizard_run_expands_combos_when_multiple_packs_chosen_for_one_profile(mo
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "fleurs-nl-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
-            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
+            {"id": "fleurs-nl-batch", "visibility": "open", "language": "nl-NL"},
+            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "language": "nl-NL"},
         ],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-nl-batch"])
@@ -443,9 +518,9 @@ def test_wizard_run_drops_cell_silently_when_pack_choice_empty(monkeypatch):
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "fleurs-nl-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
-            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
-            {"id": "pack-en", "visibility": "open", "profile_id": "whisper-medium-en-batch"},
+            {"id": "fleurs-nl-batch", "visibility": "open", "language": "nl-NL"},
+            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "language": "nl-NL"},
+            {"id": "pack-en", "visibility": "open", "language": "en-US"},
         ],
     )
     monkeypatch.setattr(
@@ -487,8 +562,8 @@ def test_wizard_run_aborts_when_pack_choice_cancelled(monkeypatch):
     monkeypatch.setattr(
         cli_module, "_pack_rows",
         lambda *a, **k: [
-            {"id": "fleurs-nl-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
-            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "profile_id": "whisper-medium-nl-batch"},
+            {"id": "fleurs-nl-batch", "visibility": "open", "language": "nl-NL"},
+            {"id": "common-voice-nl-elderly-batch", "visibility": "open", "language": "nl-NL"},
         ],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-nl-batch"])
@@ -513,7 +588,7 @@ def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     )
     monkeypatch.setattr(
         cli_module, "_pack_rows",
-        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("2"))
@@ -543,7 +618,7 @@ def test_wizard_run_hardware_back_re_shows_the_matrix(monkeypatch):
     )
     monkeypatch.setattr(
         cli_module, "_pack_rows",
-        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
     )
     matrix_calls = []
     monkeypatch.setattr(
@@ -720,7 +795,7 @@ def test_wizard_run_confirmation_states_total_including_repeats(monkeypatch, cap
     )
     monkeypatch.setattr(
         cli_module, "_pack_rows",
-        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
@@ -751,7 +826,7 @@ def test_wizard_run_warns_above_twenty_expanded_combos(monkeypatch):
     )
     monkeypatch.setattr(
         cli_module, "_pack_rows",
-        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "profile_id": "whisper-medium-en-batch"}],
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")

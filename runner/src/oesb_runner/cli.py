@@ -110,11 +110,12 @@ def _reexec(args: list[str]) -> None:
         raise typer.Exit(code=result.returncode)
 
 
-def _matching_packs(packs: list[dict], profile_id: str) -> list[dict]:
-    """Packs targeting `profile_id`, or every pack if none do — same
-    fallback the wizard has always used so an unmatched profile still lets
-    you pick something rather than dead-ending."""
-    return [p for p in packs if p["profile_id"] == profile_id] or packs
+def _matching_packs(packs: list[dict], language: str) -> list[dict]:
+    """Packs whose language matches a profile's language (ADR-0011), or
+    every pack if none do — same fallback the wizard has always used so an
+    unmatched profile still lets you pick something rather than
+    dead-ending."""
+    return [p for p in packs if p["language"] == language] or packs
 
 
 # Bulk-generated batch profile ids are a clean <engine>-<size>-<lang>-batch
@@ -552,14 +553,13 @@ def _wizard_engine_parameters(
 def _choose_packs_for_profile(
     profile_id: str, matching_packs: list[dict], packs_dir: str, api_url: str
 ) -> list[str] | None:
-    """Almost every profile has exactly one matching pack — the common
-    case returns immediately, no prompt, byte-identical to before this
-    existed. When more than one pack targets the same profile (e.g. an
-    ungated FLEURS pack and a gated Common-Voice variant both targeting
-    whisper-medium-nl-batch), ask which pack(s) to run for this cell
-    instead of silently taking the first match — a checkbox, not a single
-    pick, since running more than one pack for the same profile in one
-    batch is a reasonable thing to want. The first *ungated* pack comes
+    """A single-match profile (rare after ADR-0011 — most languages now
+    have several eligible packs) returns immediately, no prompt. When more
+    than one pack matches the profile's language (e.g. an ungated FLEURS
+    pack and a gated Common-Voice pack, both nl-NL), ask which pack(s) to
+    run for this cell instead of silently taking the first match — a
+    checkbox, not a single pick, since running more than one pack for the
+    same profile in one batch is a reasonable thing to want. The first *ungated* pack comes
     pre-checked (falling back to matching_packs[0] only if every match
     needs a credential) — every profile that has ever had just one match
     had an ungated one, so this is the actual old default, not just
@@ -627,11 +627,13 @@ def _wizard_run() -> None:
             profile_ids = None  # loop re-shows the grid, selection cleared
 
     packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
+    profiles_by_id = {p["id"]: p for p in profiles}
     combos: list[tuple[str, str]] = []
     for profile_id in profile_ids:
-        matching_packs = _matching_packs(packs, profile_id)
+        language = profiles_by_id[profile_id]["language"]
+        matching_packs = _matching_packs(packs, language)
         if not matching_packs:
-            typer.echo(f"no packs found for {profile_id!r} — skipping", err=True)
+            typer.echo(f"no packs found for language {language!r} ({profile_id!r}) — skipping", err=True)
             continue
         chosen_pack_ids = _choose_packs_for_profile(profile_id, matching_packs, "packs", DEFAULT_API_URL)
         if chosen_pack_ids is None:
@@ -1014,8 +1016,8 @@ def _profile_rows(api_url: str, profiles_dir: str, offline: bool) -> list[dict]:
 
 
 def _pack_rows(api_url: str, packs_dir: str, offline: bool) -> list[dict]:
-    """Each row: id, visibility, version, profile_id — shared by list-packs
-    and the interactive wizard (which filters by profile_id)."""
+    """Each row: id, visibility, version, language — shared by list-packs
+    and the interactive wizard (which filters by language, ADR-0011)."""
     rows: list[dict] = []
     if not offline:
         try:
@@ -1023,7 +1025,7 @@ def _pack_rows(api_url: str, packs_dir: str, offline: bool) -> list[dict]:
             rows = [
                 {
                     "id": p["id"], "visibility": p["visibility"],
-                    "version": p["version"], "profile_id": p["profile_id"],
+                    "version": p["version"], "language": p.get("language") or "-",
                 }
                 for p in data["packs"]
             ]
@@ -1039,7 +1041,8 @@ def _pack_rows(api_url: str, packs_dir: str, offline: bool) -> list[dict]:
                     pack = _load_yaml(yaml_path)
                     rows.append({
                         "id": pack["id"], "visibility": pack["visibility"],
-                        "version": pack["version"], "profile_id": pack["profile_id"],
+                        "version": pack["version"],
+                        "language": pack.get("metadata", {}).get("language") or "-",
                     })
     return rows
 
@@ -1171,15 +1174,15 @@ def list_packs_cmd(
     ),
     offline: bool = typer.Option(False, "--offline", help="List local packs only, skip the API call."),
 ) -> None:
-    """List pack ids you can pass to `goesb run` (id, visibility, version)."""
+    """List pack ids you can pass to `goesb run` (id, language, visibility, version)."""
     rows = _pack_rows(api_url, packs_dir, offline)
     if not rows:
         typer.echo("no packs found", err=True)
         raise typer.Exit(code=1)
 
-    typer.echo(f"{'ID':<36} {'VISIBILITY':<12} VERSION")
+    typer.echo(f"{'ID':<36} {'LANGUAGE':<10} {'VISIBILITY':<12} VERSION")
     for r in rows:
-        typer.echo(f"{r['id']:<36} {r['visibility']:<12} {r['version']}")
+        typer.echo(f"{r['id']:<36} {r['language']:<10} {r['visibility']:<12} {r['version']}")
 
 
 @app.command("list-hardware")
@@ -1594,9 +1597,21 @@ def run(
         else:
             typer.echo(f"pack {pack_id} failed validation: {pack_errors}", err=True)
         raise typer.Exit(code=1)
-    if pack_yaml["profile_id"] != profile_id:
+    # ADR-0011: eligibility is decided by language, not by a pack pinning
+    # one exact profile_id — that field is informational only now.
+    profile_language = profile.get("language")
+    pack_language = pack_yaml["metadata"]["language"]
+    if profile_language is None:
         typer.echo(
-            f"pack {pack_id} targets profile {pack_yaml['profile_id']!r}, not {profile_id!r}",
+            f"profile {profile_id} has no `language` declared — cannot verify "
+            f"pack {pack_id} ({pack_language!r}) is eligible for it (ADR-0011).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if pack_language != profile_language:
+        typer.echo(
+            f"pack {pack_id} is {pack_language!r}, profile {profile_id} is "
+            f"{profile_language!r} — languages must match exactly (ADR-0011).",
             err=True,
         )
         raise typer.Exit(code=1)

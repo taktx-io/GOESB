@@ -5,8 +5,9 @@
 **Batch** — benchmark type that processes complete audio in one pass.
 
 **Benchmark Pack (Pack)** — immutable, hash-identified bundle of audio,
-transcript, metadata, target profile, normalization, scoring, docs, and license.
-Open, community, or private.
+transcript, metadata (including language), docs, and license. Eligible for any
+profile whose own language matches the pack's, not pinned to one profile
+(ADR-0011). Open, community, or private.
 
 **Benchmark Profile (Profile)** — official, versioned definition of exactly how a
 benchmark runs and is scored (type, runtime, model, config, normalization,
