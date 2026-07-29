@@ -10,8 +10,10 @@ UNIT = "ms"
 
 
 def compute(traces: Sequence[StreamTrace]) -> list[float]:
-    """Per-utterance ms from the true end of speech (last chunk's audio
-    boundary) to the final transcript being emitted."""
+    """Per-utterance ms from the true end of speech (VAD-detected, via
+    `StreamTrace.audio_duration_s` — see that field's own docstring for
+    why it's speech-relative, not clip-relative) to the final transcript
+    being emitted."""
     latencies: list[float] = []
     for trace in traces:
         if not trace.updates:

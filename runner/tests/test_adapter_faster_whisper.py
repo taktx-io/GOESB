@@ -72,12 +72,22 @@ def test_run_streaming_transcribes_real_audio_in_chunks():
         trace = by_id[utterance.utterance_id]
         assert trace.updates, f"{utterance.utterance_id} produced no chunk updates"
         assert trace.final_text == trace.updates[-1].text
-        assert trace.audio_duration_s == pytest.approx(utterance.duration_s, rel=0.05)
-        # Every chunk boundary is monotonically increasing and ends at the
-        # utterance's own duration on the final chunk.
+        # audio_duration_s is VAD-detected *speech* duration now, not the
+        # raw clip length (real report: this pack's own audio carries
+        # ~500-600ms of leading/trailing silence on every file) — never
+        # more than the clip's own declared duration (<=, not strict <, so
+        # this doesn't get flaky on some future clip with genuinely no
+        # silence at all).
+        assert 0 < trace.audio_duration_s <= utterance.duration_s
+        # Every chunk boundary is monotonically increasing (chunk_end_s is
+        # zeroed at detected speech onset, per-utterance, so this stays
+        # true regardless of that shift). The final chunk's own buffer
+        # position is at or after the detected end of speech — never
+        # earlier, since the last chunk always covers every remaining
+        # sample, silence included.
         chunk_ends = [u.chunk_end_s for u in trace.updates]
         assert chunk_ends == sorted(chunk_ends)
-        assert chunk_ends[-1] == pytest.approx(trace.audio_duration_s)
+        assert chunk_ends[-1] >= trace.audio_duration_s - 1e-6
 
     pairs = []
     for utterance in pack.utterances:
@@ -91,6 +101,8 @@ def test_run_streaming_transcribes_real_audio_in_chunks():
 
 class _FakeSegment:
     text = "fake hypothesis"
+    start = 0.0
+    end = 1.0
 
 
 class _FakeWhisperModel:
@@ -191,3 +203,33 @@ def test_run_batch_does_not_mask_unrelated_value_errors(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="unrelated model-loading problem"):
         run_batch("tiny", [_fake_utterance(tmp_path)], backend="cuda")
+
+
+def test_run_streaming_wraps_cuda_unavailable_error_with_clear_message(monkeypatch, tmp_path):
+    """Streaming coverage gap this closes: run_streaming calls the exact
+    same _load_model as run_batch (verified by reading both call sites),
+    so this is very unlikely to actually be broken — but nothing in the
+    streaming test suite would have caught a future refactor that split
+    _load_model into two copies, one per benchmark_type, the way this
+    test would for batch. _load_model raises before decode_audio is ever
+    called, so no audio-decode mock is needed here."""
+
+    class _RaisingWhisperModel:
+        def __init__(self, *_args, **_kwargs):
+            raise ValueError("This CTranslate2 package was not compiled with CUDA support")
+
+    monkeypatch.setattr("faster_whisper.WhisperModel", _RaisingWhisperModel)
+
+    with pytest.raises(RuntimeError, match="goesb doctor"):
+        run_streaming("tiny", [_fake_utterance(tmp_path)], chunk_ms=1000, backend="cuda")
+
+
+def test_run_streaming_does_not_mask_unrelated_value_errors(monkeypatch, tmp_path):
+    class _RaisingWhisperModel:
+        def __init__(self, *_args, **_kwargs):
+            raise ValueError("some unrelated model-loading problem")
+
+    monkeypatch.setattr("faster_whisper.WhisperModel", _RaisingWhisperModel)
+
+    with pytest.raises(ValueError, match="unrelated model-loading problem"):
+        run_streaming("tiny", [_fake_utterance(tmp_path)], chunk_ms=1000, backend="cuda")

@@ -63,3 +63,20 @@ def test_streaming_run_produces_valid_signed_result_with_latency_percentiles(tmp
         assert "spread" in block
         assert "p50" in block["spread"]
         assert "p95" in block["spread"]
+        # Cross-metric sanity, not just "has the right shape": a real
+        # correctness bug (e.g. a negative-latency arithmetic error, or
+        # first_partial computed after first_final) would pass every
+        # assertion above this point despite being obviously wrong.
+        assert block["value"] >= 0
+        assert block["spread"]["p50"] >= 0
+        assert block["spread"]["p95"] >= 0
+
+    # A partial hypothesis can never be emitted after the first committed
+    # (final) one — first_partial_latency must not exceed
+    # first_final_latency for the same run. Compared at the aggregate
+    # (p50) level pooled across this pack's utterances, same convention
+    # partial_stability/update_frequency already use.
+    assert (
+        doc["metrics"]["first_partial_latency"]["value"]
+        <= doc["metrics"]["first_final_latency"]["value"]
+    )

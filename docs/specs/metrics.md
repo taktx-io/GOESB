@@ -37,6 +37,19 @@ non-Latin scripts alike.
 | `partial_stability` ↑ | Partial Stability | ratio 0–1 | Fraction of partial-hypothesis tokens that survive unchanged into the final transcript (measures "flicker"). 1.0 = partials never rewritten. |
 | `streaming_responsiveness` ↑ | Streaming Responsiveness | index | Composite of update frequency and stability against latency; defined per profile. GOESB's default (used unless a profile overrides it): `(update_frequency_hz * partial_stability) / first_partial_latency_p50_s`. |
 
+**No backpressure/queueing model.** The runner simulates streaming with a
+virtual real-time clock: chunk *k*'s audio is always modeled as "arriving"
+at its fixed nominal offset, regardless of how long the previous chunk
+actually took to decode. A genuinely slow backend (RTF > 1) in a live
+deployment would fall behind and see audio queue up — more of it bundled
+into each subsequent decode call, not the fixed nominal chunk this
+simulation always feeds it. These streaming metrics are therefore an
+accurate measure of per-chunk decode latency, but **not** a faithful
+simulation of what a live deployment would feel like once a backend is
+too slow to keep up with real-time audio — worth keeping in mind when
+comparing streaming numbers across backends of very different speeds
+(exactly the CPU/GPU/NPU edge-hardware comparisons GOESB exists for).
+
 ## Performance
 
 | id | Name | Unit | Definition |

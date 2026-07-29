@@ -5,6 +5,32 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-07-29
+### Fixed
+- **Streaming latency metrics were measured from clip-buffer position 0,
+  not real speech onset.** Confirmed by direct measurement: this pack's
+  audio carries ~500-600ms of leading/trailing silence on every file, all
+  of it previously baked into `first_partial_latency`,
+  `first_final_latency`, and `end_of_speech_latency` despite
+  `docs/specs/metrics.md` defining these relative to real speech.
+  `faster_whisper.run_streaming` now zeroes its virtual clock at
+  VAD-detected speech onset (via faster-whisper's own per-chunk segment
+  timestamps — no new dependency).
+- **`committed_word_count` (the streaming "non-revisable" prefix) was not
+  actually monotonic.** The previous "every segment but the last" rule
+  had committed text revised in 14 of 30 chunks on real audio, since VAD
+  re-segments as more audio is appended — a segment not being the last
+  one in a chunk's output doesn't mean it's stable. Replaced with real
+  LocalAgreement-2: a word-count prefix commits once it agrees between
+  two consecutive hypotheses, tracked as a running max so it can never
+  decrease.
+- **Speech-offset detection could report an end-of-speech timestamp past
+  the final chunk's own buffer end.** Whisper's predicted segment
+  timestamps can slightly overshoot the actual audio fed in (~40ms
+  observed on real audio) — now clamped to each chunk's own buffer
+  length so `audio_duration_s` can never exceed the clip it was derived
+  from.
+
 ## [0.8.7] - 2026-07-29
 ### Fixed
 - **0.8.6's own CUDA-detection check for whisper-cpp was itself wrong.**

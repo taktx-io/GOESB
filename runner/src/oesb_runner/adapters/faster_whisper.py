@@ -173,10 +173,40 @@ def run_streaming(
     for i, utterance in enumerate(utterances, start=1):
         samples = decode_audio(str(utterance.audio_path), sampling_rate=sample_rate)
         total_samples = len(samples)
-        audio_duration_s = total_samples / sample_rate
+        clip_duration_s = total_samples / sample_rate
 
         updates: list[PartialUpdate] = []
         processing_time_s = 0.0
+        # Real report, confirmed by directly measuring this pack's actual
+        # audio: LibriSpeech-sourced clips carry ~500-600ms of leading and
+        # trailing silence, consistently, on every file. Zeroing the
+        # virtual clock at position 0 of the raw buffer (the previous
+        # behavior) meant every latency number below included that dead
+        # air, when docs/specs/metrics.md defines these relative to real
+        # speech, not clip boundaries. speech_onset_s/speech_offset_s come
+        # from faster-whisper's own VAD segment timestamps — no new
+        # dependency, no separate detection pass, since we already decode
+        # every chunk anyway. onset locks in at first detection (the
+        # earliest chunk that produces any segment); offset keeps updating
+        # to the latest chunk's last-segment end, so by the final
+        # (whole-buffer) chunk it reflects where speech actually stopped.
+        speech_onset_s: float | None = None
+        speech_offset_s = clip_duration_s  # fallback if VAD never detects any speech at all
+        # Local-agreement commit tracking (the "local agreement" strategy
+        # the module docstring above already names as the design this
+        # mirrors, e.g. whisper_streaming's LocalAgreement-2): a prefix of
+        # words is only "committed" once it agrees with the immediately
+        # preceding hypothesis, and stays committed even if a later,
+        # fresh-VAD-segmented decode revises its own text — monotonic,
+        # never decreases. Real report, confirmed by direct measurement
+        # on real audio: the previous "every segment but the last" rule
+        # had "committed" text revised in 14 of 30 chunks on one real
+        # utterance (VAD re-segments as more audio is appended — it isn't
+        # stable just because a segment isn't the last one in a given
+        # chunk's output), directly contradicting this metric's own
+        # "non-revisable" definition.
+        committed_word_count = 0
+        previous_words: list[str] = []
         end = 0
         while end < total_samples:
             end = min(end + chunk_samples, total_samples)
@@ -195,12 +225,31 @@ def run_streaming(
             decode_wall_s = time.perf_counter() - start
             processing_time_s += decode_wall_s
 
+            if segments:
+                if speech_onset_s is None:
+                    speech_onset_s = segments[0].start
+                # Clamp to this chunk's own buffer end: Whisper's predicted
+                # segment timestamps can slightly overshoot the actual audio
+                # fed in (a known model quirk, confirmed by direct
+                # measurement — segments[-1].end reported ~40ms past the
+                # final chunk's own buffer length on real audio). Without
+                # this, speech_offset_s could end up *after* the last
+                # chunk's own chunk_end_s, which is nonsensical: "end of
+                # speech" can't be later than "end of the whole clip".
+                speech_offset_s = min(segments[-1].end, chunk_end_s)
+
             text = " ".join(segment.text.strip() for segment in segments).strip()
+            words = text.split()
             if is_last_chunk:
-                committed_word_count = len(text.split())
+                committed_word_count = len(words)
             else:
-                committed_text = " ".join(s.text.strip() for s in segments[:-1]).strip()
-                committed_word_count = len(committed_text.split())
+                common_prefix = 0
+                for a, b in zip(previous_words, words):
+                    if a != b:
+                        break
+                    common_prefix += 1
+                committed_word_count = max(committed_word_count, common_prefix)
+            previous_words = words
 
             updates.append(PartialUpdate(
                 chunk_end_s=chunk_end_s,
@@ -209,10 +258,22 @@ def run_streaming(
                 committed_word_count=committed_word_count,
             ))
 
+        onset = speech_onset_s if speech_onset_s is not None else 0.0
+        speech_duration_s = max(0.0, speech_offset_s - onset)
+        updates = [
+            PartialUpdate(
+                chunk_end_s=u.chunk_end_s - onset,
+                emit_time_s=u.emit_time_s - onset,
+                text=u.text,
+                committed_word_count=u.committed_word_count,
+            )
+            for u in updates
+        ]
+
         log_progress(i, len(utterances), utterance.utterance_id, processing_time_s)
         traces.append(StreamTrace(
             utterance_id=utterance.utterance_id,
-            audio_duration_s=audio_duration_s,
+            audio_duration_s=speech_duration_s,
             processing_time_s=processing_time_s,
             updates=updates,
             final_text=updates[-1].text if updates else "",
