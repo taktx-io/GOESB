@@ -972,6 +972,31 @@ def test_preflight_pack_credentials_skips_prompt_when_already_resolvable(tmp_pat
     assert "MDC_API_KEY" not in os.environ  # never re-exported when resolved from the store
 
 
+def test_preflight_pack_credentials_reprompts_on_blank_stored_value(tmp_path, monkeypatch):
+    """Real report: a batch of Common Voice combos never prompted for
+    MDC_API_KEY at all — auto-fetch kept failing downstream with "Missing
+    API key" instead. Root cause: this function checked `is not None`, so
+    a blank string sitting in the on-disk credential store looked
+    "already resolved" and skipped the prompt forever, even though the
+    value is unusable. Must treat a blank stored value the same as no
+    value — prompt again."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.credentials, "load_credential", lambda env_var, **kw: "")
+    monkeypatch.delenv("MDC_API_KEY", raising=False)
+
+    packs_dir = tmp_path / "packs"
+    _write_pack_for_credential_test(packs_dir, "pack-a", credential=_MDC_CREDENTIAL)
+    combos = [("profile-a", "pack-a")]
+
+    monkeypatch.setattr(cli_module.questionary, "password", lambda message: _FakeAsk("the-real-key"))
+
+    kept = cli_module._preflight_pack_credentials(combos, str(packs_dir), cli_module.DEFAULT_API_URL)
+
+    assert kept == combos
+    assert os.environ["MDC_API_KEY"] == "the-real-key"
+
+
 def test_preflight_pack_credentials_returns_none_on_abort(tmp_path, monkeypatch):
     from oesb_runner import cli as cli_module
 

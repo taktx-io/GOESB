@@ -379,7 +379,16 @@ def _preflight_pack_credentials(
 
     unresolved_env_vars: set[str] = set()
     for env_var, credential in credential_by_env_var.items():
-        if credentials.load_credential(env_var) is not None:
+        # Truthy, not `is not None`: a blank string in the on-disk store
+        # (e.g. a stale entry from before this exact check existed, or any
+        # future write path that isn't as careful as this function's own
+        # decline-drops-the-value branch below) must never look
+        # "resolved" — it would silently skip the prompt forever while the
+        # actual auto-fetch keeps failing downstream with a credential
+        # error, with no obvious link back to this step. Matches
+        # `credentials.load_credential`'s own environ check, which already
+        # treats a blank env var the same way.
+        if credentials.load_credential(env_var):
             continue  # already set in the environment or saved from a prior run
 
         typer.echo(credential["instructions"], err=True)

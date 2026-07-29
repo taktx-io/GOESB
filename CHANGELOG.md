@@ -5,6 +5,18 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-07-29
+### Fixed
+- **Wizard batches never prompted for a gated pack's API key if the local
+  credential store held a blank value for it.** `_preflight_pack_credentials`
+  checked `is not None`, so an empty string in `~/.goesb/credentials.json`
+  (e.g. left over from before this check existed) looked "already
+  resolved" and silently skipped the prompt — every run then failed deep
+  in auto-fetch instead, with a "Missing API key" error that gives no hint
+  it traces back to this earlier, silently-skipped step. Now checks
+  truthiness, same as the environment-variable half of the same lookup
+  already did — a blank value re-prompts, same as no value at all.
+
 ## [0.8.1] - 2026-07-29
 ### Added
 - **Per-utterance recognition log.** `goesb run` now writes
