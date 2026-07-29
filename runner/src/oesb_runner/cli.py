@@ -11,6 +11,7 @@ import difflib
 import importlib.util
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -51,7 +52,7 @@ from .audio_sources import (
     auto_fetch_audio,
     shared_audio_dir,
 )
-from .environment import _capture_cpu, _capture_gpu, capture_environment
+from .environment import _capture_cpu, _capture_gpu, _run, capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
 from .metrics import (
     cer,
@@ -1182,29 +1183,40 @@ def _normalize_cpu_model(raw: str) -> str:
     return re.sub(r"\s+", " ", _CPU_MODEL_NOISE_RE.sub("", raw)).strip()
 
 
-def _guess_hardware_label(rows: list[dict]) -> str | None:
-    """Best-effort local-CPU match against the catalog, for preselecting
-    the wizard's hardware picker — a suggestion the user still has to
-    press Enter on, never a silent auto-assign. Deliberately CPU-only for
-    now: hardware_id is meant to reflect whichever compute path a run
-    actually took (hardware/README.md), and the wizard picks hardware
-    once for a whole batch before any profile's engine/backend is chosen,
-    so there's no reliable signal yet about whether a given combo will
-    end up GPU-backed. Returns None (no default) rather than guess wrong
-    — under virtualization in particular the probed string is unrecoverable
-    (e.g. "QEMU Virtual CPU version 2.5+"), and difflib's cutoff is exactly
-    what keeps a string that different from ever matching."""
+def _guess_hardware_id(rows: list[dict]) -> str | None:
+    """Best-effort local-CPU match against the catalog — the shared match
+    logic behind both _guess_hardware_label (the wizard's picker
+    preselection) and doctor's public-result-coverage check. Deliberately
+    CPU-only for now: hardware_id is meant to reflect whichever compute
+    path a run actually took (hardware/README.md), and both callers pick
+    hardware independent of any specific profile's engine/backend, so
+    there's no reliable signal yet about whether a given combo will end up
+    GPU-backed. Returns None (no match) rather than guess wrong — under
+    virtualization in particular the probed string is unrecoverable (e.g.
+    "QEMU Virtual CPU version 2.5+"), and difflib's cutoff is exactly what
+    keeps a string that different from ever matching."""
     model = _capture_cpu({}).get("model")
     if not model:
         return None
     query = _normalize_cpu_model(model)
     cpu_rows = [r for r in rows if r.get("category") == "cpu"]
-    labels = [f"{r['display_name']} ({r['vendor']})" for r in cpu_rows]
     display_names = [r["display_name"] for r in cpu_rows]
     match = difflib.get_close_matches(query, display_names, n=1, cutoff=0.6)
     if not match:
         return None
-    return labels[display_names.index(match[0])]
+    return cpu_rows[display_names.index(match[0])]["id"]
+
+
+def _guess_hardware_label(rows: list[dict]) -> str | None:
+    """_guess_hardware_id, formatted as the wizard picker's own label
+    string ("display_name (vendor)") so it can be used directly as
+    questionary.autocomplete's default= — a suggestion the user still has
+    to press Enter on, never a silent auto-assign."""
+    guessed_id = _guess_hardware_id(rows)
+    if guessed_id is None:
+        return None
+    row = next(r for r in rows if r["id"] == guessed_id)
+    return f"{row['display_name']} ({row['vendor']})"
 
 
 # Sentinel _pick_hardware_id returns (instead of an id or None) when the
@@ -1367,6 +1379,47 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
         )
     if backends == {"cpu"}:
         return f"{label}: cpu ready (installed, cpu-only engine)."
+
+    if runtime_name == "whisper-cpp":
+        # Unlike faster-whisper below, this doesn't need gpu (nvidia-smi)
+        # at all — whisper.cpp's own build-info string (system_info(), a
+        # static method, no model file needed) says directly whether this
+        # exact compiled binary has CUDA support, independent of whether
+        # an NVIDIA device is even present to report. Real signal instead
+        # of the "can't be checked without running a real transcription"
+        # this used to say. Guarded by its own try/except, distinct from
+        # `installed` above: that's an importlib.util.find_spec check,
+        # which can disagree with a real import in a broken/partial
+        # install — must report that clearly rather than let it surface
+        # as doctor's generic "an internal probe failed" catch-all.
+        try:
+            from pywhispercpp.model import Model
+
+            from .adapters.whisper_cpp import (
+                cuda_available as whisper_cpp_cuda_available,
+            )
+            cuda_ok = whisper_cpp_cuda_available(Model)
+        except ImportError:
+            return (
+                f"{label}: cpu ready; cuda readiness unknown (pywhispercpp reports as "
+                "installed but isn't actually importable — a broken or partial install)."
+            )
+        if not cuda_ok:
+            return (
+                f"{label}: cpu ready; cuda unavailable — this pywhispercpp build was not "
+                "compiled with CUDA support (checked directly via whisper.cpp's own build info)."
+            )
+        if gpu is None:
+            return (
+                f"{label}: cpu ready; this pywhispercpp build was compiled with CUDA "
+                "support, but no NVIDIA GPU was detected (via nvidia-smi) — cuda is "
+                "unlikely to actually work here."
+            )
+        return (
+            f"{label}: cpu ready; cuda ready ({gpu['model']} detected, and this "
+            "pywhispercpp build was compiled with CUDA support)."
+        )
+
     if gpu is None:
         return f"{label}: cpu ready; cuda unavailable (no NVIDIA GPU detected)."
 
@@ -1383,14 +1436,82 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
             "driver version (https://developer.nvidia.com/cudnn) to unlock --backend cuda, "
             "or continue on --backend cpu."
         )
-    if runtime_name == "whisper-cpp":
-        return (
-            f"{label}: cpu ready; {gpu['model']} detected (driver {gpu['driver']}) — "
-            "whisper.cpp's GPU support depends on whether your installed pywhispercpp build "
-            "was compiled with it, which can't be checked without running a real "
-            "transcription. Try --backend cuda; a crash or CPU-speed timing means it wasn't."
-        )
     return f"{label}: installed, supports {sorted(backends)}."
+
+
+def _detect_non_nvidia_gpu() -> str | None:
+    """Advisory-only presence check for a non-NVIDIA GPU, so `doctor`
+    doesn't say "GPU: none detected" on every Mac and every AMD/Intel
+    Linux box just because `_capture_gpu`'s nvidia-smi probe is the only
+    one that exists — misleading specifically on the hardware where
+    whisper-cpp's Metal/Vulkan support would actually matter. Deliberately
+    separate from environment.py's capture_environment(), which stays
+    NVIDIA-only and unchanged — that one is part of the signed result
+    document; this is purely doctor's own display (ADR-0008: "detection
+    informs the human, it never changes the experiment"). Presence only,
+    not a readiness claim the way the NVIDIA branch below is."""
+    system = platform.system()
+    if system == "Darwin":
+        # Every Mac since the Metal era (2012+) has a Metal-capable GPU,
+        # integrated or discrete — unlike NVIDIA, no separate probe is
+        # needed to know one exists; getting the exact model needs
+        # `system_profiler SPDisplaysDataType`, which takes ~1s and isn't
+        # worth it just to confirm what's already certain.
+        return "Apple GPU (Metal-capable; this doesn't identify the exact model)"
+    if system == "Linux":
+        info = _run(["lspci", "-mm"])
+        if not info:
+            return None
+        for line in info.splitlines():
+            if "VGA compatible controller" not in line and "3D controller" not in line:
+                continue
+            # lspci -mm quotes each field; vendor and device name are the
+            # last two quoted fields on the line.
+            fields = re.findall(r'"([^"]*)"', line)
+            if len(fields) >= 2:
+                return f"{fields[-2]} {fields[-1]} (via lspci)"
+        return None
+    if system == "Windows":
+        info = _run(["wmic", "path", "win32_VideoController", "get", "name"])
+        if not info:
+            return None
+        names = [line.strip() for line in info.splitlines()[1:] if line.strip()]
+        return f"{names[0]} (via wmic)" if names else None
+    return None
+
+
+def _hardware_result_gaps(hardware_id: str, api_url: str) -> list[str] | None:
+    """Official profiles — for engines actually installed here — with zero
+    submitted public results yet for `hardware_id`. The ADR-0008-promised
+    half of `doctor` ("which (profile x backend) combinations have no
+    verified public result yet"), scoped to profile x hardware only:
+    LeaderboardEntry (api/src/oesb_api/schemas.py) doesn't expose which
+    backend a result used, only runtime_name, so backend-level granularity
+    isn't knowable from the leaderboard API as it exists today. Returns
+    None (not an empty list) on any network failure, so the caller can
+    tell "checked, nothing missing" apart from "couldn't check"."""
+    installed_runtimes = {
+        runtime_name
+        for runtime_name, _benchmark_type in registered_adapters()
+        if (module_name := _ENGINE_MODULE_NAMES.get(runtime_name)) is not None
+        and importlib.util.find_spec(module_name) is not None
+    }
+    if not installed_runtimes:
+        return []
+    try:
+        profiles_data = _get_json(f"{api_url.rstrip('/')}/profiles", timeout=10)
+        candidate_ids = {
+            p["id"] for p in profiles_data["profiles"] if p.get("runtime") in installed_runtimes
+        }
+        if not candidate_ids:
+            return []
+        leaderboard_data = _get_json(
+            f"{api_url.rstrip('/')}/leaderboards?hardware={hardware_id}&limit=500", timeout=10
+        )
+        covered_ids = {r["profile_id"] for r in leaderboard_data["results"]}
+    except (urllib.error.URLError, urllib.error.HTTPError, KeyError):
+        return None
+    return sorted(candidate_ids - covered_ids)
 
 
 @app.command()
@@ -1405,13 +1526,51 @@ def doctor() -> None:
         unavailable: dict[str, str] = {}
         gpu = _capture_gpu(unavailable)
         if gpu is None:
-            typer.echo(f"GPU: none detected ({unavailable.get('gpu', 'no probe available')}).", err=True)
+            typer.echo(f"GPU: none detected via nvidia-smi ({unavailable.get('gpu', 'no probe available')}).", err=True)
+            other_gpu = _detect_non_nvidia_gpu()
+            if other_gpu is not None:
+                typer.echo(f"Non-NVIDIA GPU detected: {other_gpu}.", err=True)
         else:
             typer.echo(f"GPU: {gpu['model']} — driver {gpu['driver']}, {gpu['vram']} VRAM (via nvidia-smi).", err=True)
 
         typer.echo("\nPer-engine backend readiness:", err=True)
         for runtime_name, benchmark_type in registered_adapters():
             typer.echo(_doctor_engine_line(runtime_name, benchmark_type, gpu), err=True)
+
+        hardware_rows = _hardware_rows(DEFAULT_API_URL, "hardware", offline=False)
+        guessed_hardware_id = _guess_hardware_id(hardware_rows)
+        if guessed_hardware_id is None:
+            typer.echo(
+                "\nPublic result coverage: couldn't confidently match this CPU to a "
+                "catalog entry — skipping.",
+                err=True,
+            )
+        else:
+            gaps = _hardware_result_gaps(guessed_hardware_id, DEFAULT_API_URL)
+            if gaps is None:
+                typer.echo(
+                    f"\nPublic result coverage for {guessed_hardware_id!r}: couldn't reach "
+                    f"{DEFAULT_API_URL} — skipping.",
+                    err=True,
+                )
+            elif not gaps:
+                typer.echo(
+                    f"\nPublic result coverage for {guessed_hardware_id!r}: every official "
+                    "profile for your installed engine(s) already has a public result.",
+                    err=True,
+                )
+            else:
+                shown, remaining = gaps[:10], len(gaps) - 10
+                typer.echo(
+                    f"\n{len(gaps)} official profile(s) for your installed engine(s) have no "
+                    f"public result yet on {guessed_hardware_id!r} (doesn't distinguish cpu "
+                    "vs cuda — the leaderboard doesn't expose that yet):",
+                    err=True,
+                )
+                for profile_id in shown:
+                    typer.echo(f"  {profile_id}", err=True)
+                if remaining > 0:
+                    typer.echo(f"  ... and {remaining} more", err=True)
     except Exception as exc:  # noqa: BLE001 - a report command must never itself crash or leave a partial state
         typer.echo(f"\ndoctor: an internal probe failed unexpectedly ({exc}) — this is a bug, please report it.", err=True)
 

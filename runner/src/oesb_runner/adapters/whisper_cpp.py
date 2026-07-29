@@ -7,12 +7,32 @@ lazy-import pattern used by every other adapter.
 """
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
+from typing import Any
 
 from ..audio import decode_pcm
 from ..pack import Utterance
 from . import Transcription, log_progress, register
+
+# whisper.cpp's own build-info string (whisper_print_system_info(), bound
+# as Model.system_info() — a static method, no model file needed) is the
+# only reliable way to know whether this exact compiled pywhispercpp
+# binary actually has CUDA support. Confirmed by direct inspection: e.g.
+# "WHISPER : COREML = 0 | OPENVINO = 0 | MTL : EMBED_LIBRARY = 1 | CPU :
+# NEON = 1 | ..." on a Metal-only Mac build — a CUDA build's string
+# includes "CUDA = 1" the same way.
+_CUDA_SYSTEM_INFO_RE = re.compile(r"\bCUDA\s*=\s*1\b", re.IGNORECASE)
+
+
+def cuda_available(model_cls: Any) -> bool:
+    """True iff `model_cls` (pywhispercpp's `Model`) reports real CUDA
+    support in its own compiled-in system_info string. Exposed at module
+    level (not adapter-private) so `cli._doctor_engine_line` can give the
+    same real answer `goesb doctor` currently can't for this engine,
+    instead of "can't be checked without running a real transcription"."""
+    return _CUDA_SYSTEM_INFO_RE.search(model_cls.system_info() or "") is not None
 
 
 def _resolve_model_id(model_name: str) -> str:
@@ -31,12 +51,11 @@ def _resolve_model_id(model_name: str) -> str:
 # faster-whisper. `use_gpu` is whisper.cpp's own accelerator toggle: it's
 # not vendor-specific the way faster-whisper's `device=` is (it means
 # "whichever GPU backend this binary was compiled with" — CUDA, Metal, or
-# Vulkan) — this adapter only distinguishes cpu vs cuda per the current
-# --backend surface, so "cuda" here means "ask whisper.cpp to use its
-# compiled-in GPU backend," which is a no-op rather than a hard error if
-# that binary wasn't actually built with GPU support. `goesb doctor` and
-# this adapter's own model-load failure are the signals for that gap until
-# pywhispercpp exposes a way to introspect build-time GPU support.
+# Vulkan), so on its own "cuda" here would just mean "ask whisper.cpp to
+# use its compiled-in GPU backend, whatever that is" — a no-op rather than
+# a hard error on a Metal-only or CPU-only build. `run_batch` below checks
+# `cuda_available()` before ever setting this, specifically for the
+# "cuda" case, so that gap doesn't reach here anymore.
 _USE_GPU_BY_BACKEND = {"cpu": False, "cuda": True}
 
 
@@ -92,6 +111,15 @@ def run_batch(
             "pywhispercpp is not installed; run "
             "`pip install goesb-runner[whisper-cpp]`"
         ) from exc
+
+    if backend == "cuda":
+        info = Model.system_info()
+        if _CUDA_SYSTEM_INFO_RE.search(info or "") is None:
+            raise RuntimeError(
+                f"--backend cuda failed: this pywhispercpp build has no CUDA support "
+                f"(system_info: {info!r}). Run `goesb doctor` to check what's "
+                "available, or use --backend cpu."
+            )
 
     resolved_model_id = _resolve_model_id(model_name)
     if language:

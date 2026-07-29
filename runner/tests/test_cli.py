@@ -1,7 +1,10 @@
 import io
 import json
 import os
+import sys
 import tarfile
+import types
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -287,6 +290,7 @@ def test_doctor_reports_no_gpu_and_exits_cleanly(monkeypatch):
 
     _assume_all_engines_installed(monkeypatch, cli_module)
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
 
     result = runner.invoke(app, ["doctor"])
 
@@ -306,6 +310,7 @@ def test_doctor_reports_gpu_present_but_cudnn_missing_with_a_next_step(monkeypat
     fake_gpu = {"model": "NVIDIA RTX 3060", "driver": "550.54.14", "vram": "12288 MiB"}
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
     monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 0)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
 
     result = runner.invoke(app, ["doctor"])
 
@@ -324,6 +329,7 @@ def test_doctor_reports_gpu_ready_when_cuda_devices_visible(monkeypatch):
     fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
     monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 1)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
 
     result = runner.invoke(app, ["doctor"])
 
@@ -336,6 +342,7 @@ def test_doctor_reports_not_installed_engines_with_an_install_hint(monkeypatch):
 
     monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: None)
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
 
     result = runner.invoke(app, ["doctor"])
 
@@ -353,6 +360,7 @@ def test_doctor_never_touches_disk_beyond_reading(monkeypatch, tmp_path):
     fake_gpu = {"model": "NVIDIA RTX 3060", "driver": "550.54.14", "vram": "12288 MiB"}
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
     monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 0)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["doctor"])
@@ -375,6 +383,346 @@ def test_doctor_survives_an_unexpected_probe_failure(monkeypatch):
 
     assert result.exit_code == 0
     assert "bug" in result.output.lower()
+
+
+def _fake_pywhispercpp(monkeypatch, model_cls) -> None:
+    """Stand in for a real `import pywhispercpp.model.Model` — doctor's
+    whisper-cpp branch imports this lazily, so faking the module in
+    sys.modules is the only way to control what Model.system_info()
+    reports without pywhispercpp genuinely being installed."""
+    fake_pkg = types.ModuleType("pywhispercpp")
+    fake_model_module = types.ModuleType("pywhispercpp.model")
+    fake_model_module.Model = model_cls
+    monkeypatch.setitem(sys.modules, "pywhispercpp", fake_pkg)
+    monkeypatch.setitem(sys.modules, "pywhispercpp.model", fake_model_module)
+
+
+def test_doctor_engine_line_whisper_cpp_reports_real_cuda_support(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    class _FakeModel:
+        @staticmethod
+        def system_info():
+            return "WHISPER : CUDA = 1 | "
+
+    _fake_pywhispercpp(monkeypatch, _FakeModel)
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+    fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
+    line = cli_module._doctor_engine_line("whisper-cpp", "batch", fake_gpu)
+
+    assert "cuda ready" in line
+    assert "compiled with CUDA support" in line
+
+
+def test_doctor_engine_line_whisper_cpp_reports_no_cuda_support(monkeypatch):
+    """This is the real gap the fix closes: previously this line always
+    said "can't be checked without running a real transcription" — now it
+    gives a definitive answer from whisper.cpp's own build info."""
+    from oesb_runner import cli as cli_module
+
+    class _FakeModel:
+        @staticmethod
+        def system_info():
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | MTL : EMBED_LIBRARY = 1 | "
+
+    _fake_pywhispercpp(monkeypatch, _FakeModel)
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+    line = cli_module._doctor_engine_line("whisper-cpp", "batch", None)
+
+    assert "cuda unavailable" in line
+    assert "not compiled with CUDA support" in line
+    assert "can't be checked without running a real transcription" not in line
+
+
+def test_doctor_engine_line_whisper_cpp_cuda_ready_but_no_nvidia_gpu_warns(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    class _FakeModel:
+        @staticmethod
+        def system_info():
+            return "WHISPER : CUDA = 1 | "
+
+    _fake_pywhispercpp(monkeypatch, _FakeModel)
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+    line = cli_module._doctor_engine_line("whisper-cpp", "batch", None)
+
+    assert "compiled with CUDA support" in line
+    assert "no NVIDIA GPU was detected" in line
+    assert "unlikely to actually work" in line
+
+
+def test_doctor_engine_line_whisper_cpp_handles_find_spec_import_mismatch(monkeypatch):
+    """find_spec (used for the earlier `installed` check) and a real import
+    can disagree — e.g. a partial install, or (the actual case this
+    guards against) a test/CI environment where `pywhispercpp` isn't
+    genuinely installed but something upstream reports it as available.
+    Must report that clearly, not let it surface as doctor's generic
+    "an internal probe failed" catch-all."""
+    from oesb_runner import cli as cli_module
+
+    # Both entries must be forced to None — pywhispercpp is genuinely
+    # installed in this dev/CI environment for other tests, so
+    # "pywhispercpp.model" is independently cached in sys.modules the
+    # moment any test imports it; nulling only the top-level package
+    # leaves `from pywhispercpp.model import Model` free to succeed via
+    # that cached submodule regardless.
+    monkeypatch.setitem(sys.modules, "pywhispercpp", None)
+    monkeypatch.setitem(sys.modules, "pywhispercpp.model", None)
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+    line = cli_module._doctor_engine_line("whisper-cpp", "batch", None)
+
+    assert "cuda readiness unknown" in line
+    assert "broken or partial install" in line
+
+
+def test_detect_non_nvidia_gpu_darwin_reports_metal(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Darwin")
+
+    result = cli_module._detect_non_nvidia_gpu()
+
+    assert result is not None
+    assert "Metal" in result
+
+
+def test_detect_non_nvidia_gpu_linux_parses_lspci(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Linux")
+    lspci_output = (
+        '00:02.0 "VGA compatible controller" "Advanced Micro Devices, Inc. [AMD/ATI]" '
+        '"Radeon RX 7900 XTX" -r00 "Advanced Micro Devices, Inc. [AMD/ATI]" "Radeon RX 7900 XTX"\n'
+    )
+    monkeypatch.setattr(cli_module, "_run", lambda cmd: lspci_output if cmd[0] == "lspci" else None)
+
+    result = cli_module._detect_non_nvidia_gpu()
+
+    assert result is not None
+    assert "Radeon RX 7900 XTX" in result
+
+
+def test_detect_non_nvidia_gpu_linux_no_gpu_returns_none(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(cli_module, "_run", lambda cmd: None)
+
+    assert cli_module._detect_non_nvidia_gpu() is None
+
+
+def test_doctor_shows_non_nvidia_gpu_when_nvidia_absent(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_detect_non_nvidia_gpu", lambda: "Apple GPU (Metal-capable; this doesn't identify the exact model)")
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
+    # whisper-cpp's own branch does a real pywhispercpp import — stub it out
+    # so this test exercises only the top-level GPU line, not that path.
+    monkeypatch.setitem(sys.modules, "pywhispercpp", None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "GPU: none detected via nvidia-smi" in result.output
+    assert "Non-NVIDIA GPU detected: Apple GPU" in result.output
+
+
+def test_doctor_omits_non_nvidia_line_when_nothing_detected(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_detect_non_nvidia_gpu", lambda: None)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
+    monkeypatch.setitem(sys.modules, "pywhispercpp", None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "Non-NVIDIA GPU detected" not in result.output
+
+
+_CPU_HARDWARE_ROWS = [
+    {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+    {"id": "amd-epyc-7203", "display_name": "AMD EPYC 7203", "vendor": "AMD", "category": "cpu"},
+]
+
+
+def test_guess_hardware_id_returns_the_matched_row_id(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+
+    assert cli_module._guess_hardware_id(_CPU_HARDWARE_ROWS) == "intel-xeon-e3-1240-v6"
+
+
+def test_guess_hardware_label_still_returns_the_full_label(monkeypatch):
+    """Regression check after extracting _guess_hardware_id out of this
+    function — the wizard picker's own preselection behavior must be
+    unchanged."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+
+    assert cli_module._guess_hardware_label(_CPU_HARDWARE_ROWS) == "Intel Xeon E3-1240 v6 (Intel)"
+
+
+def test_hardware_result_gaps_reports_uncovered_official_profiles(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+
+    def fake_get_json(url, timeout):
+        if "/profiles" in url:
+            return {"profiles": [
+                {"id": "whisper-tiny-en-batch", "runtime": "faster-whisper"},
+                {"id": "whisper-medium-en-batch", "runtime": "faster-whisper"},
+                {"id": "vosk-small-en-batch", "runtime": "vosk"},
+                {"id": "some-other-runtime-profile", "runtime": "an-engine-not-installed"},
+            ]}
+        assert "/leaderboards" in url and "hardware=intel-xeon-e3-1240-v6" in url
+        return {"results": [{"profile_id": "whisper-tiny-en-batch"}]}
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+
+    gaps = cli_module._hardware_result_gaps("intel-xeon-e3-1240-v6", "http://api.example")
+
+    # Covered profile excluded, uninstalled-runtime profile excluded, the
+    # two genuinely-uncovered ones for installed engines remain.
+    assert gaps == ["vosk-small-en-batch", "whisper-medium-en-batch"]
+
+
+def test_hardware_result_gaps_empty_when_everything_covered(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+
+    def fake_get_json(url, timeout):
+        if "/profiles" in url:
+            return {"profiles": [{"id": "whisper-tiny-en-batch", "runtime": "faster-whisper"}]}
+        return {"results": [{"profile_id": "whisper-tiny-en-batch"}]}
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+
+    assert cli_module._hardware_result_gaps("intel-xeon-e3-1240-v6", "http://api.example") == []
+
+
+def test_hardware_result_gaps_returns_none_on_network_failure(monkeypatch):
+    """None, not an empty list — the caller needs to tell "checked, found
+    nothing missing" apart from "couldn't check at all"."""
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+
+    def fake_get_json(url, timeout):
+        raise urllib.error.URLError("network unreachable")
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+
+    assert cli_module._hardware_result_gaps("intel-xeon-e3-1240-v6", "http://api.example") is None
+
+
+def test_hardware_result_gaps_empty_when_no_engines_installed(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: None)
+
+    def _fail_if_called(url, timeout):
+        raise AssertionError("should not hit the network with no installed engines to check")
+
+    monkeypatch.setattr(cli_module, "_get_json", _fail_if_called)
+
+    assert cli_module._hardware_result_gaps("intel-xeon-e3-1240-v6", "http://api.example") == []
+
+
+def test_doctor_reports_hardware_result_gaps(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: _CPU_HARDWARE_ROWS)
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+    monkeypatch.setattr(
+        cli_module, "_hardware_result_gaps",
+        lambda hardware_id, api_url: ["whisper-medium-en-batch", "vosk-small-en-batch"],
+    )
+    monkeypatch.setitem(sys.modules, "pywhispercpp", None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "2 official profile(s)" in result.output
+    assert "intel-xeon-e3-1240-v6" in result.output
+    assert "whisper-medium-en-batch" in result.output
+    assert "vosk-small-en-batch" in result.output
+
+
+def test_doctor_reports_full_coverage_when_no_gaps(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: _CPU_HARDWARE_ROWS)
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+    monkeypatch.setattr(cli_module, "_hardware_result_gaps", lambda hardware_id, api_url: [])
+    monkeypatch.setitem(sys.modules, "pywhispercpp", None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "already has a public result" in result.output
+
+
+def test_doctor_reports_when_hardware_not_detected(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: _CPU_HARDWARE_ROWS)
+    monkeypatch.setattr(cli_module, "_capture_cpu", lambda unavailable: {"model": None})
+    monkeypatch.setitem(sys.modules, "pywhispercpp", None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "couldn't confidently match this CPU" in result.output
+
+
+def test_doctor_reports_when_result_coverage_check_cant_reach_network(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: _CPU_HARDWARE_ROWS)
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+    monkeypatch.setattr(cli_module, "_hardware_result_gaps", lambda hardware_id, api_url: None)
+    monkeypatch.setitem(sys.modules, "pywhispercpp", None)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "couldn't reach" in result.output
 
 
 def test_wizard_list_profiles_reexecs_the_subcommand(monkeypatch):

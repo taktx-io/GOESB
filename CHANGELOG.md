@@ -5,6 +5,38 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-07-29
+### Fixed
+- **`--backend cuda` on whisper-cpp is now actually verified, not a
+  silent best-effort guess.** `use_gpu` is a single boolean covering
+  CUDA/Metal/Vulkan/nothing depending purely on how the installed
+  `pywhispercpp` binary was compiled — previously requesting `cuda` on a
+  Metal-only or CPU-only build silently ran on CPU with no error and no
+  indication anything was wrong. Now checked directly against
+  whisper.cpp's own build-info string (`Model.system_info()`, no model
+  file needed) before ever loading a model; a build without real CUDA
+  support now raises a clear `RuntimeError` pointing at `goesb doctor`,
+  matching faster-whisper's existing behavior. `goesb doctor` gives the
+  same real answer for this engine now too, instead of "can't be checked
+  without running a real transcription."
+### Added
+- **`goesb doctor` detects non-NVIDIA GPUs too**, advisory-only (Apple
+  Metal presence on macOS, `lspci`/`wmic` on Linux/Windows) — previously
+  its GPU line was NVIDIA-only (`nvidia-smi`), so it always said "GPU:
+  none detected" on every Mac and every AMD/Intel box, misleading
+  specifically on the hardware where whisper-cpp's own GPU support would
+  matter most. Doesn't touch the signed result document's own environment
+  fingerprint, which stays NVIDIA-only and unchanged.
+- **`goesb doctor` reports official profiles with no public result yet
+  for your detected hardware** — the other ADR-0008-promised half of
+  `doctor` that had never shipped. Scoped to profile × hardware, not the
+  full profile × backend the ADR describes: the leaderboard API doesn't
+  expose which backend a result used, only its runtime, so backend-level
+  granularity isn't achievable without a platform-side schema change.
+  Degrades silently (prints a one-line skip notice, never fails the rest
+  of `doctor`) if hardware can't be confidently detected or the platform
+  API is unreachable.
+
 ## [0.8.5] - 2026-07-29
 ### Added
 - **The wizard now guesses your hardware from the catalog instead of
