@@ -1382,43 +1382,38 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
 
     if runtime_name == "whisper-cpp":
         # Unlike faster-whisper below, this doesn't need gpu (nvidia-smi)
-        # at all — whisper.cpp's own build-info string (system_info(), a
-        # static method, no model file needed) says directly whether this
-        # exact compiled binary has CUDA support, independent of whether
-        # an NVIDIA device is even present to report. Real signal instead
-        # of the "can't be checked without running a real transcription"
-        # this used to say. Guarded by its own try/except, distinct from
-        # `installed` above: that's an importlib.util.find_spec check,
-        # which can disagree with a real import in a broken/partial
-        # install — must report that clearly rather than let it surface
-        # as doctor's generic "an internal probe failed" catch-all.
+        # at all for most backends — whisper.cpp's own build-info string
+        # (system_info(), a static method, no model file needed) says
+        # directly which GPU backend(s) this exact compiled binary has,
+        # independent of whether an NVIDIA device is even present to
+        # report. Real per-backend signal instead of the "can't be
+        # checked without running a real transcription" this used to say.
+        # Guarded by its own try/except, distinct from `installed` above:
+        # that's an importlib.util.find_spec check, which can disagree
+        # with a real import in a broken/partial install — must report
+        # that clearly rather than let it surface as doctor's generic "an
+        # internal probe failed" catch-all.
         try:
             from pywhispercpp.model import Model
 
-            from .adapters.whisper_cpp import (
-                cuda_available as whisper_cpp_cuda_available,
-            )
-            cuda_ok = whisper_cpp_cuda_available(Model)
+            from .adapters import whisper_cpp as whisper_cpp_adapter
         except ImportError:
             return (
-                f"{label}: cpu ready; cuda readiness unknown (pywhispercpp reports as "
+                f"{label}: cpu ready; gpu readiness unknown (pywhispercpp reports as "
                 "installed but isn't actually importable — a broken or partial install)."
             )
-        if not cuda_ok:
-            return (
-                f"{label}: cpu ready; cuda unavailable — this pywhispercpp build was not "
-                "compiled with CUDA support (checked directly via whisper.cpp's own build info)."
-            )
-        if gpu is None:
-            return (
-                f"{label}: cpu ready; this pywhispercpp build was compiled with CUDA "
-                "support, but no NVIDIA GPU was detected (via nvidia-smi) — cuda is "
-                "unlikely to actually work here."
-            )
-        return (
-            f"{label}: cpu ready; cuda ready ({gpu['model']} detected, and this "
-            "pywhispercpp build was compiled with CUDA support)."
-        )
+        parts = []
+        for gpu_backend in sorted(backends - {"cpu"}):
+            check = whisper_cpp_adapter._BACKEND_AVAILABILITY_CHECK.get(gpu_backend)
+            if check is None or not check(Model):
+                parts.append(f"{gpu_backend} unavailable (not compiled into this build)")
+            elif gpu_backend == "cuda" and gpu is None:
+                parts.append(f"{gpu_backend} compiled in, but no NVIDIA GPU detected — unlikely to work")
+            elif gpu_backend == "cuda":
+                parts.append(f"{gpu_backend} ready ({gpu['model']} detected)")
+            else:
+                parts.append(f"{gpu_backend} ready")
+        return f"{label}: cpu ready; " + "; ".join(parts)
 
     if gpu is None:
         return f"{label}: cpu ready; cuda unavailable (no NVIDIA GPU detected)."

@@ -64,7 +64,10 @@ class _FakeModel:
     tests exercising that check override it via monkeypatch."""
 
     last_init_kwargs: ClassVar[dict] = {}
-    system_info_return: ClassVar[str] = "WHISPER : CUDA = 1 | CPU : NEON = 0 | "
+    # Realistic ggml dynamic-backend-registry format (confirmed against
+    # upstream ggml-cuda.cu/whisper.cpp source) — CUDA appears as its own
+    # "CUDA : ..." section, never a flat "CUDA = 1" pair.
+    system_info_return: ClassVar[str] = "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | "
 
     def __init__(self, *_args, **kwargs):
         _FakeModel.last_init_kwargs = kwargs
@@ -161,10 +164,38 @@ def test_run_batch_cuda_backend_raises_when_build_has_no_cuda_support(monkeypatc
     )
     _FakeModel.last_init_kwargs = {}  # reset — a prior test's leftover state otherwise persists
 
-    with pytest.raises(RuntimeError, match="no CUDA support"):
+    with pytest.raises(RuntimeError, match="no cuda support"):
         run_batch("tiny", [_fake_utterance(tmp_path)], backend="cuda")
 
     # Must fail before ever constructing the model — no partial/wasted work.
+    assert _FakeModel.last_init_kwargs == {}
+
+
+def test_run_batch_passes_use_gpu_true_for_metal_backend(monkeypatch, tmp_path):
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+    monkeypatch.setattr(
+        _FakeModel, "system_info_return",
+        "WHISPER : COREML = 0 | OPENVINO = 0 | MTL : EMBED_LIBRARY = 1 | ",
+    )
+
+    run_batch("tiny", [_fake_utterance(tmp_path)], backend="metal")
+
+    assert _FakeModel.last_init_kwargs.get("context_params") == {"use_gpu": True}
+
+
+def test_run_batch_metal_backend_raises_when_build_has_no_metal_support(monkeypatch, tmp_path):
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+    monkeypatch.setattr(
+        _FakeModel, "system_info_return",
+        "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | ",
+    )
+    _FakeModel.last_init_kwargs = {}
+
+    with pytest.raises(RuntimeError, match="no metal support"):
+        run_batch("tiny", [_fake_utterance(tmp_path)], backend="metal")
+
     assert _FakeModel.last_init_kwargs == {}
 
 
@@ -182,11 +213,29 @@ def test_run_batch_cpu_backend_never_calls_system_info(monkeypatch, tmp_path):
     assert calls == []
 
 
-def test_cuda_available_true_when_system_info_reports_cuda():
+def test_cuda_available_true_when_system_info_reports_the_cuda_backend_section():
+    """Real report, second bug in the same area: CUDA/Metal/Vulkan register
+    through ggml's dynamic backend registry as their own named section
+    ("CUDA : <features...>"), not a flat "CUDA = 1" pair the way OPENVINO
+    and COREML do — confirmed by reading upstream ggml-cuda.cu/whisper.cpp
+    source directly. A "CUDA = 1" check (what an earlier version of this
+    function used) matches no real CUDA build's actual output."""
     class _Model:
         @staticmethod
         def system_info():
-            return "WHISPER : CUDA = 1 | METAL = 0 | "
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | "
+
+    assert whisper_cpp.cuda_available(_Model) is True
+
+
+def test_cuda_available_true_even_with_no_reported_features():
+    """The backend section header appears whether or not the backend
+    reports any features at all (e.g. no GGML_CUDA_FORCE_MMQ-style macros
+    defined at compile time) — presence of "CUDA :" alone is the signal."""
+    class _Model:
+        @staticmethod
+        def system_info():
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : "
 
     assert whisper_cpp.cuda_available(_Model) is True
 
@@ -200,10 +249,21 @@ def test_cuda_available_false_when_system_info_omits_cuda():
     assert whisper_cpp.cuda_available(_Model) is False
 
 
-def test_cuda_available_false_for_explicit_cuda_zero():
+def test_metal_available_true_when_system_info_reports_the_mtl_backend_section():
+    """Confirmed against upstream ggml-metal.cpp: Metal registers under
+    the name "MTL", not "METAL" — matches this exact Mac's real output."""
     class _Model:
         @staticmethod
         def system_info():
-            return "WHISPER : CUDA = 0 | "
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | MTL : EMBED_LIBRARY = 1 | "
 
-    assert whisper_cpp.cuda_available(_Model) is False
+    assert whisper_cpp.metal_available(_Model) is True
+
+
+def test_metal_available_false_when_system_info_omits_mtl():
+    class _Model:
+        @staticmethod
+        def system_info():
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | "
+
+    assert whisper_cpp.metal_available(_Model) is False

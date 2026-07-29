@@ -403,7 +403,10 @@ def test_doctor_engine_line_whisper_cpp_reports_real_cuda_support(monkeypatch):
     class _FakeModel:
         @staticmethod
         def system_info():
-            return "WHISPER : CUDA = 1 | "
+            # Realistic ggml dynamic-backend-registry format (confirmed
+            # against upstream source) — CUDA is its own "CUDA : ..."
+            # section, never a flat "CUDA = 1" pair.
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | "
 
     _fake_pywhispercpp(monkeypatch, _FakeModel)
     monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
@@ -411,8 +414,8 @@ def test_doctor_engine_line_whisper_cpp_reports_real_cuda_support(monkeypatch):
     fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
     line = cli_module._doctor_engine_line("whisper-cpp", "batch", fake_gpu)
 
-    assert "cuda ready" in line
-    assert "compiled with CUDA support" in line
+    assert "cuda ready (NVIDIA RTX 4090 detected)" in line
+    assert "metal unavailable" in line  # not compiled into this fake build
 
 
 def test_doctor_engine_line_whisper_cpp_reports_no_cuda_support(monkeypatch):
@@ -431,8 +434,8 @@ def test_doctor_engine_line_whisper_cpp_reports_no_cuda_support(monkeypatch):
 
     line = cli_module._doctor_engine_line("whisper-cpp", "batch", None)
 
-    assert "cuda unavailable" in line
-    assert "not compiled with CUDA support" in line
+    assert "cuda unavailable (not compiled into this build)" in line
+    assert "metal ready" in line
     assert "can't be checked without running a real transcription" not in line
 
 
@@ -442,16 +445,33 @@ def test_doctor_engine_line_whisper_cpp_cuda_ready_but_no_nvidia_gpu_warns(monke
     class _FakeModel:
         @staticmethod
         def system_info():
-            return "WHISPER : CUDA = 1 | "
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | "
 
     _fake_pywhispercpp(monkeypatch, _FakeModel)
     monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
 
     line = cli_module._doctor_engine_line("whisper-cpp", "batch", None)
 
-    assert "compiled with CUDA support" in line
-    assert "no NVIDIA GPU was detected" in line
-    assert "unlikely to actually work" in line
+    assert "cuda compiled in, but no NVIDIA GPU detected" in line
+    assert "unlikely to work" in line
+
+
+def test_doctor_engine_line_whisper_cpp_reports_real_metal_support(monkeypatch):
+    """Metal doesn't need nvidia-smi/gpu at all — unlike cuda, it's
+    self-contained: no NVIDIA-GPU cross-check applies to it."""
+    from oesb_runner import cli as cli_module
+
+    class _FakeModel:
+        @staticmethod
+        def system_info():
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | MTL : EMBED_LIBRARY = 1 | "
+
+    _fake_pywhispercpp(monkeypatch, _FakeModel)
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+    line = cli_module._doctor_engine_line("whisper-cpp", "batch", None)
+
+    assert "metal ready" in line
 
 
 def test_doctor_engine_line_whisper_cpp_handles_find_spec_import_mismatch(monkeypatch):
@@ -475,7 +495,7 @@ def test_doctor_engine_line_whisper_cpp_handles_find_spec_import_mismatch(monkey
 
     line = cli_module._doctor_engine_line("whisper-cpp", "batch", None)
 
-    assert "cuda readiness unknown" in line
+    assert "gpu readiness unknown" in line
     assert "broken or partial install" in line
 
 

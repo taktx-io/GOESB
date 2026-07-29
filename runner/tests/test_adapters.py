@@ -82,8 +82,8 @@ def test_get_supported_backends_faster_whisper_includes_cuda():
     assert get_supported_backends("faster-whisper", "streaming") == {"cpu", "cuda"}
 
 
-def test_get_supported_backends_whisper_cpp_includes_cuda():
-    assert get_supported_backends("whisper-cpp", "batch") == {"cpu", "cuda"}
+def test_get_supported_backends_whisper_cpp_includes_cuda_and_metal():
+    assert get_supported_backends("whisper-cpp", "batch") == {"cpu", "cuda", "metal"}
 
 
 def test_get_supported_backends_vosk_is_cpu_only():

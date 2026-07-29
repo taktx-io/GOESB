@@ -5,6 +5,31 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-07-29
+### Fixed
+- **0.8.6's own CUDA-detection check for whisper-cpp was itself wrong.**
+  Found while investigating real Metal-backend support: confirmed by
+  reading upstream ggml/whisper.cpp source directly
+  (`whisper_print_system_info`), CUDA/Metal/Vulkan don't report through a
+  flat `"CUDA = 1"`-style flag the way `OPENVINO`/`COREML` do — they
+  register through ggml's dynamic backend registry as their own named
+  section, `"CUDA : <features...>"`, present whether or not any features
+  are reported. The 0.8.6 regex checked for the flag format, which no
+  real CUDA build actually emits — meaning it would very likely have
+  reported "no CUDA support" even on a genuinely CUDA-capable build, the
+  exact inverse of the bug 0.8.6 was fixing. Corrected to check for the
+  backend's actual registration name.
+### Added
+- **`--backend metal` for whisper-cpp, real and verified — not
+  speculative.** Same `use_gpu` mechanism CUDA already used; Apple's
+  Metal backend registers as `"MTL"` in ggml's registry (confirmed
+  against upstream `ggml-metal.cpp`, and empirically: this is genuinely
+  what a Metal-capable Mac build reports). Verified end-to-end on real
+  Apple Silicon hardware — a real transcription with `--backend metal`
+  produces correct output, and `--backend cuda` on the same (non-CUDA)
+  build still correctly raises. `goesb doctor`'s whisper-cpp line now
+  reports every backend the runtime declares, not just cuda.
+
 ## [0.8.6] - 2026-07-29
 ### Fixed
 - **`--backend cuda` on whisper-cpp is now actually verified, not a
