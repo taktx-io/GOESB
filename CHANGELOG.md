@@ -5,6 +5,23 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.9] - 2026-07-29
+### Added
+- **Wizard prompts for `--backend` per engine, instead of always
+  defaulting to cpu.** Previously the only way to run the wizard on a
+  non-cpu backend was to skip it and hand-build a `goesb run --backend
+  ...` invocation yourself — the wizard's own batch runs always ended up
+  cpu-only regardless of what hardware was available. Adds
+  `_ready_backends()`, which narrows an engine's declared backend support
+  (`get_supported_backends`) down to what's actually verified usable on
+  this machine right now — reusing the exact same probes `goesb doctor`
+  already reports (whisper-cpp's per-backend build-info check,
+  faster-whisper's ctranslate2 CUDA device count) — so the wizard never
+  offers a backend certain to fail. One prompt per distinct engine in the
+  batch; an engine with only cpu available is never prompted, so a full
+  Enter-through-everything session still reproduces today's cpu-only
+  behavior byte-for-byte.
+
 ## [0.8.8] - 2026-07-29
 ### Fixed
 - **Streaming latency metrics were measured from clip-buffer position 0,

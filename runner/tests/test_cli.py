@@ -499,6 +499,191 @@ def test_doctor_engine_line_whisper_cpp_handles_find_spec_import_mismatch(monkey
     assert "broken or partial install" in line
 
 
+# --- _ready_backends: wizard-facing "actually usable now" narrowing ---
+
+
+def test_ready_backends_not_installed_returns_empty(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: None)
+
+    assert cli_module._ready_backends("faster-whisper", "batch", None) == frozenset()
+
+
+def test_ready_backends_cpu_only_engine_returns_cpu(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+    assert cli_module._ready_backends("vosk", "batch", None) == frozenset({"cpu"})
+
+
+def test_ready_backends_whisper_cpp_cuda_needs_both_build_and_gpu(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    class _FakeModel:
+        @staticmethod
+        def system_info():
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | "
+
+    _fake_pywhispercpp(monkeypatch, _FakeModel)
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+    fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
+    assert cli_module._ready_backends("whisper-cpp", "batch", fake_gpu) == frozenset({"cpu", "cuda"})
+    # Compiled in, but no NVIDIA GPU detected — same caveat doctor prints,
+    # excluded here rather than offered as a choice certain to fail.
+    assert cli_module._ready_backends("whisper-cpp", "batch", None) == frozenset({"cpu"})
+
+
+def test_ready_backends_whisper_cpp_metal_needs_no_gpu_probe(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    class _FakeModel:
+        @staticmethod
+        def system_info():
+            return "WHISPER : COREML = 0 | OPENVINO = 0 | MTL : EMBED_LIBRARY = 1 | "
+
+    _fake_pywhispercpp(monkeypatch, _FakeModel)
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+
+    assert cli_module._ready_backends("whisper-cpp", "batch", None) == frozenset({"cpu", "metal"})
+
+
+def test_ready_backends_faster_whisper_needs_gpu_and_cuda_devices(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 1)
+
+    fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
+    assert cli_module._ready_backends("faster-whisper", "batch", fake_gpu) == frozenset({"cpu", "cuda"})
+    assert cli_module._ready_backends("faster-whisper", "batch", None) == frozenset({"cpu"})
+
+
+def test_ready_backends_faster_whisper_zero_cuda_devices_is_cpu_only(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 0)
+
+    fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
+    assert cli_module._ready_backends("faster-whisper", "batch", fake_gpu) == frozenset({"cpu"})
+
+
+# --- _wizard_pick_backends ---
+
+
+def test_wizard_pick_backends_skips_prompt_when_only_cpu_ready(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *a, **k: frozenset({"cpu"}))
+    prompted = []
+    monkeypatch.setattr(
+        cli_module.questionary, "select",
+        lambda *a, **k: prompted.append(1) or _FakeAsk("cpu"),
+    )
+
+    result = cli_module._wizard_pick_backends({"p1": "vosk"}, None)
+
+    assert result == {}
+    assert not prompted
+
+
+def test_wizard_pick_backends_offers_choice_and_omits_cpu_selection(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *a, **k: frozenset({"cpu", "cuda"}))
+    monkeypatch.setattr(cli_module.questionary, "select", lambda *a, **k: _FakeAsk("cuda"))
+
+    result = cli_module._wizard_pick_backends({"p1": "faster-whisper"}, None)
+
+    assert result == {"faster-whisper": "cuda"}
+
+
+def test_wizard_pick_backends_picking_cpu_stays_omitted(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *a, **k: frozenset({"cpu", "cuda"}))
+    monkeypatch.setattr(cli_module.questionary, "select", lambda *a, **k: _FakeAsk("cpu"))
+
+    result = cli_module._wizard_pick_backends({"p1": "faster-whisper"}, None)
+
+    assert result == {}
+
+
+def test_wizard_pick_backends_aborts_on_none(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *a, **k: frozenset({"cpu", "cuda"}))
+    monkeypatch.setattr(cli_module.questionary, "select", lambda *a, **k: _FakeAsk(None))
+
+    assert cli_module._wizard_pick_backends({"p1": "faster-whisper"}, None) is None
+
+
+def test_wizard_pick_backends_one_prompt_per_distinct_engine(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *a, **k: frozenset({"cpu", "cuda"}))
+    engines_prompted = []
+
+    def _fake_select(question, *a, **k):
+        engines_prompted.append(question)
+        return _FakeAsk("cuda")
+
+    monkeypatch.setattr(cli_module.questionary, "select", _fake_select)
+
+    result = cli_module._wizard_pick_backends(
+        {"p1": "faster-whisper", "p2": "faster-whisper", "p3": "vosk"}, None
+    )
+
+    assert len(engines_prompted) == 2  # once for faster-whisper, once for vosk
+    assert result == {"faster-whisper": "cuda", "vosk": "cuda"}
+
+
+def test_wizard_run_threads_chosen_backend_into_reexec_args(monkeypatch):
+    """End-to-end proof the wizard's backend choice actually reaches the
+    re-exec'd `run` invocation, not just an internal dict."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
+    )
+    monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_load_profile_for_wizard",
+        lambda *a, **k: {"runtime": {"name": "faster-whisper"}},
+    )
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_wizard_pick_backends", lambda *a, **k: {"faster-whisper": "cuda"})
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert reexec_calls == [
+        [
+            "run", "whisper-medium-en-batch", "pack-a", "--repeats", "1", "--hardware", "custom",
+            "--backend", "cuda",
+        ],
+    ]
+
+
 def test_detect_non_nvidia_gpu_darwin_reports_metal(monkeypatch):
     from oesb_runner import cli as cli_module
 
@@ -805,6 +990,8 @@ def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsy
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
         lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
@@ -856,6 +1043,8 @@ def test_wizard_run_expands_combos_when_multiple_packs_chosen_for_one_profile(mo
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
         lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
@@ -906,6 +1095,8 @@ def test_wizard_run_drops_cell_silently_when_pack_choice_empty(monkeypatch):
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
         lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
@@ -964,6 +1155,8 @@ def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
         lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
@@ -1000,6 +1193,8 @@ def test_wizard_run_hardware_back_re_shows_the_matrix(monkeypatch):
     monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
         lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
@@ -1175,6 +1370,8 @@ def test_wizard_run_confirmation_states_total_including_repeats(monkeypatch, cap
             (pid, pack, {"beam_size": "1"}) for pid, pack in combos
         ] + [(pid, pack, {"beam_size": "8"}) for pid, pack in combos],
     )
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("3"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
     monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
@@ -1200,6 +1397,8 @@ def test_wizard_run_warns_above_twenty_expanded_combos(monkeypatch):
     monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
         lambda combos, *a, **k: [

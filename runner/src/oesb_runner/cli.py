@@ -676,6 +676,19 @@ def _wizard_run() -> None:
     if not combos:
         return
 
+    runtime_by_profile = {
+        profile_id: (
+            (_load_profile_for_wizard(profile_id, "profiles", DEFAULT_API_URL) or {})
+            .get("runtime", {})
+            .get("name")
+        )
+        for profile_id in {profile_id for profile_id, _pack_id in combos}
+    }
+    gpu = _capture_gpu({})
+    backend_by_runtime = _wizard_pick_backends(runtime_by_profile, gpu)
+    if backend_by_runtime is None:
+        return
+
     expanded = _wizard_engine_parameters(combos, "profiles", DEFAULT_API_URL)
     if not expanded:
         return
@@ -698,6 +711,10 @@ def _wizard_run() -> None:
     outcomes: list[tuple[str, str, dict[str, str], bool]] = []
     for profile_id, pack_id, overrides in expanded:
         args = ["run", profile_id, pack_id, "--repeats", repeats, "--hardware", hardware_id]
+        runtime_name = runtime_by_profile.get(profile_id)
+        backend = backend_by_runtime.get(runtime_name) if runtime_name else None
+        if backend:
+            args += ["--backend", backend]
         for key, value in overrides.items():
             args += ["--param", f"{key}={value}"]
         try:
@@ -1364,6 +1381,75 @@ def _cuda_device_count() -> int | None:
         return ctranslate2.get_cuda_device_count()
     except Exception:  # noqa: BLE001 - a probe must never itself crash `doctor`
         return None
+
+
+def _ready_backends(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] | None) -> frozenset[str]:
+    """Backends actually usable on this machine right now for this engine
+    — `get_supported_backends` alone is declared-only (what the adapter
+    knows how to drive), not "verified working", the same gap
+    `_doctor_engine_line` reports as text but nothing downstream can act
+    on. Reuses `doctor`'s own probes (whisper-cpp's per-backend build-info
+    check, faster-whisper's ctranslate2 CUDA device count) so the wizard
+    never offers a backend certain to fail. Always includes "cpu"."""
+    backends = get_supported_backends(runtime_name, benchmark_type)
+    module_name = _ENGINE_MODULE_NAMES.get(runtime_name)
+    if module_name is None or importlib.util.find_spec(module_name) is None:
+        return frozenset()  # not installed — _preflight_engines handles that separately
+    if backends == {"cpu"}:
+        return backends
+
+    if runtime_name == "whisper-cpp":
+        try:
+            from pywhispercpp.model import Model
+
+            from .adapters import whisper_cpp as whisper_cpp_adapter
+        except ImportError:
+            return frozenset({"cpu"})
+        ready = {"cpu"}
+        for gpu_backend in backends - {"cpu"}:
+            check = whisper_cpp_adapter._BACKEND_AVAILABILITY_CHECK.get(gpu_backend)
+            if check is None or not check(Model):
+                continue
+            if gpu_backend == "cuda" and gpu is None:
+                continue  # compiled in, but no NVIDIA GPU detected — matches doctor's own caveat
+            ready.add(gpu_backend)
+        return frozenset(ready)
+
+    if runtime_name == "faster-whisper":
+        if gpu is not None and (_cuda_device_count() or 0) > 0:
+            return frozenset({"cpu", "cuda"})
+        return frozenset({"cpu"})
+
+    return backends  # unknown engine shape — trust declared support
+
+
+def _wizard_pick_backends(
+    runtime_by_profile: dict[str, str | None], gpu: dict[str, Any] | None
+) -> dict[str, str] | None:
+    """One backend prompt per distinct engine in the batch, offered only
+    among backends `_ready_backends` confirms are actually usable here —
+    a user picking a backend certain to fail on this machine is exactly
+    the gap `goesb doctor` already reports but the wizard never asked
+    about. An engine with only cpu available is never prompted — full
+    Enter-through-everything still reproduces today's cpu-only behavior
+    byte-for-byte. Returns runtime_name -> chosen backend (cpu entries
+    omitted, since that's the `run` default already), or None if the
+    user aborts a prompt."""
+    chosen: dict[str, str] = {}
+    for runtime_name in sorted({r for r in runtime_by_profile.values() if r is not None}):
+        ready = _ready_backends(runtime_name, "batch", gpu)
+        if ready <= {"cpu"}:
+            continue
+        backend = questionary.select(
+            f"[{runtime_name}] compute backend:",
+            choices=sorted(ready),
+            default="cpu",
+        ).ask()
+        if backend is None:
+            return None
+        if backend != "cpu":
+            chosen[runtime_name] = backend
+    return chosen
 
 
 def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] | None) -> str:
