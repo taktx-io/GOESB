@@ -5,6 +5,25 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-07-29
+### Fixed
+- **Fetched profiles and packs were cached forever with zero revalidation
+  — the actual root cause behind 0.8.2's credential-prompt bug.**
+  `fetch_profile`/`fetch_pack` (`remote.py`) treated file existence alone
+  as "still valid," mirroring how model-weight caching works. Unlike model
+  weights or audio (both genuinely immutable once fetched), a profile's or
+  pack's own YAML is small, server-mutable metadata — this repo's own
+  history has renamed pack ids, added a gated pack's credential
+  requirement, and bumped versions, all to already-published packs. A
+  real report showed the actual mechanism: a pack cached before it
+  required an API key kept serving the credential-less copy forever after,
+  so the wizard's own credential preflight (0.8.2) never even saw the
+  requirement to prompt for — 0.8.2's fix was correct but unreachable for
+  this exact case, since the stale cache meant `credential_by_env_var`
+  never got populated in the first place. Network is now always tried
+  first; the on-disk cache is used only as a fallback when the network
+  request itself fails, not as a substitute for asking again.
+
 ## [0.8.2] - 2026-07-29
 ### Fixed
 - **Wizard batches never prompted for a gated pack's API key if the local
