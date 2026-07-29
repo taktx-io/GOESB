@@ -43,6 +43,15 @@ _GGML_BACKEND_SECTION_RE = {
     "metal": re.compile(r"\bMTL\s*:", re.IGNORECASE),
 }
 
+# whisper.cpp's models are all trained on and require 16kHz mono input —
+# unlike faster-whisper (whose ctranslate2 decode path resamples
+# internally), whisper.cpp does not resample, so decode_pcm must be told
+# to convert to this rate explicitly (real report: a 48kHz Common Voice
+# pack fed in unresampled produced fluent-sounding but 100%+ WER
+# hallucinated garbage — audio playing back 3x too fast, not a
+# model-quality problem).
+_SAMPLE_RATE = 16000
+
 
 def cuda_available(model_cls: Any) -> bool:
     """True iff `model_cls` (pywhispercpp's `Model`) reports real CUDA
@@ -178,7 +187,7 @@ def run_batch(
 
     results: list[Transcription] = []
     for i, utterance in enumerate(utterances, start=1):
-        samples = decode_pcm(utterance.audio_path, dtype="float32")
+        samples = decode_pcm(utterance.audio_path, _SAMPLE_RATE, dtype="float32")
         start = time.perf_counter()
         segments = model.transcribe(samples)
         hypothesis_text = " ".join(segment.text.strip() for segment in segments).strip()

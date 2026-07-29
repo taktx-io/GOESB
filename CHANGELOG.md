@@ -5,6 +5,33 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.10] - 2026-07-29
+### Fixed
+- **`decode_pcm` silently assumed every pack's audio was already at the
+  model's target sample rate — it never resampled, and never checked.**
+  Real report: a Common Voice pack (48kHz, crowd-sourced personal
+  devices) fed straight into whisper.cpp or vosk (both require and
+  expect 16kHz, neither resamples internally) produced fluent-sounding
+  but 100%+ WER hallucinated garbage — the audio played back 3x too
+  fast to the model, not a model-quality or pack-content problem.
+  Confirmed by direct reproduction: switching `--backend cuda`/`cpu`/
+  `metal` made no difference (ruling out a backend bug), and the exact
+  same WER (1.0667) and hallucinated output reproduced on cpu — this
+  was never about metal. `faster-whisper` was never affected: its own
+  ctranslate2 decode path resamples internally regardless of input
+  rate, which is why its historical results on these same packs always
+  looked correct. `decode_pcm` now takes a required `target_rate_hz`
+  (no default — a future adapter can't reproduce this by omission) and
+  resamples via linear interpolation when the native rate differs.
+  Re-verified on the real pack after the fix: WER dropped from 1.0667
+  to 0.4697 on `common-voice-nl` base model, now in line with
+  faster-whisper's own result (0.4303) on the identical pack/model
+  size, and the hypothesis text is now a recognizable (if imperfect)
+  transcription instead of hallucinated noise.
+  **Every `common-voice-*` pack is affected** (all either declare no
+  `sample_rate_hz` — mixed native rates — or a non-16kHz one); `fleurs-*`
+  and `librispeech-*` packs were never affected (already 16kHz).
+
 ## [0.8.9] - 2026-07-29
 ### Added
 - **Wizard prompts for `--backend` per engine, instead of always

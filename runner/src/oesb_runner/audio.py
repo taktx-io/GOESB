@@ -81,14 +81,23 @@ def flac_duration_s(path: str | Path) -> float:
                 raise ValueError(f"FLAC file has no STREAMINFO block: {path}")
 
 
-def decode_pcm(path: str | Path, dtype: str = "int16") -> np.ndarray:
-    """Decode an audio file to a 1-D mono PCM array at its native sample rate.
+def decode_pcm(path: str | Path, target_rate_hz: int, dtype: str = "int16") -> np.ndarray:
+    """Decode an audio file to a 1-D mono PCM array at `target_rate_hz`.
 
     `dtype` is `"int16"` (what vosk's `AcceptWaveform` expects as raw bytes)
     or `"float32"` (what pywhispercpp's `transcribe()` accepts directly).
-    Every GOESB pack shipped so far is already mono at the profile's target
-    rate (see each pack's `pack.yaml` `audio.sample_rate_hz`), so this does
-    not resample — a documented assumption, not a silent one.
+    `target_rate_hz` is required, no default — real report, confirmed by
+    direct measurement: this used to silently assume every pack's audio was
+    already at the model's target rate, undocumented as a *silent*
+    assumption in name only, since nothing actually verified or corrected
+    for it. A real Common Voice pack's clips (48kHz, crowd-sourced personal
+    devices) fed straight into whisper.cpp/vosk (both expect and require
+    16kHz, neither resamples internally) produced fluent-sounding but
+    100%+ WER hallucinated garbage — audio playing back 3x too fast to the
+    model, not a model-quality or pack-content problem. faster-whisper never
+    hit this: its own decode path resamples internally regardless of input
+    rate. Requiring the caller to state the target explicitly (no default)
+    means a future adapter can't reproduce this by omission.
 
     Always reads via soundfile's float64 path and converts to the requested
     dtype ourselves, rather than asking soundfile/libsndfile to convert
@@ -108,9 +117,20 @@ def decode_pcm(path: str | Path, dtype: str = "int16") -> np.ndarray:
             "or `pip install goesb-runner[whisper-cpp]`"
         ) from exc
 
-    samples, _sample_rate = sf.read(str(path), dtype="float64", always_2d=False)
+    samples, sample_rate = sf.read(str(path), dtype="float64", always_2d=False)
     if samples.ndim > 1:  # collapse stereo to mono by averaging channels
         samples = samples.mean(axis=1)
+
+    if sample_rate != target_rate_hz:
+        duration_s = len(samples) / sample_rate
+        target_len = max(1, round(duration_s * target_rate_hz))
+        # Linear interpolation, not a spectral/polyphase method — no new
+        # dependency (numpy is already required here), and adequate for
+        # feeding an ASR model: correctness (playing back at the right
+        # speed at all) is the actual bug being fixed, not resample fidelity.
+        orig_x = np.linspace(0.0, duration_s, num=len(samples), endpoint=False)
+        target_x = np.linspace(0.0, duration_s, num=target_len, endpoint=False)
+        samples = np.interp(target_x, orig_x, samples)
 
     if dtype == "int16":
         return np.clip(samples * 32768.0, -32768, 32767).astype(np.int16)

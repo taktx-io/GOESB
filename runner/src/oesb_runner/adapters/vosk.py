@@ -99,7 +99,7 @@ def run_batch(
 
     results: list[Transcription] = []
     for i, utterance in enumerate(utterances, start=1):
-        samples = decode_pcm(utterance.audio_path, dtype="int16")
+        samples = decode_pcm(utterance.audio_path, _SAMPLE_RATE, dtype="int16")
         recognizer = vosk.KaldiRecognizer(model, _SAMPLE_RATE)
 
         start = time.perf_counter()
