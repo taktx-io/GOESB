@@ -5,6 +5,32 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-29
+### Added
+- **Per-utterance recognition log.** `goesb run` now writes
+  `<profile>__<pack>__<timestamp>.utterances.jsonl` alongside every result
+  document — one line per utterance per repeat, with the raw reference
+  text and what the engine actually produced, captured before
+  normalization strips casing/punctuation for WER scoring. The aggregate
+  WER alone can't tell you whether it's low because the engine is
+  genuinely good or because normalization happens to be hiding garbage
+  output. Written as its own file, never merged into the result document
+  or covered by its signature — `submit`'s `*.json` glob and
+  payload_sha256 check both exclude it automatically.
+### Fixed
+- **Clearer, install-method-aware fix when a guarded optional dependency
+  (e.g. `datacollective`, the Mozilla Data Collective / ADR-0010 auto-fetch
+  path) isn't installed.** Previously always suggested a bare `pip install
+  <package>` — wrong and silently unfixable for a `pipx install
+  goesb-runner` setup, since `pip install` outside that isolated venv is
+  invisible to it (confirmed on a real Ubuntu report: `pipx install
+  datacollective` appeared to succeed but installed into its own separate,
+  throwaway venv). `goesb run` now offers to install it on the spot — same
+  UX as a missing STT engine already had — and retries once automatically;
+  if declined or non-interactive, the suggested command now matches how
+  the runner itself was installed (`pipx inject goesb-runner <package>` vs
+  plain `pip install <package>`).
+
 ## [0.8.0] - 2026-07-28
 ### Changed
 - **Pack ids drop their `-batch` suffix.** Leftover from when every pack

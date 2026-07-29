@@ -9,6 +9,7 @@ import pytest
 from oesb_runner import audio_sources
 from oesb_runner.audio_sources import (
     GatedFetchAuthError,
+    MissingDependencyError,
     auto_fetch_audio,
     shared_audio_dir,
 )
@@ -206,5 +207,8 @@ def test_fetch_common_voice_audio_does_not_mask_non_auth_errors(tmp_path, monkey
 def test_fetch_common_voice_audio_raises_clear_error_when_datacollective_not_installed(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "datacollective", None)  # forces ImportError on import
 
-    with pytest.raises(RuntimeError, match="datacollective is not installed"):
+    with pytest.raises(MissingDependencyError, match="datacollective is not installed") as exc_info:
         audio_sources.fetch_common_voice_audio({"dataset_id": "abc123"}, {"a.wav"}, tmp_path)
+    # cli._resolve_pack_audio branches on this to offer an install and
+    # retry — it needs the bare package name, not just a formatted message.
+    assert exc_info.value.package == "datacollective"

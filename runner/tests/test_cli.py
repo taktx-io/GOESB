@@ -2046,6 +2046,200 @@ def test_resolve_pack_audio_reports_clean_message_on_generic_fetch_failure(tmp_p
     assert "Auto-fetch failed: network exploded" in capsys.readouterr().err
 
 
+def test_resolve_pack_audio_missing_dependency_non_tty_suggests_command_no_prompt(tmp_path, monkeypatch, capsys):
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    source = {"type": "mozilla_data_collective", "params": {"dataset_id": "abc123"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: False)
+    asked = []
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: asked.append(a) or _FakeAsk(True))
+
+    def _fail(*a, **k):
+        raise audio_sources.MissingDependencyError("datacollective")
+
+    monkeypatch.setattr(cli_module, "auto_fetch_audio", _fail)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert exc_info.value.exit_code == 1
+    assert asked == []  # non-interactive — never prompted
+    err = capsys.readouterr().err
+    assert "datacollective is not installed" in err
+    assert "pip install datacollective" in err
+
+
+def test_resolve_pack_audio_missing_dependency_declines_prompt_suggests_command(tmp_path, monkeypatch, capsys):
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    source = {"type": "mozilla_data_collective", "params": {"dataset_id": "abc123"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+
+    def _fail(*a, **k):
+        raise audio_sources.MissingDependencyError("datacollective")
+
+    monkeypatch.setattr(cli_module, "auto_fetch_audio", _fail)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert exc_info.value.exit_code == 1
+    assert "run `pip install datacollective` and retry" in capsys.readouterr().err
+
+
+def test_resolve_pack_audio_missing_dependency_pipx_install_suggests_inject(tmp_path, monkeypatch, capsys):
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    source = {"type": "mozilla_data_collective", "params": {"dataset_id": "abc123"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+    monkeypatch.setattr(cli_module, "_is_pipx_install", lambda: True)
+
+    def _fail(*a, **k):
+        raise audio_sources.MissingDependencyError("datacollective")
+
+    monkeypatch.setattr(cli_module, "auto_fetch_audio", _fail)
+
+    with pytest.raises(typer.Exit):
+        cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert "pipx inject goesb-runner datacollective" in capsys.readouterr().err
+
+
+def test_resolve_pack_audio_missing_dependency_confirms_installs_and_retries(tmp_path, monkeypatch, capsys):
+    """Confirming the install prompt must retry the fetch exactly once —
+    without a retry, the wizard's per-combo `_reexec` subprocesses would
+    each hit the same missing-dependency prompt again instead of the
+    install actually unblocking the run that triggered it."""
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    source = {"type": "mozilla_data_collective", "params": {"dataset_id": "abc123"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+
+    class _FakeResult:
+        returncode = 0
+
+    install_calls = []
+    monkeypatch.setattr(cli_module.subprocess, "run", lambda *a, **k: install_calls.append(a) or _FakeResult())
+
+    fetch_calls = []
+
+    def _fetch(source, wanted_names, audio_dir):
+        fetch_calls.append(len(fetch_calls))
+        if len(fetch_calls) == 1:
+            raise audio_sources.MissingDependencyError("datacollective")
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        (audio_dir / "wanted.wav").write_bytes(b"fetched after install")
+        return {"wanted.wav"}
+
+    monkeypatch.setattr(cli_module, "auto_fetch_audio", _fetch)
+
+    resolved_audio_dir = cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert len(fetch_calls) == 2  # failed once, retried once after install
+    assert (resolved_audio_dir / "wanted.wav").read_bytes() == b"fetched after install"
+    assert len(install_calls) == 1
+    assert "Installing datacollective" in capsys.readouterr().err
+
+
+def test_resolve_pack_audio_missing_dependency_only_retries_once(tmp_path, monkeypatch, capsys):
+    """A second MissingDependencyError after an already-attempted install
+    must not loop forever or prompt again — fail with the suggested command
+    instead, same as a decline."""
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+    source = {"type": "mozilla_data_collective", "params": {"dataset_id": "abc123"}}
+    pack_dir = tmp_path / "packs" / "fake-pack"
+    pack_yaml = _fake_pack(pack_dir, source)
+
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    confirm_calls = []
+    monkeypatch.setattr(
+        cli_module.questionary, "confirm",
+        lambda *a, **k: confirm_calls.append(a) or _FakeAsk(True),
+    )
+
+    class _FakeResult:
+        returncode = 0
+
+    monkeypatch.setattr(cli_module.subprocess, "run", lambda *a, **k: _FakeResult())
+
+    def _always_fail(*a, **k):
+        raise audio_sources.MissingDependencyError("datacollective")
+
+    monkeypatch.setattr(cli_module, "auto_fetch_audio", _always_fail)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, False)
+
+    assert exc_info.value.exit_code == 1
+    assert len(confirm_calls) == 1  # only ever prompted once
+    assert "run `pip install datacollective` and retry" in capsys.readouterr().err
+
+
+def test_suggest_install_command_plain_venv():
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._suggest_install_command("datacollective") == "pip install datacollective"
+
+
+def test_suggest_install_command_pipx(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_is_pipx_install", lambda: True)
+    assert cli_module._suggest_install_command("datacollective") == "pipx inject goesb-runner datacollective"
+
+
+def test_suggest_install_command_frozen_binary(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.sys, "frozen", True, raising=False)
+    try:
+        assert "pip install goesb-runner" in cli_module._suggest_install_command("datacollective")
+    finally:
+        monkeypatch.delattr(cli_module.sys, "frozen", raising=False)
+
+
+def test_is_pipx_install_detects_pipx_venv_path(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module.sys, "executable", "/home/eric/.local/pipx/venvs/goesb-runner/bin/python3",
+    )
+    assert cli_module._is_pipx_install() is True
+
+
+def test_is_pipx_install_false_for_plain_venv(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.sys, "executable", "/home/eric/.venvs/goesb/bin/python3")
+    assert cli_module._is_pipx_install() is False
+
+
 def test_coerce_param_value_bool_parses_common_spellings():
     from oesb_runner import cli as cli_module
 

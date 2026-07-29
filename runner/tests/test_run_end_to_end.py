@@ -68,3 +68,16 @@ def test_run_produces_valid_signed_reproducible_result(tmp_path):
     # energy_wh is profile-required but not yet implemented — a known M1/M2 gap.
     for metric_id in ("wer", "cer", "real_time_factor", "cpu_pct", "ram_mb"):
         assert metric_id in doc["metrics"]
+
+    # Per-utterance recognition log: one JSONL line per utterance per
+    # repeat, next to but separate from the result document.
+    utterances_written = list(results_dir.glob("*.utterances.jsonl"))
+    assert len(utterances_written) == 1
+    lines = [json.loads(line) for line in utterances_written[0].read_text().splitlines()]
+    manifest_lines = (PACK_DIR / "manifest.jsonl").read_text().splitlines()
+    utterance_count = sum(1 for line in manifest_lines if line.strip())
+    assert len(lines) == utterance_count * doc["repeats"]
+    assert {entry["repeat"] for entry in lines} == {1, 2}
+    for entry in lines:
+        assert entry.keys() == {"repeat", "utterance_id", "reference_text", "hypothesis_text"}
+        assert entry["reference_text"]  # every LibriSpeech utterance has a non-empty transcript

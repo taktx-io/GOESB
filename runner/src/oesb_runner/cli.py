@@ -46,6 +46,7 @@ from .adapters import (
 from .audio_sources import (
     AUTO_FETCH_SOURCE_TYPES,
     GatedFetchAuthError,
+    MissingDependencyError,
     auto_fetch_audio,
     shared_audio_dir,
 )
@@ -884,18 +885,36 @@ def _resolve_pack_audio(
         f"(source type: {source['type']}) ...",
         err=True,
     )
-    try:
-        fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
-    except GatedFetchAuthError as exc:
-        typer.echo(f"Auto-fetch failed — credential rejected: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    except Exception as exc:  # a bad/expired key or network
-        # failure here must report cleanly and fail just this combo, never
-        # surface as a raw traceback (ADR-0010) — mirrors the missing-clips
-        # branch below, which already fails this one combo without
-        # aborting the rest of the batch.
-        typer.echo(f"Auto-fetch failed: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+    # One retry, only after a successful on-the-spot install: the wizard
+    # re-execs `run` as a fresh subprocess per combo (`_reexec`), so without
+    # this a missing dependency like `datacollective` would prompt and fail
+    # identically for every combo that needs it instead of getting fixed
+    # once. attempted_install guards against looping forever if the install
+    # "succeeds" but the package still somehow isn't importable.
+    attempted_install = False
+    while True:
+        try:
+            fetched = auto_fetch_audio(source, wanted_names, resolved_audio_dir)
+            break
+        except GatedFetchAuthError as exc:
+            typer.echo(f"Auto-fetch failed — credential rejected: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        except MissingDependencyError as exc:
+            if not attempted_install and _offer_install(exc.package):
+                attempted_install = True
+                continue
+            typer.echo(
+                f"{exc.package} is not installed; run `{_suggest_install_command(exc.package)}` and retry.",
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+        except Exception as exc:  # a bad/expired key or network
+            # failure here must report cleanly and fail just this combo, never
+            # surface as a raw traceback (ADR-0010) — mirrors the missing-clips
+            # branch below, which already fails this one combo without
+            # aborting the rest of the batch.
+            typer.echo(f"Auto-fetch failed: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
     missing = wanted_names - fetched
     if missing:
         typer.echo(
@@ -944,6 +963,52 @@ def _install_package(spec: str) -> subprocess.CompletedProcess:
         return subprocess.run([uv_path, "pip", "install", "--python", sys.executable, spec], check=False)
 
     return result
+
+
+def _is_pipx_install() -> bool:
+    """True iff this exact interpreter is a pipx-managed venv for
+    goesb-runner (`.../pipx/venvs/goesb-runner/...`) — pipx sets no env var
+    inside the venv it creates, so a path-substring check on sys.executable
+    is the only runtime signal available. Only used to pick the right
+    *suggested* command when an automatic install isn't possible or was
+    declined; `_install_package` itself targets sys.executable directly and
+    already works the same regardless of pipx vs a plain pip/venv install."""
+    parts = Path(sys.executable).resolve().parts
+    return "pipx" in parts and "goesb-runner" in parts
+
+
+def _suggest_install_command(package: str) -> str:
+    """Best manual fix for `package` missing from this interpreter's
+    environment — pipx apps live in an isolated venv, so the plain `pip
+    install` a generic error would suggest is invisible to them and leaves
+    the same failure recurring forever (see the Ubuntu report that prompted
+    this: `pipx install <package>` looked like it worked but installed into
+    its own throwaway venv, not goesb-runner's)."""
+    if getattr(sys, "frozen", False):
+        return f'the standalone binary can\'t install packages — switch to a `pip install goesb-runner` install to use {package}'
+    if _is_pipx_install():
+        return f"pipx inject goesb-runner {package}"
+    return f"pip install {package}"
+
+
+def _offer_install(package: str) -> bool:
+    """Interactively install `package` into this exact interpreter's venv,
+    mirroring `_ensure_engine_installed`'s UX — returns True iff it's now
+    importable, so the caller can retry whatever needed it. Never offers in
+    a frozen (PyInstaller) binary or a non-interactive run; the caller falls
+    back to `_suggest_install_command` in both cases."""
+    if getattr(sys, "frozen", False) or not sys.stdin.isatty():
+        return False
+    if not questionary.confirm(f"{package!r} isn't installed — install it now?", default=True).ask():
+        return False
+    typer.echo(f"Installing {package} ...", err=True)
+    result = _install_package(package)
+    if result.returncode != 0:
+        typer.echo("Install failed.", err=True)
+        return False
+    importlib.invalidate_caches()
+    typer.echo("Installed.", err=True)
+    return True
 
 
 def _ensure_engine_installed(runtime_name: str) -> None:
@@ -1666,6 +1731,16 @@ def run(
     latency_samples_ms: dict[str, list[float]] = {
         m: [] for m in profile["metrics"] if m in LATENCY_METRIC_IDS
     }
+    # One entry per utterance per repeat — reference vs what the engine
+    # actually produced, captured before normalize() strips casing and
+    # punctuation for WER scoring. The aggregate WER alone can't tell you
+    # whether it's low because the engine is genuinely good or because
+    # normalization happens to be hiding garbage output; this is the only
+    # place that raw comparison survives past this function. Written as its
+    # own JSONL file below, next to but separate from the result document —
+    # never merged into it or covered by payload_sha256/signature, so it's
+    # inherently excluded from `submit` regardless of pack visibility.
+    utterance_log: list[dict[str, Any]] = []
 
     for repeat in range(1, repeats + 1):
         typer.echo(f"Repeat {repeat}/{repeats} ...", err=True)
@@ -1692,6 +1767,12 @@ def run(
             pairs = []
             for utterance in pack.utterances:
                 hyp = by_id[utterance.utterance_id].hypothesis_text
+                utterance_log.append({
+                    "repeat": repeat,
+                    "utterance_id": utterance.utterance_id,
+                    "reference_text": utterance.reference_text,
+                    "hypothesis_text": hyp,
+                })
                 pairs.append((
                     normalize(ruleset_id, utterance.reference_text, **norm_options),
                     normalize(ruleset_id, hyp, **norm_options),
@@ -1738,6 +1819,12 @@ def run(
             pairs = []
             for utterance in pack.utterances:
                 hyp = by_id[utterance.utterance_id].final_text
+                utterance_log.append({
+                    "repeat": repeat,
+                    "utterance_id": utterance.utterance_id,
+                    "reference_text": utterance.reference_text,
+                    "hypothesis_text": hyp,
+                })
                 pairs.append((
                     normalize(ruleset_id, utterance.reference_text, **norm_options),
                     normalize(ruleset_id, hyp, **norm_options),
@@ -1884,7 +1971,13 @@ def run(
     out_path = out_dir / f"{profile_id}__{pack_id}__{ts_slug}.json"
     out_path.write_text(json.dumps(result, indent=2, sort_keys=True))
 
+    utterances_path = out_dir / f"{profile_id}__{pack_id}__{ts_slug}.utterances.jsonl"
+    utterances_path.write_text(
+        "\n".join(json.dumps(entry, sort_keys=True) for entry in utterance_log) + "\n"
+    )
+
     typer.echo(f"Wrote {out_path}", err=True)
+    typer.echo(f"Wrote {utterances_path} ({len(utterance_log)} utterance(s))", err=True)
     for metric_id, block in metrics_block.items():
         spread = f" ± {block['spread']['std']:.4f}" if "spread" in block else ""
         typer.echo(f"  {metric_id}: {block['value']:.4f}{spread} {block['unit']}")

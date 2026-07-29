@@ -51,6 +51,19 @@ class GatedFetchAuthError(RuntimeError):
     detail) reach the user."""
 
 
+class MissingDependencyError(RuntimeError):
+    """Raised when a guarded optional dependency (e.g. `datacollective`,
+    a `mozilla-data-collective` extra — see pyproject.toml) isn't importable
+    yet. Distinct from a generic RuntimeError so `cli._resolve_pack_audio`
+    can offer to install `package` on the spot rather than just printing a
+    message and giving up — this module stays free of any install/UI logic
+    itself, same separation `GatedFetchAuthError` already draws."""
+
+    def __init__(self, package: str):
+        self.package = package
+        super().__init__(f"{package} is not installed")
+
+
 def _stream_extract(
     url: str, wanted_names: set[str], audio_dir: Path, name_filter: Callable[[str], bool]
 ) -> set[str]:
@@ -141,9 +154,7 @@ def fetch_common_voice_audio(params: dict[str, Any], wanted_names: set[str], aud
     try:
         from datacollective import download_dataset
     except ImportError as exc:
-        raise RuntimeError(
-            "datacollective is not installed; run `pip install datacollective`"
-        ) from exc
+        raise MissingDependencyError("datacollective") from exc
 
     dataset_id = params["dataset_id"]
     try:
