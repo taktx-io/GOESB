@@ -5,6 +5,29 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-07-29
+### Added
+- **The wizard now guesses your hardware from the catalog instead of
+  leaving it fully manual.** Typing the right entry out of 985+ catalog
+  rows by hand every single run was reported as very error prone. The
+  local CPU model (already probed for the environment fingerprint) is
+  normalized and fuzzy-matched against the catalog's CPU entries; a
+  confident match pre-fills the picker so pressing Enter accepts it —
+  it's a suggestion the user still confirms, never a silent auto-assign,
+  and if nothing matches well (e.g. under virtualization, where the
+  probed string is unrecoverable) the picker is left exactly as blank as
+  before. GPU-backed runs aren't guessed yet — hardware is picked once
+  per batch before any profile's engine/backend is chosen, so there's no
+  reliable signal at that point about which combos will end up
+  GPU-backed.
+- **Progress logging around a Common Voice audio download.** A real
+  fetch of dozens of clips took long enough with zero output between
+  "attempting auto-fetch ..." and "Fetched N audio files ..." to read as
+  a hang. Now announces the download starting and prints once it's
+  done and extraction begins; on a real terminal, `datacollective`'s own
+  progress bar is shown too (previously always suppressed) rather than
+  us guessing at percent-complete from the outside.
+
 ## [0.8.4] - 2026-07-29
 ### Fixed
 - **The actual final piece of the "Missing API key" saga: a credential

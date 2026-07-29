@@ -7,6 +7,7 @@ result document on disk (docs/03-roadmap.md M1).
 from __future__ import annotations
 
 import base64
+import difflib
 import importlib.util
 import json
 import os
@@ -50,7 +51,7 @@ from .audio_sources import (
     auto_fetch_audio,
     shared_audio_dir,
 )
-from .environment import _capture_gpu, capture_environment
+from .environment import _capture_cpu, _capture_gpu, capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
 from .metrics import (
     cer,
@@ -1169,6 +1170,43 @@ def _hardware_rows(api_url: str, hardware_dir: str, offline: bool) -> list[dict]
     return rows
 
 
+_CPU_MODEL_NOISE_RE = re.compile(r"\(R\)|\(TM\)|®|™|\bCPU\b|@\s*[\d.]+\s*GHz", re.IGNORECASE)
+
+
+def _normalize_cpu_model(raw: str) -> str:
+    """Strip the register-mark/clock-speed cruft a raw CPU probe string
+    carries (e.g. "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz") down to
+    something close to the catalog's plain display_name ("Intel Xeon
+    E3-1240 v6") — good enough for difflib to line the two up even before
+    accounting for whatever wording differences remain."""
+    return re.sub(r"\s+", " ", _CPU_MODEL_NOISE_RE.sub("", raw)).strip()
+
+
+def _guess_hardware_label(rows: list[dict]) -> str | None:
+    """Best-effort local-CPU match against the catalog, for preselecting
+    the wizard's hardware picker — a suggestion the user still has to
+    press Enter on, never a silent auto-assign. Deliberately CPU-only for
+    now: hardware_id is meant to reflect whichever compute path a run
+    actually took (hardware/README.md), and the wizard picks hardware
+    once for a whole batch before any profile's engine/backend is chosen,
+    so there's no reliable signal yet about whether a given combo will
+    end up GPU-backed. Returns None (no default) rather than guess wrong
+    — under virtualization in particular the probed string is unrecoverable
+    (e.g. "QEMU Virtual CPU version 2.5+"), and difflib's cutoff is exactly
+    what keeps a string that different from ever matching."""
+    model = _capture_cpu({}).get("model")
+    if not model:
+        return None
+    query = _normalize_cpu_model(model)
+    cpu_rows = [r for r in rows if r.get("category") == "cpu"]
+    labels = [f"{r['display_name']} ({r['vendor']})" for r in cpu_rows]
+    display_names = [r["display_name"] for r in cpu_rows]
+    match = difflib.get_close_matches(query, display_names, n=1, cutoff=0.6)
+    if not match:
+        return None
+    return labels[display_names.index(match[0])]
+
+
 # Sentinel _pick_hardware_id returns (instead of an id or None) when the
 # caller passed allow_back=True and the user picked the back option — lets
 # _wizard_run distinguish "go back a step" from "cancel entirely" (plain
@@ -1207,9 +1245,17 @@ def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool, allow_back
     if allow_back:
         choices = [_HARDWARE_BACK_LABEL, *choices]
 
+    guessed_label = _guess_hardware_label(rows)
+    if guessed_label is not None:
+        typer.echo(
+            f"Detected: {guessed_label} — press Enter to accept, or type to search for a different one.",
+            err=True,
+        )
+
     answer = questionary.autocomplete(
         "What hardware did you run this on? (type to search)",
         choices=choices,
+        default=guessed_label or "",
         match_middle=True,
         style=_COMPLETION_MENU_STYLE,
     ).ask()

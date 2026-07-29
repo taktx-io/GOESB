@@ -1672,6 +1672,129 @@ def test_pick_hardware_id_cancelled_returns_none(monkeypatch):
     assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) is None
 
 
+def test_normalize_cpu_model_strips_register_marks_and_clock_speed():
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._normalize_cpu_model(
+        "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"
+    ) == "Intel Xeon E3-1240 v6"
+    assert cli_module._normalize_cpu_model(
+        "Intel(R) Core(TM) i7-9700T CPU @ 2.00GHz"
+    ) == "Intel Core i7-9700T"
+
+
+def test_guess_hardware_label_matches_normalized_probe_against_catalog(monkeypatch):
+    """Real report: a user had to type-to-search the full catalog by hand
+    for every run, described as very error prone. The exact scenario that
+    prompted this — an Intel Xeon E3-1240 v6 box — should preselect."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+    rows = [
+        {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+        {"id": "amd-epyc-7203", "display_name": "AMD EPYC 7203", "vendor": "AMD", "category": "cpu"},
+    ]
+
+    assert cli_module._guess_hardware_label(rows) == "Intel Xeon E3-1240 v6 (Intel)"
+
+
+def test_guess_hardware_label_ignores_gpu_rows(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+    rows = [
+        {"id": "nvidia-rtx-4090", "display_name": "Intel Xeon E3-1240 v6", "vendor": "NVIDIA", "category": "gpu"},
+    ]
+
+    assert cli_module._guess_hardware_label(rows) is None
+
+
+def test_guess_hardware_label_no_match_for_unrelated_or_virtualized_cpu(monkeypatch):
+    """Under virtualization the probed string is unrecoverable (e.g. "QEMU
+    Virtual CPU version 2.5+") — must not guess something wrong; no default
+    is the safe outcome, same as no match at all."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "QEMU Virtual CPU version 2.5+"},
+    )
+    rows = [
+        {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+    ]
+
+    assert cli_module._guess_hardware_label(rows) is None
+
+
+def test_guess_hardware_label_no_probe_available_returns_none(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_capture_cpu", lambda unavailable: {"model": None})
+    rows = [
+        {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+    ]
+
+    assert cli_module._guess_hardware_label(rows) is None
+
+
+def test_pick_hardware_id_preselects_detected_hardware_and_announces_it(monkeypatch, capsys):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_hardware_rows",
+        lambda *a, **k: [
+            {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+    autocomplete_kwargs = {}
+
+    def _fake_autocomplete(message, **kwargs):
+        autocomplete_kwargs.update(kwargs)
+        return _FakeAsk("Intel Xeon E3-1240 v6 (Intel)")
+
+    monkeypatch.setattr(cli_module.questionary, "autocomplete", _fake_autocomplete)
+
+    result = cli_module._pick_hardware_id("http://api", "hardware", offline=False)
+
+    assert result == "intel-xeon-e3-1240-v6"
+    assert autocomplete_kwargs["default"] == "Intel Xeon E3-1240 v6 (Intel)"
+    assert "Detected: Intel Xeon E3-1240 v6 (Intel)" in capsys.readouterr().err
+
+
+def test_pick_hardware_id_no_detection_leaves_prompt_blank(monkeypatch, capsys):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_hardware_rows",
+        lambda *a, **k: [
+            {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+        ],
+    )
+    monkeypatch.setattr(cli_module, "_capture_cpu", lambda unavailable: {"model": None})
+    autocomplete_kwargs = {}
+
+    def _fake_autocomplete(message, **kwargs):
+        autocomplete_kwargs.update(kwargs)
+        return _FakeAsk("Intel Xeon E3-1240 v6 (Intel)")
+
+    monkeypatch.setattr(cli_module.questionary, "autocomplete", _fake_autocomplete)
+
+    cli_module._pick_hardware_id("http://api", "hardware", offline=False)
+
+    assert autocomplete_kwargs["default"] == ""
+    assert "Detected:" not in capsys.readouterr().err
+
+
 class _FakeAsk:
     """Stands in for whatever questionary.select/.text(...) returns — real
     code only ever calls .ask() on it."""

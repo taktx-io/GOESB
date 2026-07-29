@@ -167,6 +167,62 @@ def test_fetch_common_voice_audio_extracts_from_zip_archive(tmp_path, monkeypatc
     assert not (audio_dir / "unwanted.wav").exists()
 
 
+def test_fetch_common_voice_audio_logs_before_and_after_download(tmp_path, monkeypatch, capsys):
+    """Real report: a real download of dozens of clips took long enough
+    with zero output between "attempting auto-fetch ..." and "Fetched N
+    audio files ..." to read as a hang. Must announce the download is
+    starting and that extraction has begun, not go silent for the whole
+    duration."""
+    archive_path = tmp_path / "cv-nl.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tar:
+        content = b"real audio bytes"
+        info = tarfile.TarInfo(name="cv-nl/wanted.wav")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+
+    monkeypatch.setitem(
+        sys.modules, "datacollective",
+        _fake_datacollective_module(download_dataset=lambda dataset_id, **kw: archive_path),
+    )
+
+    audio_sources.fetch_common_voice_audio(
+        {"dataset_id": "abc123"}, {"wanted.wav"}, tmp_path / "audio"
+    )
+
+    err = capsys.readouterr().err
+    assert "Downloading" in err and "abc123" in err
+    assert "Downloaded" in err and "extracting" in err
+
+
+def test_fetch_common_voice_audio_shows_the_library_progress_bar_only_on_a_real_terminal(tmp_path, monkeypatch):
+    """show_progress is handed straight to `datacollective` (it already
+    depends on fox-progress-bar for exactly this), gated on stderr being a
+    real terminal so a redirected/piped/CI run doesn't get progress-bar
+    escape codes it can't render."""
+    archive_path = tmp_path / "cv-nl.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as tar:
+        content = b"real audio bytes"
+        info = tarfile.TarInfo(name="cv-nl/wanted.wav")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+
+    received_kwargs = {}
+
+    def _download(dataset_id, **kw):
+        received_kwargs.update(kw)
+        return archive_path
+
+    monkeypatch.setitem(sys.modules, "datacollective", _fake_datacollective_module(download_dataset=_download))
+
+    monkeypatch.setattr(audio_sources.sys.stderr, "isatty", lambda: True)
+    audio_sources.fetch_common_voice_audio({"dataset_id": "abc123"}, {"wanted.wav"}, tmp_path / "audio-tty")
+    assert received_kwargs["show_progress"] is True
+
+    monkeypatch.setattr(audio_sources.sys.stderr, "isatty", lambda: False)
+    audio_sources.fetch_common_voice_audio({"dataset_id": "abc123"}, {"wanted.wav"}, tmp_path / "audio-piped")
+    assert received_kwargs["show_progress"] is False
+
+
 def test_fetch_common_voice_audio_wraps_permission_error_as_gated_fetch_auth_error(tmp_path, monkeypatch):
     def _rejected(dataset_id, **kw):
         raise PermissionError("Access denied.")

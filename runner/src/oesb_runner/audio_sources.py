@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import sys
 import tarfile
 import urllib.request
 import zipfile
@@ -157,8 +158,18 @@ def fetch_common_voice_audio(params: dict[str, Any], wanted_names: set[str], aud
         raise MissingDependencyError("datacollective") from exc
 
     dataset_id = params["dataset_id"]
+    # A real Common Voice subset download is easily tens of seconds to
+    # several minutes — completely silent between "attempting auto-fetch
+    # ..." and "Fetched N audio files ..." otherwise reads as a hang, same
+    # reasoning as adapters.log_progress's one-line-per-utterance output
+    # during transcription. show_progress=True hands the actual progress
+    # bar to `datacollective` itself (it already depends on
+    # fox-progress-bar for exactly this) rather than us guessing at percent
+    # complete from the outside; only enabled on a real terminal so a
+    # redirected/piped/CI run doesn't get carriage-return spam it can't use.
+    print(f"Downloading Common Voice dataset {dataset_id!r} from Mozilla Data Collective ...", file=sys.stderr)
     try:
-        archive_path = download_dataset(dataset_id, show_progress=False)
+        archive_path = download_dataset(dataset_id, show_progress=sys.stderr.isatty())
     except (PermissionError, ValueError) as exc:
         # PermissionError: MDC API returned 403 (key rejected, or the
         # dataset's terms haven't been accepted on the account behind the
@@ -168,6 +179,7 @@ def fetch_common_voice_audio(params: dict[str, Any], wanted_names: set[str], aud
         raise GatedFetchAuthError(
             f"Mozilla Data Collective rejected the {dataset_id!r} request: {exc}"
         ) from exc
+    print(f"Downloaded {dataset_id!r} — extracting the {len(wanted_names)} requested clip(s) ...", file=sys.stderr)
 
     return _extract_matching(archive_path, wanted_names, audio_dir)
 
