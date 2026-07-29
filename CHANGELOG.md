@@ -5,7 +5,21 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
-## [0.8.3] - 2026-07-29
+## [0.8.4] - 2026-07-29
+### Fixed
+- **The actual final piece of the "Missing API key" saga: a credential
+  resolved from the on-disk store was never exported to `os.environ`.**
+  0.8.2 and 0.8.3 fixed two real, separate bugs in the same area, but a
+  third remained: `_preflight_pack_credentials` correctly recognized an
+  already-saved credential and skipped re-prompting for it — but
+  `load_credential` only *returns* the value, it never touches
+  `os.environ`, and nothing filled that gap. Every downstream consumer
+  reads `os.environ` directly (`_reexec`'s subprocess inherits it;
+  `audio_sources.fetch_common_voice_audio`'s own docstring literally
+  assumes the credential is "already in os.environ by the time it runs"),
+  so a credential saved on run N was silently unusable on every run after
+  — reproduced and confirmed fixed directly against the live production
+  API, not just via mocked unit tests, before release this time.
 ### Fixed
 - **Fetched profiles and packs were cached forever with zero revalidation
   — the actual root cause behind 0.8.2's credential-prompt bug.**

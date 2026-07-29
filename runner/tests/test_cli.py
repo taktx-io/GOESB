@@ -951,7 +951,16 @@ def test_preflight_pack_credentials_declining_drops_only_affected_combos(tmp_pat
 
 def test_preflight_pack_credentials_skips_prompt_when_already_resolvable(tmp_path, monkeypatch):
     """ADR-0010 acceptance #5: a credential already resolvable (env var or
-    the local store) is never prompted for."""
+    the local store) is never prompted for.
+
+    Real report, second bug found chasing the same "Missing API key"
+    failure: a credential resolved from the on-disk store (as opposed to
+    an env var the user already exported themselves) must still end up in
+    os.environ — `_reexec`'s subprocess and audio_sources.
+    fetch_common_voice_audio (whose own docstring assumes the credential
+    is "already in os.environ by the time it runs") both read it directly,
+    never the store. Skipping the prompt without exporting meant a
+    credential saved on run N was silently unusable on every run after."""
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(cli_module.credentials, "load_credential", lambda env_var, **kw: "already-saved-key")
@@ -969,7 +978,7 @@ def test_preflight_pack_credentials_skips_prompt_when_already_resolvable(tmp_pat
     kept = cli_module._preflight_pack_credentials(combos, str(packs_dir), cli_module.DEFAULT_API_URL)
 
     assert kept == combos
-    assert "MDC_API_KEY" not in os.environ  # never re-exported when resolved from the store
+    assert os.environ["MDC_API_KEY"] == "already-saved-key"
 
 
 def test_preflight_pack_credentials_reprompts_on_blank_stored_value(tmp_path, monkeypatch):
@@ -983,6 +992,14 @@ def test_preflight_pack_credentials_reprompts_on_blank_stored_value(tmp_path, mo
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(cli_module.credentials, "load_credential", lambda env_var, **kw: "")
+    # save_credential must be mocked too, not just load_credential — the
+    # prompt-answered path below calls the real one, which would otherwise
+    # write a live "the-real-key" entry into this machine's actual
+    # ~/.goesb/credentials.json (confirmed: this is exactly what an
+    # earlier, unmocked version of this same test did on the dev machine
+    # that wrote it, and that leftover real file was itself then mistaken
+    # for reproducing the bug it was written to catch).
+    monkeypatch.setattr(cli_module.credentials, "save_credential", lambda *a, **k: None)
     monkeypatch.delenv("MDC_API_KEY", raising=False)
 
     packs_dir = tmp_path / "packs"

@@ -388,7 +388,21 @@ def _preflight_pack_credentials(
         # error, with no obvious link back to this step. Matches
         # `credentials.load_credential`'s own environ check, which already
         # treats a blank env var the same way.
-        if credentials.load_credential(env_var):
+        existing = credentials.load_credential(env_var)
+        if existing:
+            # A hit from the on-disk store (as opposed to an env var the
+            # user already exported themselves) is data, not an
+            # environment mutation — load_credential never touches
+            # os.environ. Every downstream consumer trusts os.environ
+            # directly (`_reexec`'s subprocess inherits it; audio_sources.
+            # fetch_common_voice_audio's own docstring literally assumes
+            # it's "already in os.environ by the time it runs"), so
+            # skipping the prompt without also exporting here meant a
+            # credential saved on run N was silently never usable on run
+            # N+1 — every subsequent run failed downstream with a
+            # "missing API key" error that gave no hint the credential had,
+            # in fact, already been found and considered resolved.
+            os.environ[env_var] = existing
             continue  # already set in the environment or saved from a prior run
 
         typer.echo(credential["instructions"], err=True)
