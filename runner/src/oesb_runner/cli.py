@@ -585,19 +585,26 @@ def _wizard_engine_parameters(
     return expanded
 
 
-def _choose_packs_for_profile(
-    profile_id: str, matching_packs: list[dict], packs_dir: str, api_url: str
+def _choose_packs_for_language(
+    language: str, matching_packs: list[dict], packs_dir: str, api_url: str
 ) -> list[str] | None:
-    """A single-match profile (rare after ADR-0011 — most languages now
+    """A single-match language (rare after ADR-0011 — most languages now
     have several eligible packs) returns immediately, no prompt. When more
-    than one pack matches the profile's language (e.g. an ungated FLEURS
-    pack and a gated Common-Voice pack, both nl-NL), ask which pack(s) to
-    run for this cell instead of silently taking the first match — a
-    checkbox, not a single pick, since running more than one pack for the
-    same profile in one batch is a reasonable thing to want. The first *ungated* pack comes
-    pre-checked (falling back to matching_packs[0] only if every match
-    needs a credential) — every profile that has ever had just one match
-    had an ungated one, so this is the actual old default, not just
+    than one pack matches the language (e.g. an ungated FLEURS pack and a
+    gated Common-Voice pack, both nl-NL), ask which pack(s) to run instead
+    of silently taking the first match — a checkbox, not a single pick,
+    since running more than one pack in one batch is a reasonable thing to
+    want. Scoped to `language`, not a single profile: `matching_packs` is
+    already purely a function of language (`_matching_packs`), so every
+    profile sharing that language gets the exact same choice set -- the
+    caller asks this once per distinct language in the whole matrix
+    selection and reuses the answer for every profile/engine matching it,
+    instead of repeating an identical prompt once per profile (a batch
+    spanning several engines for one language used to ask the same
+    question that many times). The first *ungated* pack comes pre-checked
+    (falling back to matching_packs[0] only if every match needs a
+    credential) — every profile that has ever had just one match had an
+    ungated one, so this is the actual old default, not just
     matching_packs[0]: that's `_pack_rows`' local-dir listing order
     (alphabetical), which is incidental and would otherwise silently
     default to whichever pack's id happens to sort first — confirmed as a
@@ -606,9 +613,9 @@ def _choose_packs_for_profile(
     match. Returns None if the prompt itself is aborted (Ctrl-C) — same
     convention as the rest of the wizard, propagated by the caller to bail
     the whole run. Returns [] if every choice is unchecked — that's a
-    deliberate decline, not an abort: the caller drops this cell silently,
-    same continue-past-decline spirit as a declined credential or engine
-    prompt elsewhere in this preflight."""
+    deliberate decline, not an abort: the caller drops every combo for
+    this language silently, same continue-past-decline spirit as a
+    declined credential or engine prompt elsewhere in this preflight."""
     if len(matching_packs) == 1:
         return [matching_packs[0]["id"]]
 
@@ -626,7 +633,7 @@ def _choose_packs_for_profile(
     ]
 
     return questionary.checkbox(
-        f"Multiple packs match {profile_id!r} — pick one or more (space to toggle):",
+        f"Multiple packs match language {language!r} — pick one or more (space to toggle):",
         choices=choices,
     ).ask()
 
@@ -661,16 +668,23 @@ def _wizard_run() -> None:
     packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
     profiles_by_id = {p["id"]: p for p in profiles}
     combos: list[tuple[str, str]] = []
+    # Cached per language, not asked fresh per profile: a matrix selection
+    # spanning several engines for the same language would otherwise ask
+    # an identical "which pack(s)" question once per engine.
+    pack_ids_by_language: dict[str, list[str]] = {}
     for profile_id in profile_ids:
         language = profiles_by_id[profile_id]["language"]
-        matching_packs = _matching_packs(packs, language)
-        if not matching_packs:
-            typer.echo(f"no packs found for language {language!r} ({profile_id!r}) — skipping", err=True)
-            continue
-        chosen_pack_ids = _choose_packs_for_profile(profile_id, matching_packs, "packs", DEFAULT_API_URL)
-        if chosen_pack_ids is None:
-            return  # aborted the pack picker
-        combos.extend((profile_id, pack_id) for pack_id in chosen_pack_ids)
+        if language not in pack_ids_by_language:
+            matching_packs = _matching_packs(packs, language)
+            if not matching_packs:
+                typer.echo(f"no packs found for language {language!r} — skipping", err=True)
+                pack_ids_by_language[language] = []
+                continue
+            chosen_pack_ids = _choose_packs_for_language(language, matching_packs, "packs", DEFAULT_API_URL)
+            if chosen_pack_ids is None:
+                return  # aborted the pack picker
+            pack_ids_by_language[language] = chosen_pack_ids
+        combos.extend((profile_id, pack_id) for pack_id in pack_ids_by_language[language])
     if not combos:
         return
 
@@ -695,13 +709,20 @@ def _wizard_run() -> None:
     if backend_by_runtime is None:
         return
 
+    def combo_backend(profile_id: str) -> str:
+        runtime_name = runtime_by_profile.get(profile_id)
+        return backend_by_runtime.get(runtime_name, "cpu") if runtime_name else "cpu"
+
     # Asked after the backend, not before: a GPU backend choice gives the
     # hardware guess a GPU catalog entry to prefer instead of always
     # preselecting the CPU one (see _guess_hardware_label_for_backends).
-    hardware_id = _pick_hardware_id(
-        DEFAULT_API_URL, "hardware", offline=False, gpu=gpu, backend_by_runtime=backend_by_runtime
-    )
-    if hardware_id is None:
+    # One prompt per DISTINCT backend actually used, not one global prompt
+    # -- a batch mixing cuda for one engine and cpu for another ran on
+    # physically different hardware for each (see
+    # _pick_hardware_ids_by_backend).
+    distinct_backends = sorted({combo_backend(profile_id) for profile_id, _pack_id in combos})
+    hardware_by_backend = _pick_hardware_ids_by_backend(distinct_backends, gpu)
+    if hardware_by_backend is None:
         return
 
     expanded = _wizard_engine_parameters(combos, "profiles", DEFAULT_API_URL)
@@ -725,10 +746,12 @@ def _wizard_run() -> None:
 
     outcomes: list[tuple[str, str, dict[str, str], bool]] = []
     for profile_id, pack_id, overrides in expanded:
-        args = ["run", profile_id, pack_id, "--repeats", repeats, "--hardware", hardware_id]
-        runtime_name = runtime_by_profile.get(profile_id)
-        backend = backend_by_runtime.get(runtime_name) if runtime_name else None
-        if backend:
+        backend = combo_backend(profile_id)
+        args = [
+            "run", profile_id, pack_id, "--repeats", repeats,
+            "--hardware", hardware_by_backend[backend],
+        ]
+        if backend != "cpu":
             args += ["--backend", backend]
         for key, value in overrides.items():
             args += ["--param", f"{key}={value}"]
@@ -1310,6 +1333,7 @@ def _pick_hardware_id(
     *,
     gpu: dict[str, Any] | None = None,
     backend_by_runtime: dict[str, str] | None = None,
+    question: str | None = None,
 ) -> str | None:
     """Searchable hardware picker for _wizard_run. questionary.autocomplete
     only takes plain-string choices (no separate display/value like
@@ -1318,7 +1342,11 @@ def _pick_hardware_id(
     hatch. gpu/backend_by_runtime (both optional -- omit for a plain
     CPU-only guess) let the caller thread through what compute backend was
     actually chosen, so the preselection can prefer a GPU catalog match
-    over the CPU one -- see _guess_hardware_label_for_backends."""
+    over the CPU one -- see _guess_hardware_label_for_backends. question
+    overrides the default prompt text -- used when a batch mixes backends
+    (see _pick_hardware_ids_by_backend) and asking the same generic
+    question twice in a row would leave it unclear which answer applies
+    to which backend."""
     rows = _hardware_rows(api_url, hardware_dir, offline)
     if not rows:
         return "custom"
@@ -1336,7 +1364,7 @@ def _pick_hardware_id(
         )
 
     answer = questionary.autocomplete(
-        "What hardware did you run this on? (type to search)",
+        question or "What hardware did you run this on? (type to search)",
         choices=choices,
         default=guessed_label or "",
         match_middle=True,
@@ -1360,6 +1388,39 @@ def _pick_hardware_id(
             err=True,
         )
     return "custom"
+
+
+def _pick_hardware_ids_by_backend(
+    backends: list[str], gpu: dict[str, Any] | None
+) -> dict[str, str] | None:
+    """One hardware prompt per distinct backend actually used in this
+    wizard batch, not one global prompt for the whole thing -- a batch
+    mixing `cuda` for one engine and `cpu` for another ran on physically
+    different hardware for each, and a single shared --hardware would
+    misattribute one of them. `backends` should already be deduplicated
+    (see _wizard_run). Returns backend -> hardware_id, or None if any one
+    prompt is aborted (Ctrl-C), same bail-the-whole-run convention as
+    every other wizard preflight step."""
+    result: dict[str, str] = {}
+    for backend in sorted(backends):
+        # A single-entry fake "chosen backends" map is exactly what
+        # _guess_hardware_label_for_backends needs to prefer the GPU guess
+        # for a non-cpu backend, or the plain CPU guess for "cpu" -- same
+        # contract _wizard_run's real backend_by_runtime already satisfies.
+        fake_backend_by_runtime = {} if backend == "cpu" else {"_": backend}
+        noun = "CPU" if backend == "cpu" else "GPU"
+        hardware_id = _pick_hardware_id(
+            DEFAULT_API_URL,
+            "hardware",
+            offline=False,
+            gpu=gpu,
+            backend_by_runtime=fake_backend_by_runtime,
+            question=f"What {noun} did you run the {backend!r}-backend benchmarks on? (type to search)",
+        )
+        if hardware_id is None:
+            return None
+        result[backend] = hardware_id
+    return result
 
 
 @app.command("list-profiles")

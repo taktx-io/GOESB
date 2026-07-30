@@ -5,6 +5,21 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-07-31
+### Fixed
+- **Wizard: hardware is now asked once per distinct compute backend, not
+  once for the whole batch.** A batch mixing `cuda` for one engine and
+  `cpu` for another used to apply one shared `--hardware` answer to
+  every combo — wrong for whichever backend didn't match it. Now asks
+  "which GPU" and "which CPU" separately, per backend actually in use,
+  and applies each answer only to the combos that use that backend.
+- **Wizard: pack choice is now asked once per language, not once per
+  profile/engine.** A matrix selection spanning several engines that
+  share one language (e.g. `whisper` and `vosk`, both `nl-NL`) used to
+  prompt the identical "which pack(s)" question once per engine. The
+  choice is now scoped to the language and reused for every profile
+  sharing it.
+
 ## [0.9.3] - 2026-07-31
 ### Fixed
 - **Wizard batches were slow between combos** — each `_reexec`'d `goesb

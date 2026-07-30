@@ -663,7 +663,7 @@ def test_wizard_run_threads_chosen_backend_into_reexec_args(monkeypatch):
         lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "custom"))
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(
@@ -721,12 +721,12 @@ def test_wizard_run_asks_backend_before_hardware(monkeypatch):
         call_order.append("backend")
         return {"faster-whisper": "cuda"}
 
-    def fake_pick_hardware(*a, **k):
+    def fake_pick_hardware(backends, gpu):
         call_order.append("hardware")
-        return "custom"
+        return dict.fromkeys(backends, "custom")
 
     monkeypatch.setattr(cli_module, "_wizard_pick_backends", fake_pick_backends)
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", fake_pick_hardware)
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", fake_pick_hardware)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
         lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
@@ -740,9 +740,10 @@ def test_wizard_run_asks_backend_before_hardware(monkeypatch):
     assert call_order == ["backend", "hardware"]
 
 
-def test_wizard_run_passes_gpu_and_backends_into_hardware_picker(monkeypatch):
+def test_wizard_run_passes_gpu_and_distinct_backends_into_hardware_picker(monkeypatch):
     """The hardware picker must actually receive what the backend step
-    decided, not just run after it."""
+    decided (as a deduplicated list of backend values), not just run
+    after it."""
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(
@@ -766,12 +767,12 @@ def test_wizard_run_passes_gpu_and_backends_into_hardware_picker(monkeypatch):
 
     captured = {}
 
-    def fake_pick_hardware(api_url, hardware_dir, offline, *, gpu=None, backend_by_runtime=None):
+    def fake_pick_by_backend(backends, gpu):
+        captured["backends"] = backends
         captured["gpu"] = gpu
-        captured["backend_by_runtime"] = backend_by_runtime
-        return "custom"
+        return dict.fromkeys(backends, "custom")
 
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", fake_pick_hardware)
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", fake_pick_by_backend)
     monkeypatch.setattr(
         cli_module, "_wizard_engine_parameters",
         lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
@@ -783,7 +784,70 @@ def test_wizard_run_passes_gpu_and_backends_into_hardware_picker(monkeypatch):
     cli_module._wizard_run()
 
     assert captured["gpu"] == fake_gpu
-    assert captured["backend_by_runtime"] == {"faster-whisper": "cuda"}
+    assert captured["backends"] == ["cuda"]
+
+
+def test_wizard_run_asks_hardware_separately_per_distinct_backend(monkeypatch):
+    """The actual gap this exists to fix: a batch mixing cuda for one
+    engine and cpu for another must ask (and apply) hardware separately
+    per backend, not one shared --hardware for the whole batch."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [
+            {"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"},
+            {"id": "vosk-small-en-batch", "language": "en-US", "benchmark_type": "batch"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_ask_matrix",
+        lambda matrix: ["whisper-medium-en-batch", "vosk-small-en-batch"],
+    )
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+
+    def fake_load_profile(profile_id, *a, **k):
+        runtime = "faster-whisper" if profile_id == "whisper-medium-en-batch" else "vosk"
+        return {"runtime": {"name": runtime}}
+
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", fake_load_profile)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    # faster-whisper gets cuda, vosk is never prompted (cpu-only engine) --
+    # matches _wizard_pick_backends' own real contract (cpu entries omitted).
+    monkeypatch.setattr(cli_module, "_wizard_pick_backends", lambda *a, **k: {"faster-whisper": "cuda"})
+
+    captured_backends = {}
+
+    def fake_pick_by_backend(backends, gpu):
+        captured_backends["backends"] = backends
+        return {"cpu": "intel-xeon-e3-1240-v6", "cuda": "nvidia-rtx-a4000"}
+
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", fake_pick_by_backend)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert captured_backends["backends"] == ["cpu", "cuda"]
+    assert reexec_calls == [
+        [
+            "run", "whisper-medium-en-batch", "pack-a", "--repeats", "1",
+            "--hardware", "nvidia-rtx-a4000", "--backend", "cuda",
+        ],
+        ["run", "vosk-small-en-batch", "pack-a", "--repeats", "1", "--hardware", "intel-xeon-e3-1240-v6"],
+    ]
 
 
 def test_detect_non_nvidia_gpu_darwin_reports_metal(monkeypatch):
@@ -1160,7 +1224,7 @@ def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsy
     )
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "intel-xeon-e3-1240-v6"))
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
@@ -1208,12 +1272,12 @@ def test_wizard_run_expands_combos_when_multiple_packs_chosen_for_one_profile(mo
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-nl-batch"])
     monkeypatch.setattr(
-        cli_module, "_choose_packs_for_profile",
+        cli_module, "_choose_packs_for_language",
         lambda profile_id, matching_packs, *a, **k: ["fleurs-nl", "common-voice-nl-elderly"],
     )
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "custom"))
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
@@ -1258,14 +1322,14 @@ def test_wizard_run_drops_cell_silently_when_pack_choice_empty(monkeypatch):
         lambda matrix: ["whisper-medium-nl-batch", "whisper-medium-en-batch"],
     )
     monkeypatch.setattr(
-        cli_module, "_choose_packs_for_profile",
-        lambda profile_id, matching_packs, *a, **k: (
-            [] if profile_id == "whisper-medium-nl-batch" else [matching_packs[0]["id"]]
+        cli_module, "_choose_packs_for_language",
+        lambda language, matching_packs, *a, **k: (
+            [] if language == "nl-NL" else [matching_packs[0]["id"]]
         ),
     )
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "custom"))
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
@@ -1299,16 +1363,73 @@ def test_wizard_run_aborts_when_pack_choice_cancelled(monkeypatch):
         ],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-nl-batch"])
-    monkeypatch.setattr(cli_module, "_choose_packs_for_profile", lambda profile_id, matching_packs, *a, **k: None)
+    monkeypatch.setattr(cli_module, "_choose_packs_for_language", lambda profile_id, matching_packs, *a, **k: None)
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "custom"))
     reexec_calls = []
     monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
 
     cli_module._wizard_run()
 
     assert reexec_calls == []
+
+
+def test_wizard_run_asks_pack_choice_once_per_language_not_once_per_profile(monkeypatch):
+    """The actual gap this exists to fix: a matrix selection spanning two
+    engines that share one language (e.g. whisper + vosk, both nl-NL)
+    must prompt for which pack(s) to run exactly once for that language
+    and reuse the answer for every profile sharing it -- not repeat an
+    identical prompt once per profile/engine."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [
+            {"id": "whisper-medium-nl-batch", "language": "nl-NL", "benchmark_type": "batch"},
+            {"id": "vosk-small-nl-batch", "language": "nl-NL", "benchmark_type": "batch"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [
+            {"id": "fleurs-nl", "visibility": "open", "language": "nl-NL"},
+            {"id": "common-voice-nl-elderly", "visibility": "open", "language": "nl-NL"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_ask_matrix",
+        lambda matrix: ["whisper-medium-nl-batch", "vosk-small-nl-batch"],
+    )
+
+    calls = []
+
+    def fake_choose_packs(language, matching_packs, *a, **k):
+        calls.append(language)
+        return ["fleurs-nl"]
+
+    monkeypatch.setattr(cli_module, "_choose_packs_for_language", fake_choose_packs)
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "custom"))
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_run()
+
+    assert calls == ["nl-NL"]  # asked once, not once per profile
+    assert reexec_calls == [
+        ["run", "whisper-medium-nl-batch", "fleurs-nl", "--repeats", "1", "--hardware", "custom"],
+        ["run", "vosk-small-nl-batch", "fleurs-nl", "--repeats", "1", "--hardware", "custom"],
+    ]
 
 
 def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
@@ -1325,7 +1446,7 @@ def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("2"))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "custom")
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "custom"))
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
@@ -1500,7 +1621,7 @@ def test_wizard_run_confirmation_states_total_including_repeats(monkeypatch, cap
         lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "intel-xeon-e3-1240-v6"))
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(
@@ -1533,7 +1654,7 @@ def test_wizard_run_warns_above_twenty_expanded_combos(monkeypatch):
         lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
     )
     monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: "intel-xeon-e3-1240-v6")
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "intel-xeon-e3-1240-v6"))
     monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
     monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
@@ -1755,7 +1876,7 @@ def test_preflight_pack_credentials_no_gated_packs_never_touches_credentials_mod
     assert kept == combos
 
 
-def test_choose_packs_for_profile_single_match_never_prompts(tmp_path, monkeypatch):
+def test_choose_packs_for_language_single_match_never_prompts(tmp_path, monkeypatch):
     from oesb_runner import cli as cli_module
 
     def _fail_if_called(*a, **kw):
@@ -1763,7 +1884,7 @@ def test_choose_packs_for_profile_single_match_never_prompts(tmp_path, monkeypat
 
     monkeypatch.setattr(cli_module.questionary, "checkbox", _fail_if_called)
 
-    chosen = cli_module._choose_packs_for_profile(
+    chosen = cli_module._choose_packs_for_language(
         "profile-a", [{"id": "pack-a", "visibility": "open", "profile_id": "profile-a"}],
         "irrelevant-packs-dir", cli_module.DEFAULT_API_URL,
     )
@@ -1771,7 +1892,7 @@ def test_choose_packs_for_profile_single_match_never_prompts(tmp_path, monkeypat
     assert chosen == ["pack-a"]
 
 
-def test_choose_packs_for_profile_multiple_matches_prompts_with_default_checked(tmp_path, monkeypatch):
+def test_choose_packs_for_language_multiple_matches_prompts_with_default_checked(tmp_path, monkeypatch):
     from oesb_runner import cli as cli_module
 
     packs_dir = tmp_path / "packs"
@@ -1791,7 +1912,7 @@ def test_choose_packs_for_profile_multiple_matches_prompts_with_default_checked(
 
     monkeypatch.setattr(cli_module.questionary, "checkbox", _fake_checkbox)
 
-    chosen = cli_module._choose_packs_for_profile(
+    chosen = cli_module._choose_packs_for_language(
         "profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL
     )
 
@@ -1804,7 +1925,7 @@ def test_choose_packs_for_profile_multiple_matches_prompts_with_default_checked(
     assert "gated" in by_value["gated-pack"].title
 
 
-def test_choose_packs_for_profile_defaults_to_ungated_even_when_listed_second(tmp_path, monkeypatch):
+def test_choose_packs_for_language_defaults_to_ungated_even_when_listed_second(tmp_path, monkeypatch):
     """Regression test: matching_packs order comes from _pack_rows' local-dir
     listing, which is alphabetical and has nothing to do with which pack is
     the sensible default. A gated pack sorting before the ungated one (e.g.
@@ -1830,14 +1951,14 @@ def test_choose_packs_for_profile_defaults_to_ungated_even_when_listed_second(tm
 
     monkeypatch.setattr(cli_module.questionary, "checkbox", _fake_checkbox)
 
-    cli_module._choose_packs_for_profile("profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL)
+    cli_module._choose_packs_for_language("profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL)
 
     by_value = {c.value: c for c in captured["choices"]}
     assert by_value["open-pack"].checked is True
     assert by_value["gated-pack"].checked is False
 
 
-def test_choose_packs_for_profile_defaults_to_first_when_all_gated(tmp_path, monkeypatch):
+def test_choose_packs_for_language_defaults_to_first_when_all_gated(tmp_path, monkeypatch):
     from oesb_runner import cli as cli_module
 
     packs_dir = tmp_path / "packs"
@@ -1856,14 +1977,14 @@ def test_choose_packs_for_profile_defaults_to_first_when_all_gated(tmp_path, mon
 
     monkeypatch.setattr(cli_module.questionary, "checkbox", _fake_checkbox)
 
-    cli_module._choose_packs_for_profile("profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL)
+    cli_module._choose_packs_for_language("profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL)
 
     by_value = {c.value: c for c in captured["choices"]}
     assert by_value["gated-pack-a"].checked is True
     assert by_value["gated-pack-b"].checked is False
 
 
-def test_choose_packs_for_profile_returns_none_on_abort(tmp_path, monkeypatch):
+def test_choose_packs_for_language_returns_none_on_abort(tmp_path, monkeypatch):
     from oesb_runner import cli as cli_module
 
     packs_dir = tmp_path / "packs"
@@ -1875,14 +1996,14 @@ def test_choose_packs_for_profile_returns_none_on_abort(tmp_path, monkeypatch):
     ]
     monkeypatch.setattr(cli_module.questionary, "checkbox", lambda message, choices: _FakeAsk(None))
 
-    chosen = cli_module._choose_packs_for_profile(
+    chosen = cli_module._choose_packs_for_language(
         "profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL
     )
 
     assert chosen is None
 
 
-def test_choose_packs_for_profile_empty_selection_returns_empty_list(tmp_path, monkeypatch):
+def test_choose_packs_for_language_empty_selection_returns_empty_list(tmp_path, monkeypatch):
     """Unchecking everything is a deliberate decline, not an abort — the
     caller drops this cell silently rather than bailing the whole wizard."""
     from oesb_runner import cli as cli_module
@@ -1896,7 +2017,7 @@ def test_choose_packs_for_profile_empty_selection_returns_empty_list(tmp_path, m
     ]
     monkeypatch.setattr(cli_module.questionary, "checkbox", lambda message, choices: _FakeAsk([]))
 
-    chosen = cli_module._choose_packs_for_profile(
+    chosen = cli_module._choose_packs_for_language(
         "profile-a", matching_packs, str(packs_dir), cli_module.DEFAULT_API_URL
     )
 
@@ -2713,6 +2834,69 @@ def test_pick_hardware_id_cancelled_returns_none(monkeypatch):
     monkeypatch.setattr(cli_module.questionary, "autocomplete", lambda *a, **k: _FakeAsk(None))
 
     assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) is None
+
+
+def test_pick_hardware_ids_by_backend_asks_once_for_a_single_backend(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    calls = []
+
+    def fake_pick(api_url, hardware_dir, offline, *, gpu=None, backend_by_runtime=None, question=None):
+        calls.append((backend_by_runtime, question))
+        return "intel-xeon-e3-1240-v6"
+
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", fake_pick)
+
+    result = cli_module._pick_hardware_ids_by_backend(["cpu"], gpu=None)
+
+    assert result == {"cpu": "intel-xeon-e3-1240-v6"}
+    assert len(calls) == 1
+    backend_by_runtime, question = calls[0]
+    assert backend_by_runtime == {}  # cpu -> no GPU signal, same as today's plain CPU guess
+    assert "CPU" in question
+    assert "'cpu'" in question
+
+
+def test_pick_hardware_ids_by_backend_asks_separately_per_distinct_backend(monkeypatch):
+    """The actual gap: a batch mixing cuda for one engine and cpu for
+    another ran on physically different hardware for each -- prove each
+    backend gets its own prompt with its own noun/question, not one
+    shared prompt reused for both."""
+    from oesb_runner import cli as cli_module
+
+    calls = []
+
+    def fake_pick(api_url, hardware_dir, offline, *, gpu=None, backend_by_runtime=None, question=None):
+        calls.append((backend_by_runtime, question))
+        return {} if backend_by_runtime == {} else "custom"
+
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: fake_pick(*a, **k))
+    fake_gpu = {"model": "NVIDIA RTX A4000"}
+
+    result = cli_module._pick_hardware_ids_by_backend(["cuda", "cpu"], gpu=fake_gpu)
+
+    assert len(calls) == 2  # sorted -- cpu asked before cuda
+    cpu_backend_by_runtime, cpu_question = calls[0]
+    cuda_backend_by_runtime, cuda_question = calls[1]
+    assert cpu_backend_by_runtime == {}
+    assert "CPU" in cpu_question and "'cpu'" in cpu_question
+    assert cuda_backend_by_runtime == {"_": "cuda"}
+    assert "GPU" in cuda_question and "'cuda'" in cuda_question
+    assert set(result.keys()) == {"cpu", "cuda"}
+
+
+def test_pick_hardware_ids_by_backend_aborts_on_any_cancelled_prompt(monkeypatch):
+    """Same bail-the-whole-run convention as every other wizard preflight
+    step -- one Ctrl-C anywhere in the loop must propagate as None, not
+    a partial dict."""
+    from oesb_runner import cli as cli_module
+
+    def fake_pick(api_url, hardware_dir, offline, *, gpu=None, backend_by_runtime=None, question=None):
+        return None if backend_by_runtime == {"_": "cuda"} else "custom"
+
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", fake_pick)
+
+    assert cli_module._pick_hardware_ids_by_backend(["cpu", "cuda"], gpu=None) is None
 
 
 def test_normalize_cpu_model_strips_register_marks_and_clock_speed():
