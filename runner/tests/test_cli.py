@@ -12,6 +12,14 @@ import typer
 import yaml
 from typer.testing import CliRunner
 
+# Captured at import time, before the autouse `_no_network_version_check`
+# fixture (conftest.py) monkeypatches `cli_module._warn_if_runner_outdated`
+# to a no-op for every other test -- this reference still points at the
+# real function regardless, since monkeypatch only rebinds the module
+# attribute, not this already-held object.
+from oesb_runner.cli import (
+    _warn_if_runner_outdated as _real_warn_if_runner_outdated,
+)
 from oesb_runner.cli import app
 
 runner = CliRunner()
@@ -2000,6 +2008,67 @@ def test_submit_paths_without_comment_or_identity_leaves_payload_unchanged(tmp_p
 
 def _unexpected(*args, **kwargs):
     raise AssertionError("should not have been called")
+
+
+def test_warn_if_runner_outdated_skips_entirely_when_offline(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_get_json", _unexpected)
+
+    _real_warn_if_runner_outdated("http://api.example", offline=True)  # must not raise
+
+
+def test_warn_if_runner_outdated_silent_when_api_unreachable(monkeypatch):
+    """`run` has never required network access -- an unreachable API must
+    degrade to a silent no-op, not block or fail the run."""
+    from oesb_runner import cli as cli_module
+
+    def fake_get_json(url, timeout):
+        raise urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+
+    _real_warn_if_runner_outdated("http://api.example", offline=False)  # must not raise
+
+
+def test_warn_if_runner_outdated_passes_when_current(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_get_json", lambda url, timeout: {"min_runner_version": "0.0.1"})
+
+    _real_warn_if_runner_outdated("http://api.example", offline=False)  # must not raise
+
+
+def test_warn_if_runner_outdated_exits_when_outdated_and_reachable(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_get_json", lambda url, timeout: {"min_runner_version": "999.0.0"})
+
+    with pytest.raises(typer.Exit):
+        _real_warn_if_runner_outdated("http://api.example", offline=False)
+
+
+def test_run_command_exits_before_any_profile_lookup_when_outdated(tmp_path, monkeypatch):
+    """Integration-level: `run` itself must consult the check, and must do
+    so before touching profiles/packs -- not just that the helper function
+    works in isolation."""
+    from oesb_runner import cli as cli_module
+
+    def fake_check(*a, **k):
+        raise typer.Exit(code=1)
+
+    monkeypatch.setattr(cli_module, "_warn_if_runner_outdated", fake_check)
+    # profiles-dir doesn't exist, so a correctly-ordered `run` would fall
+    # through to fetching the profile over the network -- prove the check
+    # actually stops it first, not just that exit_code happens to be 1.
+    monkeypatch.setattr(cli_module, "fetch_profile", _unexpected)
+
+    result = runner.invoke(app, [
+        "run", "whisper-medium-en-batch", "some-pack",
+        "--profiles-dir", str(tmp_path / "profiles"), "--packs-dir", str(tmp_path / "packs"),
+    ])
+
+    assert result.exit_code == 1
 
 
 def test_resolve_identity_anonymous_flag_skips_lookup(monkeypatch):

@@ -5,6 +5,16 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-30
+### Added
+- **`goesb run` fails fast if this install is older than what the platform
+  currently accepts**, instead of only finding out at `goesb submit` time
+  after a long benchmark has already run. Best-effort and network-optional
+  (a short, silently-ignored `/health` check) — `run` still never *requires*
+  network access; `--offline` skips the check outright, same as it already
+  skips profile/pack fetches. Companion to the `MIN_RUNNER_VERSION` bump in
+  `[0.9.0]` — see `_warn_if_runner_outdated` in `cli.py`.
+
 ## [0.9.0] - 2026-07-30
 ### Added
 - **`goesb run` prints a formatted results table** (via `rich`) instead of

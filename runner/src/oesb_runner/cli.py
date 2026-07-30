@@ -1894,6 +1894,8 @@ def run(
     ),
 ) -> None:
     """Run a benchmark for a profile + pack and emit a signed result document."""
+    _warn_if_runner_outdated(api_url, offline=offline)
+
     profile_path = Path(profiles_dir) / profile_id / "profile.yaml"
     pack_dir = Path(packs_dir) / pack_id
 
@@ -2325,6 +2327,37 @@ def _post_json(url: str, payload: dict, timeout: int) -> dict:
 def _get_json(url: str, timeout: int) -> dict:
     with urllib.request.urlopen(url, timeout=timeout) as resp:  # nosec B310 - caller-controlled --api-url
         return json.loads(resp.read())
+
+
+def _warn_if_runner_outdated(api_url: str, *, offline: bool) -> None:
+    """Best-effort `goesb run` preflight: if the platform currently
+    requires a newer runner than this install, fail before any profile/
+    pack fetch, engine install, or the benchmark itself -- rather than
+    burning through a long run only to have its result rejected by
+    `goesb submit` later (see MIN_RUNNER_VERSION on the API side).
+
+    `run` has never required network access and this must not change
+    that: a short timeout and a silent return on ANY failure (offline
+    machine, unreachable API, timeout) means this only ever HELPS when a
+    connection happens to be available, never blocks or slows down a
+    genuinely offline run. --offline skips it outright, same as it
+    already skips profile/pack fetches."""
+    if offline:
+        return
+    try:
+        health = _get_json(f"{api_url.rstrip('/')}/health", timeout=3)
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
+        return
+    min_runner_version = health.get("min_runner_version")
+    if min_runner_version and Version(__version__) < Version(min_runner_version):
+        typer.echo(
+            f"This goesb-runner ({__version__}) is older than what {api_url} currently "
+            f"accepts (minimum {min_runner_version}) — its result would be rejected at "
+            "submit time anyway, so stopping now instead of running the full benchmark: "
+            "pip install --upgrade goesb-runner",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
 
 def _submit_paths(
