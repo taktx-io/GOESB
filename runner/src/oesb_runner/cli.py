@@ -639,6 +639,11 @@ def _wizard_run() -> None:
     confirmed queue. A bad combo (e.g. a missing model download) must not
     abort the rest of the queue, so each `_reexec` is run in isolation and
     reported rather than propagated."""
+    # Once here, not once per _reexec'd `run` below -- see
+    # _SKIP_OUTDATED_CHECK_ENV_VAR's docstring on _warn_if_runner_outdated.
+    _warn_if_runner_outdated(DEFAULT_API_URL, offline=False)
+    os.environ[_SKIP_OUTDATED_CHECK_ENV_VAR] = "1"
+
     profiles = _profile_rows(DEFAULT_API_URL, "profiles", offline=False)
     if not profiles:
         typer.echo("no profiles found (checked the API and ./profiles)", err=True)
@@ -2367,6 +2372,9 @@ def _get_json(url: str, timeout: int) -> dict:
         return json.loads(resp.read())
 
 
+_SKIP_OUTDATED_CHECK_ENV_VAR = "_GOESB_SKIP_OUTDATED_CHECK"
+
+
 def _warn_if_runner_outdated(api_url: str, *, offline: bool) -> None:
     """Best-effort `goesb run` preflight: if the platform currently
     requires a newer runner than this install, fail before any profile/
@@ -2379,8 +2387,15 @@ def _warn_if_runner_outdated(api_url: str, *, offline: bool) -> None:
     machine, unreachable API, timeout) means this only ever HELPS when a
     connection happens to be available, never blocks or slows down a
     genuinely offline run. --offline skips it outright, same as it
-    already skips profile/pack fetches."""
-    if offline:
+    already skips profile/pack fetches.
+
+    A wizard batch re-execs `goesb run` as a fresh subprocess per combo
+    (_reexec) -- without this env-var skip, a batch of N combos would
+    pay this round-trip N times (fresh DNS/TLS per process, no shared
+    cache) for a check that only needs to happen once. _wizard_run does
+    its own check up front and sets this in its own environment, which
+    every _reexec'd child inherits."""
+    if offline or os.environ.get(_SKIP_OUTDATED_CHECK_ENV_VAR) == "1":
         return
     try:
         health = _get_json(f"{api_url.rstrip('/')}/health", timeout=3)

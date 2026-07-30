@@ -2179,6 +2179,36 @@ def test_warn_if_runner_outdated_exits_when_outdated_and_reachable(monkeypatch):
         _real_warn_if_runner_outdated("http://api.example", offline=False)
 
 
+def test_warn_if_runner_outdated_skips_when_env_var_set(monkeypatch):
+    """The env var _wizard_run sets before re-execing each combo -- must
+    short-circuit before ever attempting the network call."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_get_json", _unexpected)
+    monkeypatch.setenv(cli_module._SKIP_OUTDATED_CHECK_ENV_VAR, "1")
+
+    _real_warn_if_runner_outdated("http://api.example", offline=False)  # must not raise
+
+
+def test_wizard_run_checks_outdated_once_not_once_per_reexec(monkeypatch):
+    """A wizard batch re-execs `goesb run` as a fresh subprocess per combo
+    (_reexec) -- the version check must happen once here, up front, not
+    once per subprocess. Proven two ways: the check itself is called
+    exactly once, and the skip env var is set afterward so any _reexec'd
+    child inherits a no-op."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.delenv(cli_module._SKIP_OUTDATED_CHECK_ENV_VAR, raising=False)
+    check_calls = []
+    monkeypatch.setattr(cli_module, "_warn_if_runner_outdated", lambda *a, **k: check_calls.append(a))
+    monkeypatch.setattr(cli_module, "_profile_rows", lambda *a, **k: [])
+
+    cli_module._wizard_run()
+
+    assert check_calls == [("https://www.goesb.com/api",)]
+    assert os.environ.get(cli_module._SKIP_OUTDATED_CHECK_ENV_VAR) == "1"
+
+
 def test_run_command_exits_before_any_profile_lookup_when_outdated(tmp_path, monkeypatch):
     """Integration-level: `run` itself must consult the check, and must do
     so before touching profiles/packs -- not just that the helper function

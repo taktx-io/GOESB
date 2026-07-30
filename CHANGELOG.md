@@ -5,6 +5,15 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-07-31
+### Fixed
+- **Wizard batches were slow between combos** — each `_reexec`'d `goesb
+  run` subprocess was independently paying the `[0.9.1]` outdated-runner
+  network check (fresh DNS/TLS per process, no shared cache), so an
+  N-combo batch made N redundant round-trips to the same `/health`
+  endpoint. The wizard now does that check once, up front, and sets an
+  internal env var its `_reexec`'d children inherit to skip their own.
+
 ## [0.9.2] - 2026-07-30
 ### Fixed
 - **Wizard: compute backend is now asked before hardware, not after.** The
