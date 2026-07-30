@@ -1,0 +1,6 @@
+id: nvidia-rtx-a40
+display_name: NVIDIA RTX A40
+vendor: NVIDIA
+category: gpu
+vram_gb: 48
+release_year: 2020

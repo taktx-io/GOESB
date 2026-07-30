@@ -1,0 +1,6 @@
+id: nvidia-rtx-a5000
+display_name: NVIDIA RTX A5000
+vendor: NVIDIA
+category: gpu
+vram_gb: 24
+release_year: 2021

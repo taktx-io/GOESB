@@ -5,6 +5,26 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-07-30
+### Fixed
+- **Wizard: compute backend is now asked before hardware, not after.** The
+  hardware picker's auto-guess used to be CPU-only by necessity — the
+  backend hadn't been chosen yet, so a machine with both a CPU and an
+  NVIDIA GPU always got its CPU catalog entry preselected even when
+  `cuda` was picked afterward. Reordering gives the guess real signal:
+  choosing a GPU backend now preselects the matching GPU catalog entry
+  (via the same `nvidia-smi` probe `goesb doctor` already uses), falling
+  back to no preselection rather than a wrong CPU one if nothing matches.
+  Dropped the hardware step's "back to matrix" option as part of this —
+  it's no longer adjacent to the matrix step, and nothing else in the
+  wizard has step-back navigation either.
+
+### Added
+- **NVIDIA RTX A4000 hardware catalog entry** (plus RTX A2000/A5000/A40
+  and RTX 2000 Ada) — the A4000 specifically is one of the most common
+  cloud-rental cards and was missing, causing real GPU results to fall
+  back to `hardware_id: "custom"`.
+
 ## [0.9.1] - 2026-07-30
 ### Added
 - **`goesb run` fails fast if this install is older than what the platform

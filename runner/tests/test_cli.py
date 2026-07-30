@@ -692,6 +692,100 @@ def test_wizard_run_threads_chosen_backend_into_reexec_args(monkeypatch):
     ]
 
 
+def test_wizard_run_asks_backend_before_hardware(monkeypatch):
+    """The hardware picker needs the chosen backend to preselect the right
+    catalog entry (see _guess_hardware_label_for_backends) -- prove the
+    wizard actually asks in that order, not just that both get asked."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
+    )
+    monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_load_profile_for_wizard",
+        lambda *a, **k: {"runtime": {"name": "faster-whisper"}},
+    )
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+
+    call_order = []
+
+    def fake_pick_backends(*a, **k):
+        call_order.append("backend")
+        return {"faster-whisper": "cuda"}
+
+    def fake_pick_hardware(*a, **k):
+        call_order.append("hardware")
+        return "custom"
+
+    monkeypatch.setattr(cli_module, "_wizard_pick_backends", fake_pick_backends)
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", fake_pick_hardware)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+
+    cli_module._wizard_run()
+
+    assert call_order == ["backend", "hardware"]
+
+
+def test_wizard_run_passes_gpu_and_backends_into_hardware_picker(monkeypatch):
+    """The hardware picker must actually receive what the backend step
+    decided, not just run after it."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
+    )
+    monkeypatch.setattr(cli_module, "_ask_matrix", lambda matrix: ["whisper-medium-en-batch"])
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(
+        cli_module, "_load_profile_for_wizard",
+        lambda *a, **k: {"runtime": {"name": "faster-whisper"}},
+    )
+    fake_gpu = {"model": "NVIDIA RTX A4000", "vram": "16384 MiB", "driver": "550.54"}
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
+    monkeypatch.setattr(cli_module, "_wizard_pick_backends", lambda *a, **k: {"faster-whisper": "cuda"})
+
+    captured = {}
+
+    def fake_pick_hardware(api_url, hardware_dir, offline, *, gpu=None, backend_by_runtime=None):
+        captured["gpu"] = gpu
+        captured["backend_by_runtime"] = backend_by_runtime
+        return "custom"
+
+    monkeypatch.setattr(cli_module, "_pick_hardware_id", fake_pick_hardware)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
+    )
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+
+    cli_module._wizard_run()
+
+    assert captured["gpu"] == fake_gpu
+    assert captured["backend_by_runtime"] == {"faster-whisper": "cuda"}
+
+
 def test_detect_non_nvidia_gpu_darwin_reports_metal(monkeypatch):
     from oesb_runner import cli as cli_module
 
@@ -790,6 +884,77 @@ def test_guess_hardware_label_still_returns_the_full_label(monkeypatch):
     )
 
     assert cli_module._guess_hardware_label(_CPU_HARDWARE_ROWS) == "Intel Xeon E3-1240 v6 (Intel)"
+
+
+_GPU_HARDWARE_ROWS = [
+    {"id": "nvidia-rtx-a4000", "display_name": "NVIDIA RTX A4000", "vendor": "NVIDIA", "category": "gpu"},
+    {"id": "nvidia-rtx-a6000", "display_name": "NVIDIA RTX A6000", "vendor": "NVIDIA", "category": "gpu"},
+]
+_MIXED_HARDWARE_ROWS = _CPU_HARDWARE_ROWS + _GPU_HARDWARE_ROWS
+
+
+def test_guess_gpu_hardware_id_returns_the_matched_row_id(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    assert (
+        cli_module._guess_gpu_hardware_id(_GPU_HARDWARE_ROWS, {"model": "NVIDIA RTX A4000"})
+        == "nvidia-rtx-a4000"
+    )
+
+
+def test_guess_gpu_hardware_id_returns_none_on_no_match(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._guess_gpu_hardware_id(_GPU_HARDWARE_ROWS, {"model": "Some Unknown Card"}) is None
+
+
+def test_guess_gpu_hardware_id_returns_none_when_model_missing(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._guess_gpu_hardware_id(_GPU_HARDWARE_ROWS, {}) is None
+
+
+def test_guess_hardware_label_for_backends_prefers_gpu_when_backend_chosen(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    label = cli_module._guess_hardware_label_for_backends(
+        _MIXED_HARDWARE_ROWS, {"model": "NVIDIA RTX A4000"}, {"faster-whisper": "cuda"}
+    )
+
+    assert label == "NVIDIA RTX A4000 (NVIDIA)"
+
+
+def test_guess_hardware_label_for_backends_no_fallback_to_cpu_on_gpu_miss(monkeypatch):
+    """A GPU backend was chosen but nothing in the catalog matches -- must
+    NOT fall back to suggesting the CPU entry (that's the exact wrong-
+    preselection bug this whole change fixes)."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+
+    label = cli_module._guess_hardware_label_for_backends(
+        _MIXED_HARDWARE_ROWS, {"model": "Some Unknown Card"}, {"faster-whisper": "cuda"}
+    )
+
+    assert label is None
+
+
+def test_guess_hardware_label_for_backends_falls_back_to_cpu_when_cpu_only(monkeypatch):
+    """No GPU backend chosen (empty dict, _wizard_pick_backends' cpu-only
+    shape) -- today's exact CPU-guess behavior, unchanged."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+
+    label = cli_module._guess_hardware_label_for_backends(_MIXED_HARDWARE_ROWS, None, {})
+
+    assert label == "Intel Xeon E3-1240 v6 (Intel)"
 
 
 def test_hardware_result_gaps_reports_uncovered_official_profiles(monkeypatch):
@@ -1177,40 +1342,6 @@ def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
 
     assert calls == []
 
-
-def test_wizard_run_hardware_back_re_shows_the_matrix(monkeypatch):
-    from oesb_runner import cli as cli_module
-
-    monkeypatch.setattr(
-        cli_module, "_profile_rows",
-        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
-    )
-    monkeypatch.setattr(
-        cli_module, "_pack_rows",
-        lambda *a, **k: [{"id": "pack-a", "visibility": "open", "language": "en-US"}],
-    )
-    matrix_calls = []
-    monkeypatch.setattr(
-        cli_module, "_ask_matrix",
-        lambda matrix: (matrix_calls.append(1), ["whisper-medium-en-batch"])[1],
-    )
-    hardware_responses = iter([cli_module._WIZARD_BACK, "intel-xeon-e3-1240-v6"])
-    monkeypatch.setattr(cli_module, "_pick_hardware_id", lambda *a, **k: next(hardware_responses))
-    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("1"))
-    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
-    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
-    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
-    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
-    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: None)
-    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
-    monkeypatch.setattr(
-        cli_module, "_wizard_engine_parameters",
-        lambda combos, *a, **k: [(pid, pack, {}) for pid, pack in combos],
-    )
-
-    cli_module._wizard_run()
-
-    assert len(matrix_calls) == 2  # matrix re-shown once after the "back" pick
 
 
 # --- ADR-0009: wizard per-engine parameter step ---
@@ -2458,6 +2589,39 @@ def test_pick_hardware_id_resolves_label_back_to_id(monkeypatch):
     )
 
     assert cli_module._pick_hardware_id("http://api", "hardware", offline=False) == "intel-xeon-e3-1240-v6"
+
+
+def test_pick_hardware_id_preselects_gpu_when_backend_chosen(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_hardware_rows",
+        lambda *a, **k: [
+            {"id": "intel-xeon-e3-1240-v6", "display_name": "Intel Xeon E3-1240 v6", "vendor": "Intel", "category": "cpu"},
+            {"id": "nvidia-rtx-a4000", "display_name": "NVIDIA RTX A4000", "vendor": "NVIDIA", "category": "gpu"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_capture_cpu",
+        lambda unavailable: {"model": "Intel(R) Xeon(R) CPU E3-1240 v6 @ 3.70GHz"},
+    )
+    captured_default = {}
+
+    def fake_autocomplete(prompt, choices, default, **kwargs):
+        captured_default["default"] = default
+        return _FakeAsk("NVIDIA RTX A4000 (NVIDIA)")
+
+    monkeypatch.setattr(cli_module.questionary, "autocomplete", fake_autocomplete)
+
+    result = cli_module._pick_hardware_id(
+        "http://api", "hardware", offline=False,
+        gpu={"model": "NVIDIA RTX A4000"}, backend_by_runtime={"faster-whisper": "cuda"},
+    )
+
+    # The CPU model would also match here -- proves the GPU guess actually
+    # won, not just that a match happened to be found.
+    assert captured_default["default"] == "NVIDIA RTX A4000 (NVIDIA)"
+    assert result == "nvidia-rtx-a4000"
 
 
 def test_pick_hardware_id_explicit_other_falls_back_to_custom_silently(monkeypatch, capsys):

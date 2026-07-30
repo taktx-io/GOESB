@@ -1,0 +1,7 @@
+id: nvidia-rtx-a4000
+display_name: NVIDIA RTX A4000
+vendor: NVIDIA
+category: gpu
+vram_gb: 16
+release_year: 2021
+notes: One of the most commonly available cloud-rental cards (RunPod/Vast.ai).

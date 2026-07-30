@@ -648,18 +648,10 @@ def _wizard_run() -> None:
         typer.echo("no batch-matrix profiles found (none matched the <engine>-<size>-<lang>-batch id pattern)", err=True)
         return
 
-    profile_ids: list[str] | None = None
-    hardware_id: str | None = None
-    while profile_ids is None:
-        typer.echo(_MATRIX_LEGEND, err=True)
-        profile_ids = _ask_matrix(matrix)
-        if not profile_ids:
-            return
-        hardware_id = _pick_hardware_id(DEFAULT_API_URL, "hardware", offline=False, allow_back=True)
-        if hardware_id is None:
-            return
-        if hardware_id is _WIZARD_BACK:
-            profile_ids = None  # loop re-shows the grid, selection cleared
+    typer.echo(_MATRIX_LEGEND, err=True)
+    profile_ids = _ask_matrix(matrix)
+    if not profile_ids:
+        return
 
     packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
     profiles_by_id = {p["id"]: p for p in profiles}
@@ -696,6 +688,15 @@ def _wizard_run() -> None:
     gpu = _capture_gpu({})
     backend_by_runtime = _wizard_pick_backends(runtime_by_profile, gpu)
     if backend_by_runtime is None:
+        return
+
+    # Asked after the backend, not before: a GPU backend choice gives the
+    # hardware guess a GPU catalog entry to prefer instead of always
+    # preselecting the CPU one (see _guess_hardware_label_for_backends).
+    hardware_id = _pick_hardware_id(
+        DEFAULT_API_URL, "hardware", offline=False, gpu=gpu, backend_by_runtime=backend_by_runtime
+    )
+    if hardware_id is None:
         return
 
     expanded = _wizard_engine_parameters(combos, "profiles", DEFAULT_API_URL)
@@ -1211,16 +1212,18 @@ def _normalize_cpu_model(raw: str) -> str:
 
 def _guess_hardware_id(rows: list[dict]) -> str | None:
     """Best-effort local-CPU match against the catalog — the shared match
-    logic behind both _guess_hardware_label (the wizard's picker
-    preselection) and doctor's public-result-coverage check. Deliberately
-    CPU-only for now: hardware_id is meant to reflect whichever compute
-    path a run actually took (hardware/README.md), and both callers pick
-    hardware independent of any specific profile's engine/backend, so
-    there's no reliable signal yet about whether a given combo will end up
-    GPU-backed. Returns None (no match) rather than guess wrong — under
-    virtualization in particular the probed string is unrecoverable (e.g.
-    "QEMU Virtual CPU version 2.5+"), and difflib's cutoff is exactly what
-    keeps a string that different from ever matching."""
+    logic behind both _guess_hardware_label and doctor's public-result-
+    coverage check. Deliberately CPU-only: hardware_id is meant to reflect
+    whichever compute path a run actually took (hardware/README.md), and
+    doctor's own call site has no profile/backend context to work with at
+    all. The wizard, which DOES know the chosen backend by the time it
+    asks for hardware, uses the separate GPU-aware
+    _guess_hardware_label_for_backends below instead of this function
+    directly when a GPU backend was picked. Returns None (no match) rather
+    than guess wrong — under virtualization in particular the probed
+    string is unrecoverable (e.g. "QEMU Virtual CPU version 2.5+"), and
+    difflib's cutoff is exactly what keeps a string that different from
+    ever matching."""
     model = _capture_cpu({}).get("model")
     if not model:
         return None
@@ -1245,13 +1248,44 @@ def _guess_hardware_label(rows: list[dict]) -> str | None:
     return f"{row['display_name']} ({row['vendor']})"
 
 
-# Sentinel _pick_hardware_id returns (instead of an id or None) when the
-# caller passed allow_back=True and the user picked the back option — lets
-# _wizard_run distinguish "go back a step" from "cancel entirely" (plain
-# None) without a real prior-step stack.
-_WIZARD_BACK = object()
+def _guess_gpu_hardware_id(rows: list[dict], gpu: dict[str, Any]) -> str | None:
+    """GPU sibling of _guess_hardware_id -- same difflib match, against
+    category == "gpu" catalog rows and the nvidia-smi-probed GPU model
+    name (_capture_gpu's "model" key) instead of the CPU model string."""
+    model = gpu.get("model")
+    if not model:
+        return None
+    gpu_rows = [r for r in rows if r.get("category") == "gpu"]
+    display_names = [r["display_name"] for r in gpu_rows]
+    match = difflib.get_close_matches(model, display_names, n=1, cutoff=0.6)
+    if not match:
+        return None
+    return gpu_rows[display_names.index(match[0])]["id"]
 
-_HARDWARE_BACK_LABEL = "« Back to language/engine selection »"
+
+def _guess_hardware_label_for_backends(
+    rows: list[dict], gpu: dict[str, Any] | None, backend_by_runtime: dict[str, str] | None
+) -> str | None:
+    """Which guess to preselect in the wizard's hardware picker, now that
+    it's asked after the compute backend instead of before it.
+    backend_by_runtime is _wizard_pick_backends' return value, which never
+    includes cpu entries (see its own docstring) -- so a non-empty dict
+    means at least one engine in this batch will actually run GPU-backed,
+    and the CPU catalog entry would be the wrong preselection.
+
+    Deliberately does NOT fall back to the CPU guess when a GPU backend
+    was chosen but nothing in the catalog matches the probed GPU model --
+    suggesting CPU there is exactly the wrong-preselection bug this
+    exists to fix; no guess (forcing a manual search) beats a wrong one,
+    same philosophy _guess_hardware_id's own docstring states."""
+    if backend_by_runtime and gpu is not None:
+        guessed_id = _guess_gpu_hardware_id(rows, gpu)
+        if guessed_id is None:
+            return None
+        row = next(r for r in rows if r["id"] == guessed_id)
+        return f"{row['display_name']} ({row['vendor']})"
+    return _guess_hardware_label(rows)
+
 
 # prompt_toolkit's default completion-menu style leaves the entry text
 # color unset, so it falls through to whatever the terminal/theme decides —
@@ -1264,14 +1298,22 @@ _COMPLETION_MENU_STYLE = questionary.Style([
 ])
 
 
-def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool, allow_back: bool = False) -> str | None:
+def _pick_hardware_id(
+    api_url: str,
+    hardware_dir: str,
+    offline: bool,
+    *,
+    gpu: dict[str, Any] | None = None,
+    backend_by_runtime: dict[str, str] | None = None,
+) -> str | None:
     """Searchable hardware picker for _wizard_run. questionary.autocomplete
     only takes plain-string choices (no separate display/value like
     select()'s Choice), so this keeps its own label->id mapping and
     resolves an unmatched/blank answer to the catalog's 'custom' escape
-    hatch. allow_back=True adds a literal back-option choice, since
-    questionary has no Escape handling to hook into here the way the
-    matrix picker does."""
+    hatch. gpu/backend_by_runtime (both optional -- omit for a plain
+    CPU-only guess) let the caller thread through what compute backend was
+    actually chosen, so the preselection can prefer a GPU catalog match
+    over the CPU one -- see _guess_hardware_label_for_backends."""
     rows = _hardware_rows(api_url, hardware_dir, offline)
     if not rows:
         return "custom"
@@ -1280,10 +1322,8 @@ def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool, allow_back
     ids_by_label = {v: k for k, v in labels_by_id.items()}
     other_label = "Other / not yet in the catalog"
     choices = sorted(ids_by_label) + [other_label]
-    if allow_back:
-        choices = [_HARDWARE_BACK_LABEL, *choices]
 
-    guessed_label = _guess_hardware_label(rows)
+    guessed_label = _guess_hardware_label_for_backends(rows, gpu, backend_by_runtime)
     if guessed_label is not None:
         typer.echo(
             f"Detected: {guessed_label} — press Enter to accept, or type to search for a different one.",
@@ -1299,8 +1339,6 @@ def _pick_hardware_id(api_url: str, hardware_dir: str, offline: bool, allow_back
     ).ask()
     if answer is None:
         return None
-    if allow_back and answer == _HARDWARE_BACK_LABEL:
-        return _WIZARD_BACK
 
     resolved = ids_by_label.get(answer)
     if resolved is not None:

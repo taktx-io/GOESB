@@ -1,0 +1,6 @@
+id: nvidia-rtx-a2000
+display_name: NVIDIA RTX A2000
+vendor: NVIDIA
+category: gpu
+vram_gb: 12
+release_year: 2021
