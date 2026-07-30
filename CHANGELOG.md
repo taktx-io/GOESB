@@ -5,6 +5,32 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-30
+### Added
+- **`goesb run` prints a formatted results table** (via `rich`) instead of
+  flat `metric: value ± std unit` lines — a little service to the user,
+  no schema change.
+- **Optional submission comment.** `goesb submit --comment "..."` (max 500
+  chars) attaches a free-text note to every result in that batch.
+- **Optional pseudonymous credit.** `goesb submit --callsign NAME` (or the
+  interactive prompt, pre-filled with whatever was last used) credits a
+  submission on the public leaderboard as `NAME#<discriminator>`. The
+  discriminator is `PBKDF2-HMAC-SHA256(secret, salt=callsign, 200_000
+  iterations)`, truncated to 8 hex chars — the secret passphrase is used
+  once, in memory, to derive it and is never written to disk or sent over
+  the network, only the (callsign, discriminator) pair is. This lets two
+  different people who pick the same callsign show up as distinct
+  entries without goesb needing real accounts. Persisted locally at
+  `~/.goesb/identity.json` (new `set-identity`/`clear-identity` commands
+  manage it directly); `--anonymous` opts out for a single submission
+  without touching what's saved.
+- **Result schema bumped to `schema_version: "0.4"`** for the two optional
+  top-level fields above (`comment`, `submitted_by`) — both attached at
+  `goesb submit` time, not `goesb run` time, so `payload_sha256` is
+  recomputed and the result re-signed with the submission's own ephemeral
+  key before it reaches the network; the local file `run` wrote is
+  untouched either way.
+
 ## [0.8.10] - 2026-07-29
 ### Fixed
 - **`decode_pcm` silently assumed every pack's audio was already at the

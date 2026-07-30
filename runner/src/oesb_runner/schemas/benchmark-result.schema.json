@@ -11,7 +11,7 @@
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "type": "string", "const": "0.3" },
+    "schema_version": { "type": "string", "const": "0.4" },
 
     "profile": {
       "type": "object",
@@ -85,6 +85,21 @@
 
     "hardware_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$",
       "description": "User-asserted hardware catalog id (see the monorepo's hardware/ directory) — the canonical value leaderboards/filtering key off, since environment.cpu.model can be unrecoverably wrong under virtualization." },
+
+    "comment": { "type": "string", "maxLength": 500,
+      "description": "Optional free-text note from the submitter, attached at `goesb submit` time (not `run` time) — applies to the whole submission batch. Never authenticated to any account." },
+
+    "submitted_by": {
+      "type": "object",
+      "description": "Optional pseudonymous credit, set via `goesb submit --callsign` (or the interactive prompt) and persisted locally thereafter at ~/.goesb/identity.json. The discriminator disambiguates two different people who pick the same callsign without ever transmitting or storing the secret passphrase itself — see identity.py.",
+      "required": ["callsign", "discriminator"],
+      "additionalProperties": false,
+      "properties": {
+        "callsign": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "discriminator": { "type": "string", "pattern": "^[a-f0-9]{8}$",
+          "description": "PBKDF2-HMAC-SHA256(secret, salt=callsign, 200_000 iterations), first 4 bytes, hex-encoded." }
+      }
+    },
 
     "environment": {
       "type": "object",

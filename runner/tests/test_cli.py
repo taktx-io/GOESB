@@ -1916,6 +1916,217 @@ def _write_fake_result(path, **overrides):
     return result
 
 
+def _write_full_result(path, **overrides):
+    """A fully schema-valid result document, unlike `_write_fake_result`'s
+    deliberately-minimal stub -- needed for tests exercising the
+    comment/identity mutation path in `_submit_paths`, since that path
+    re-validates the mutated document against the real schema."""
+    from oesb_runner.hashing import canonical_asset_sha256
+
+    example = json.loads(
+        (REPO_ROOT / "schemas" / "examples" / "benchmark-result.example.json").read_text()
+    )
+    example.update(overrides)
+    example["payload_sha256"] = canonical_asset_sha256(example, exclude=("payload_sha256", "signature"))
+    path.write_text(json.dumps(example))
+    return example
+
+
+def test_submit_paths_attaches_comment_and_identity(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.identity import Identity
+
+    file_a = tmp_path / "a.json"
+    original = _write_full_result(file_a)
+    captured = {}
+
+    def fake_get_json(url, timeout):
+        return {"min_runner_version": "0.0.1"}
+
+    def fake_post_json(url, payload, timeout):
+        if url.endswith("/runner-tokens"):
+            return {"token_id": "tok-1"}
+        captured["sent"] = payload["results"][0]
+        return {"results": [{"accepted": True, "id": payload["results"][0]["payload_sha256"]}]}
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+    monkeypatch.setattr(cli_module, "_post_json", fake_post_json)
+
+    outcomes = cli_module._submit_paths(
+        [str(file_a)], "http://api.example",
+        comment="great little board", identity=Identity("anon", "a1b2c3d4"),
+    )
+
+    assert outcomes[0][1] is True
+    sent = captured["sent"]
+    assert sent["comment"] == "great little board"
+    assert sent["submitted_by"] == {"callsign": "anon", "discriminator": "a1b2c3d4"}
+    # payload_sha256 must reflect the mutated content, not the original file's
+    assert sent["payload_sha256"] != original["payload_sha256"]
+
+    # the on-disk file `run` wrote is untouched -- comment/identity are
+    # attached to the in-memory network copy only
+    on_disk = json.loads(file_a.read_text())
+    assert on_disk["payload_sha256"] == original["payload_sha256"]
+    assert "comment" not in on_disk
+    assert "submitted_by" not in on_disk
+
+
+def test_submit_paths_without_comment_or_identity_leaves_payload_unchanged(tmp_path, monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    file_a = tmp_path / "a.json"
+    original = _write_full_result(file_a)
+
+    def fake_get_json(url, timeout):
+        return {"min_runner_version": "0.0.1"}
+
+    def fake_post_json(url, payload, timeout):
+        if url.endswith("/runner-tokens"):
+            return {"token_id": "tok-1"}
+        sent = payload["results"][0]
+        assert sent["payload_sha256"] == original["payload_sha256"]
+        assert "comment" not in sent
+        assert "submitted_by" not in sent
+        return {"results": [{"accepted": True, "id": sent["payload_sha256"]}]}
+
+    monkeypatch.setattr(cli_module, "_get_json", fake_get_json)
+    monkeypatch.setattr(cli_module, "_post_json", fake_post_json)
+
+    outcomes = cli_module._submit_paths([str(file_a)], "http://api.example")
+
+    assert outcomes[0][1] is True
+
+
+def _unexpected(*args, **kwargs):
+    raise AssertionError("should not have been called")
+
+
+def test_resolve_identity_anonymous_flag_skips_lookup(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "load_identity", _unexpected)
+
+    assert cli_module.resolve_identity(None, True) is None
+
+
+def test_resolve_identity_callsign_flag_matching_saved_reuses_without_prompt(monkeypatch):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.identity import Identity
+
+    saved = Identity("anon", "a1b2c3d4")
+    monkeypatch.setattr(cli_module, "load_identity", lambda: saved)
+    monkeypatch.setattr(cli_module.questionary, "password", _unexpected)
+
+    assert cli_module.resolve_identity("anon", False) == saved
+
+
+def test_resolve_identity_callsign_flag_new_value_interactive_prompts_and_saves(monkeypatch):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.identity import Identity
+
+    monkeypatch.setattr(cli_module, "load_identity", lambda: None)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.questionary, "password", lambda *a, **k: _FakeAsk("s3cr3t"))
+    monkeypatch.setattr(cli_module, "compute_discriminator", lambda callsign, secret: "deadbeef")
+    save_calls = []
+    monkeypatch.setattr(cli_module, "save_identity", lambda identity: save_calls.append(identity))
+
+    result = cli_module.resolve_identity("newname", False)
+
+    assert result == Identity("newname", "deadbeef")
+    assert save_calls == [Identity("newname", "deadbeef")]
+
+
+def test_resolve_identity_callsign_flag_new_value_noninteractive_errors(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "load_identity", lambda: None)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    with pytest.raises(typer.Exit):
+        cli_module.resolve_identity("newname", False)
+
+
+def test_resolve_identity_no_flag_noninteractive_reuses_saved_silently(monkeypatch):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.identity import Identity
+
+    saved = Identity("anon", "a1b2c3d4")
+    monkeypatch.setattr(cli_module, "load_identity", lambda: saved)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(cli_module.questionary, "text", _unexpected)
+
+    assert cli_module.resolve_identity(None, False) == saved
+
+
+def test_resolve_identity_no_flag_noninteractive_nothing_saved_returns_none(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "load_identity", lambda: None)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    assert cli_module.resolve_identity(None, False) is None
+
+
+def test_resolve_identity_no_flag_interactive_default_prefilled_with_saved(monkeypatch):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.identity import Identity
+
+    saved = Identity("anon", "a1b2c3d4")
+    monkeypatch.setattr(cli_module, "load_identity", lambda: saved)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    captured_default = {}
+
+    def fake_text(prompt, default=""):
+        captured_default["default"] = default
+        return _FakeAsk("anon")  # user hits Enter -> default echoed back
+
+    monkeypatch.setattr(cli_module.questionary, "text", fake_text)
+    monkeypatch.setattr(cli_module.questionary, "password", _unexpected)
+
+    result = cli_module.resolve_identity(None, False)
+
+    assert captured_default["default"] == "anon"
+    assert result == saved
+
+
+def test_resolve_identity_no_flag_interactive_cleared_field_is_anonymous_once(monkeypatch):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.identity import Identity
+
+    saved = Identity("anon", "a1b2c3d4")
+    monkeypatch.setattr(cli_module, "load_identity", lambda: saved)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(""))
+    save_calls = []
+    monkeypatch.setattr(cli_module, "save_identity", lambda identity: save_calls.append(identity))
+
+    result = cli_module.resolve_identity(None, False)
+
+    assert result is None
+    assert save_calls == []  # saved identity on disk is not touched
+
+
+def test_resolve_identity_no_flag_interactive_new_callsign_prompts_secret(monkeypatch):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.identity import Identity
+
+    monkeypatch.setattr(cli_module, "load_identity", lambda: None)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("newname"))
+    monkeypatch.setattr(cli_module.questionary, "password", lambda *a, **k: _FakeAsk("s3cr3t"))
+    monkeypatch.setattr(cli_module, "compute_discriminator", lambda callsign, secret: "deadbeef")
+    save_calls = []
+    monkeypatch.setattr(cli_module, "save_identity", lambda identity: save_calls.append(identity))
+
+    result = cli_module.resolve_identity(None, False)
+
+    assert result == Identity("newname", "deadbeef")
+    assert save_calls == [Identity("newname", "deadbeef")]
+
+
 def test_submit_paths_batches_all_files_under_one_token(tmp_path, monkeypatch):
     from oesb_runner import cli as cli_module
 
@@ -2019,10 +2230,11 @@ def test_submit_command_exits_nonzero_if_any_file_rejected(tmp_path, monkeypatch
     _write_fake_result(file_a)
     _write_fake_result(file_b)
 
+    monkeypatch.setattr(cli_module, "resolve_identity", lambda callsign, anonymous: None)
     monkeypatch.setattr(
         cli_module,
         "_submit_paths",
-        lambda paths, api_url: [(paths[0], True, "Submitted: ok"), (paths[1], False, "submission rejected: nope")],
+        lambda paths, api_url, **kw: [(paths[0], True, "Submitted: ok"), (paths[1], False, "submission rejected: nope")],
     )
 
     result = runner.invoke(app, ["submit", str(file_a), str(file_b)])
@@ -2038,8 +2250,9 @@ def test_submit_command_single_file_still_works(tmp_path, monkeypatch):
     file_a = tmp_path / "a.json"
     _write_fake_result(file_a)
 
+    monkeypatch.setattr(cli_module, "resolve_identity", lambda callsign, anonymous: None)
     monkeypatch.setattr(
-        cli_module, "_submit_paths", lambda paths, api_url: [(paths[0], True, "Submitted: ok")]
+        cli_module, "_submit_paths", lambda paths, api_url, **kw: [(paths[0], True, "Submitted: ok")]
     )
 
     result = runner.invoke(app, ["submit", str(file_a)])
@@ -3224,7 +3437,7 @@ def test_run_with_param_override_records_parameters_and_verifies(tmp_path, monke
     written = json.loads(result_path.read_text())
     assert written["parameters"]["beam_size"] == {"value": 8, "default": 5}
     assert written["parameters"]["vad"] == {"value": True, "default": True}
-    assert written["schema_version"] == "0.3"
+    assert written["schema_version"] == "0.4"
     assert verify_result_document(written)
 
 

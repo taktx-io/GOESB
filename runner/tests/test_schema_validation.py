@@ -72,11 +72,11 @@ def test_overridable_rejects_unknown_domain_shape():
     assert errors
 
 
-def test_result_schema_version_is_0_3():
+def test_result_schema_version_is_0_4():
     example = yaml.safe_load(
         (REPO_ROOT / "schemas" / "examples" / "benchmark-result.example.json").read_text()
     )
-    assert example["schema_version"] == "0.3"
+    assert example["schema_version"] == "0.4"
     assert validate_against(example, "benchmark-result.schema.json") == []
 
 

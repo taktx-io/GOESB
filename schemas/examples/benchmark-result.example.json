@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.3",
+  "schema_version": "0.4",
   "profile": {
     "id": "whisper-medium-nl-batch",
     "version": "1.0.0",

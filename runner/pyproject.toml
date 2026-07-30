@@ -1,6 +1,6 @@
 [project]
 name = "goesb-runner"
-version = "0.8.10"
+version = "0.9.0"
 description = "Official Open Edge Speech Benchmark (GOESB) runner"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -16,6 +16,9 @@ dependencies = [
   # (prompt_toolkit), no native deps, so it's fine on every platform this
   # ships to including Raspberry Pi.
   "questionary>=2.0",
+  # End-of-run metrics table. Pure-Python, no native deps -- same
+  # every-platform-including-Raspberry-Pi bar as questionary above.
+  "rich>=13.0",
 ]
 
 [project.optional-dependencies]

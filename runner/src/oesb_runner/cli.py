@@ -36,6 +36,8 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from rich.console import Console
+from rich.table import Table
 
 from . import __version__, credentials
 from . import energy as energy_probe
@@ -54,6 +56,13 @@ from .audio_sources import (
 )
 from .environment import _capture_cpu, _capture_gpu, _run, capture_environment
 from .hashing import canonical_asset_sha256, sha256_dir, sha256_module_source
+from .identity import (
+    Identity,
+    clear_identity,
+    compute_discriminator,
+    load_identity,
+    save_identity,
+)
 from .metrics import (
     cer,
     cpu_ram,
@@ -2224,7 +2233,10 @@ def run(
         # 0.3: runtime.backend (ADR-0008) — 0.2 was already claimed by
         # ADR-0009's `parameters` field (see CHANGELOG [0.3.0]); backend
         # didn't ride that bump, so this is its own.
-        "schema_version": "0.3",
+        # 0.4: adds optional top-level `comment`/`submitted_by` — set at
+        # `goesb submit` time, not here, but the const still has to match
+        # what `submit` will attach or local self-verification would fail.
+        "schema_version": "0.4",
         "profile": {
             "id": profile["id"],
             "version": profile["version"],
@@ -2287,9 +2299,16 @@ def run(
 
     typer.echo(f"Wrote {out_path}", err=True)
     typer.echo(f"Wrote {utterances_path} ({len(utterance_log)} utterance(s))", err=True)
+
+    table = Table(title="Results", show_lines=False)
+    table.add_column("Metric")
+    table.add_column("Value", justify="right")
+    table.add_column("Spread (±std)", justify="right")
+    table.add_column("Unit")
     for metric_id, block in metrics_block.items():
-        spread = f" ± {block['spread']['std']:.4f}" if "spread" in block else ""
-        typer.echo(f"  {metric_id}: {block['value']:.4f}{spread} {block['unit']}")
+        spread = f"± {block['spread']['std']:.4f}" if "spread" in block else "—"
+        table.add_row(metric_id, f"{block['value']:.4f}", spread, block["unit"])
+    Console().print(table)
 
 
 def _post_json(url: str, payload: dict, timeout: int) -> dict:
@@ -2308,7 +2327,13 @@ def _get_json(url: str, timeout: int) -> dict:
         return json.loads(resp.read())
 
 
-def _submit_paths(result_paths: list[str], api_url: str) -> list[tuple[str, bool, str]]:
+def _submit_paths(
+    result_paths: list[str],
+    api_url: str,
+    *,
+    comment: str | None = None,
+    identity: Identity | None = None,
+) -> list[tuple[str, bool, str]]:
     """Submit every path under ONE shared call-home token (ADR-0005) —
     returns (path, accepted, message) per input path, in the same order.
 
@@ -2320,7 +2345,15 @@ def _submit_paths(result_paths: list[str], api_url: str) -> list[tuple[str, bool
     regardless of N — this is the actual fix, not a bigger rate limit.
     A result that fails locally (edited since `goesb run` wrote it) never
     reaches the network at all; one rejected-by-the-API result never blocks
-    its siblings."""
+    its siblings.
+
+    comment/identity apply to every result in this batch identically (one
+    submission event, same as the shared token/keypair below) and are
+    attached to the in-memory copy only — the local file `run` wrote is
+    never touched. Since they're added after the file's own payload_sha256
+    was computed, payload_sha256 is recomputed over the now-larger document
+    before it gets (re-)signed a few lines down, same as every other
+    field-then-hash-then-sign sequence in this module."""
     try:
         health = _get_json(f"{api_url.rstrip('/')}/health", timeout=10)
     except (urllib.error.HTTPError, urllib.error.URLError) as exc:
@@ -2348,6 +2381,18 @@ def _submit_paths(result_paths: list[str], api_url: str) -> list[tuple[str, bool
             )
             outcomes.append((path, False, message))
             continue
+
+        if comment is not None:
+            result["comment"] = comment
+        if identity is not None:
+            result["submitted_by"] = {"callsign": identity.callsign, "discriminator": identity.discriminator}
+        if comment is not None or identity is not None:
+            result["payload_sha256"] = canonical_asset_sha256(result, exclude=("payload_sha256", "signature"))
+            mutated_errors = validate_against(result, "benchmark-result.schema.json")
+            if mutated_errors:
+                outcomes.append((path, False, f"{path}: comment/identity produced an invalid document: {mutated_errors}"))
+                continue
+
         ready.append((path, result))
 
     if not ready:
@@ -2390,6 +2435,79 @@ def _submit_paths(result_paths: list[str], api_url: str) -> list[tuple[str, bool
     return outcomes
 
 
+def _prompt_new_identity(callsign: str) -> Identity:
+    """Prompts for the secret, derives+persists the discriminator, and
+    returns the Identity — the one path both an explicit `--callsign
+    <new-name>` and a freshly-typed callsign at the interactive prompt
+    funnel through. `.ask()` returning None is the Ctrl-C/abort convention
+    used throughout this module (see e.g. line ~417)."""
+    secret = questionary.password(
+        f"Secret passphrase for '{callsign}' (not stored, used only to distinguish "
+        "identical callsigns from different people):"
+    ).ask()
+    if secret is None:
+        raise typer.Exit(code=1)
+    new_identity = Identity(callsign, compute_discriminator(callsign, secret))
+    save_identity(new_identity)
+    return new_identity
+
+
+def resolve_identity(callsign: str | None, anonymous: bool) -> Identity | None:
+    """Five-case resolution order — see identity.py for why the secret
+    itself never touches disk or the network:
+
+    1. --anonymous: skip identity for this submission only, saved identity
+       (if any) untouched.
+    2. --callsign matching what's already saved: reuse it, no prompt at all
+       (idempotent, safe to script).
+    3. --callsign that's new/different: needs a fresh secret to derive a
+       new discriminator, so it requires a TTY even if the rest of the
+       invocation is non-interactive.
+    4. No --callsign, non-interactive (no TTY): silently reuse whatever's
+       saved, or None if nothing's ever been set — never hangs a script
+       waiting on input.
+    5. No --callsign, interactive: prompt every time (not silently
+       automatic), pre-filled with the saved callsign as the default.
+       Enter confirms it as-is (no secret needed, the discriminator's
+       already on disk); clearing the field submits anonymously for this
+       run only, without touching the saved file; typing something new
+       falls through to the same secret prompt as case 3.
+    """
+    if anonymous:
+        return None
+
+    saved = load_identity()
+
+    if callsign:
+        if saved and saved.callsign == callsign:
+            return saved
+        if not sys.stdin.isatty():
+            typer.echo(
+                "setting a new callsign needs an interactive session — run `goesb submit` "
+                "once at a terminal, or omit --callsign to reuse the last saved one",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        return _prompt_new_identity(callsign)
+
+    if not sys.stdin.isatty():
+        return saved
+
+    entered = questionary.text(
+        "Credit this submission with a callsign? (Enter to keep the current one, "
+        "clear the field to submit anonymously this time):",
+        default=saved.callsign if saved else "",
+    ).ask()
+    if entered is None:
+        raise typer.Exit(code=1)
+    entered = entered.strip()
+    if not entered:
+        return None
+    if saved and entered == saved.callsign:
+        return saved
+    return _prompt_new_identity(entered)
+
+
 @app.command()
 def submit(
     result_paths: list[str] = typer.Argument(  # noqa: B008
@@ -2397,6 +2515,19 @@ def submit(
     ),
     api_url: str = typer.Option(
         DEFAULT_API_URL, help="Base URL of the GOESB API to submit the result(s) to."
+    ),
+    callsign: str | None = typer.Option(
+        None,
+        "--callsign",
+        help="Credit this submission to a callsign. A new/different callsign prompts for a "
+        "secret passphrase (used once, never stored) and is persisted as the default for "
+        "future submits; omit to reuse whatever's already saved.",
+    ),
+    comment: str | None = typer.Option(
+        None, "--comment", help="Optional note (max 500 chars) attached to every result in this submission."
+    ),
+    anonymous: bool = typer.Option(
+        False, "--anonymous", help="Submit without credit this time, even if a callsign is saved locally."
     ),
 ) -> None:
     """Sign one or more locally-produced results for public submission and
@@ -2411,11 +2542,31 @@ def submit(
     never blocks its siblings; the command exits non-zero if any path
     failed, even though the others may have succeeded.
     """
-    outcomes = _submit_paths(result_paths, api_url)
+    identity = resolve_identity(callsign, anonymous)
+    outcomes = _submit_paths(result_paths, api_url, comment=comment, identity=identity)
     for _path, _accepted, message in outcomes:
         typer.echo(message, err=True)
     if any(not accepted for _, accepted, _ in outcomes):
         raise typer.Exit(code=1)
+
+
+@app.command("set-identity")
+def set_identity_command(
+    callsign: str = typer.Argument(..., help="The callsign to credit future submissions to."),
+) -> None:
+    """Set (or change) the callsign `goesb submit` will offer as its default,
+    prompting once for a secret passphrase to derive the public discriminator
+    (see identity.py — the secret itself is never stored)."""
+    identity = _prompt_new_identity(callsign)
+    typer.echo(f"Saved identity: {identity.callsign}#{identity.discriminator}")
+
+
+@app.command("clear-identity")
+def clear_identity_command() -> None:
+    """Remove the locally-saved callsign — the next `goesb submit` will ask
+    fresh, with no pre-filled default."""
+    clear_identity()
+    typer.echo("Cleared local identity.")
 
 
 if __name__ == "__main__":
