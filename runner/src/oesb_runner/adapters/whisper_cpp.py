@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from ..audio import decode_pcm
 from ..pack import Utterance
-from . import Transcription, log_progress, register
+from . import ConcurrentCall, Transcription, log_progress, register
 
 # whisper.cpp's own build-info string (whisper_print_system_info(), bound
 # as Model.system_info() — a static method, no model file needed) is the
@@ -199,3 +200,118 @@ def run_batch(
             processing_time_s=elapsed,
         ))
     return results
+
+
+@register(
+    "whisper-cpp", benchmark_type="concurrency",
+    applied_parameters=frozenset({"threads", "temperature", "concurrency"}),
+    backends=frozenset(_USE_GPU_BY_BACKEND),
+)
+def run_concurrency(
+    model_name: str,
+    utterances: list[Utterance],
+    *,
+    concurrency: int = 1,
+    duration_s: int = 30,
+    quantization: str = "int8",
+    beam_size: int = 5,
+    temperature: float = 0.0,
+    vad: bool = True,
+    threads: int = 4,
+    download_root: str | Path | None = None,
+    language: str | None = None,
+    backend: str = "cpu",
+) -> list[ConcurrentCall]:
+    """Does this hardware stay fast under N simultaneous requests? Same
+    fixed-`duration_s`-window, round-robin-through-utterances harness
+    `faster_whisper.run_concurrency` established (ADR-0012) — but a
+    genuinely different model-loading strategy underneath.
+
+    pywhispercpp is NOT safe to share one `Model` instance across
+    concurrent threads the way ctranslate2 is (confirmed by reading the
+    actual bound C API, not assumed): `Model.transcribe()` mutates shared
+    instance state (`self._params`, its callback bindings) on every call,
+    and pywhispercpp never binds `whisper_init_state`/
+    `whisper_full_with_state` — the per-thread-state split whisper.cpp's
+    own C API actually has. So this builds `concurrency` full, independent
+    `Model` instances up front, one per worker, instead of one shared
+    model with a worker-count knob. That's a real N-way memory cost (full
+    ggml weights loaded N times) — see ADR-0012's addendum and this
+    engine's tighter `overridable.concurrency.range.max` in its
+    `*-concurrency` profiles.
+
+    Model construction happens before the timed window starts, same as
+    every other adapter's "model load time excluded from RTF" convention
+    — N loads here is just N times that same already-excluded cost, not a
+    new category of overhead this benchmark type needs to account for.
+
+    Audio is decoded once per utterance up front too (whisper.cpp needs
+    raw PCM samples, not a path, unlike faster-whisper) and shared
+    read-only across every worker — only the actual `transcribe()` call is
+    timed.
+
+    No WER/CER: this benchmark type doesn't score accuracy, so
+    `reference_text` is never touched."""
+    try:
+        from pywhispercpp.model import Model
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise RuntimeError(
+            "pywhispercpp is not installed; run "
+            "`pip install goesb-runner[whisper-cpp]`"
+        ) from exc
+
+    if backend in _GGML_BACKEND_SECTION_RE:
+        info = Model.system_info()
+        if not _GGML_BACKEND_SECTION_RE[backend].search(info or ""):
+            raise RuntimeError(
+                f"--backend {backend} failed: this pywhispercpp build has no {backend} "
+                f"support (system_info: {info!r}). Run `goesb doctor` to check what's "
+                "available, or use --backend cpu."
+            )
+
+    resolved_model_id = _resolve_model_id(model_name)
+    if language:
+        language_params = {"language": language}
+    elif resolved_model_id.endswith(".en"):
+        language_params = {"language": "en"}
+    else:
+        language_params = {"detect_language": True}
+
+    decoded = [
+        (utterance, decode_pcm(utterance.audio_path, _SAMPLE_RATE, dtype="float32"))
+        for utterance in utterances
+    ]
+
+    models = [
+        Model(
+            resolved_model_id,
+            models_dir=str(download_root) if download_root is not None else None,
+            n_threads=threads,
+            temperature=temperature,
+            print_realtime=False,
+            print_progress=False,
+            context_params={"use_gpu": _USE_GPU_BY_BACKEND[backend]},
+            **language_params,
+        )
+        for _ in range(concurrency)
+    ]
+
+    deadline = time.perf_counter() + duration_s
+
+    def _worker(worker_id: int) -> list[ConcurrentCall]:
+        model = models[worker_id]
+        calls: list[ConcurrentCall] = []
+        i = worker_id
+        while time.perf_counter() < deadline:
+            utterance, samples = decoded[i % len(decoded)]
+            start = time.perf_counter()
+            model.transcribe(samples)
+            elapsed = time.perf_counter() - start
+            calls.append(ConcurrentCall(processing_time_s=elapsed, audio_duration_s=utterance.duration_s))
+            i += concurrency
+        return calls
+
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = [pool.submit(_worker, w) for w in range(concurrency)]
+        calls = [c for future in futures for c in future.result()]
+    return calls

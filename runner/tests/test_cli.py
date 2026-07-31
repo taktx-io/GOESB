@@ -1770,6 +1770,74 @@ def test_wizard_engine_parameters_aborts_on_none(monkeypatch):
     assert result is None
 
 
+# --- ADR-0012 addendum: the concurrency prompt's blank-Enter sweep nudge ---
+
+
+def test_suggested_concurrency_sweep_clamped_to_profile_range():
+    from oesb_runner import cli as cli_module
+
+    unclamped = {"overridable": {"concurrency": {"range": {"min": 1, "max": 64}}}}
+    assert cli_module._suggested_concurrency_sweep(unclamped) == "1,4,8,16"
+
+    clamped = {"overridable": {"concurrency": {"range": {"min": 1, "max": 8}}}}
+    assert cli_module._suggested_concurrency_sweep(clamped) == "1,4,8"
+
+    no_range = {"overridable": {"concurrency": {}}}
+    assert cli_module._suggested_concurrency_sweep(no_range) == "1,4,8,16"
+
+
+def test_wizard_engine_parameters_blank_concurrency_expands_to_suggested_sweep(monkeypatch):
+    """The actual gap this exists to fix: plain Enter-through on every
+    other parameter means "run once, at the default" -- concurrency=1
+    alone shows nothing about load behavior, so blank input here must
+    expand to a real sweep instead, not silently do the single boring run."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(""))
+
+    combos = [("whisper-medium-concurrency", "pack-a")]
+    expanded = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+
+    assert expanded == [
+        ("whisper-medium-concurrency", "pack-a", {"concurrency": "1"}),
+        ("whisper-medium-concurrency", "pack-a", {"concurrency": "4"}),
+        ("whisper-medium-concurrency", "pack-a", {"concurrency": "8"}),
+        ("whisper-medium-concurrency", "pack-a", {"concurrency": "16"}),
+    ]
+
+
+def test_wizard_engine_parameters_concurrency_prompt_shows_the_suggestion(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    prompts = []
+
+    def _fake_text(question, *a, **k):
+        prompts.append(question)
+        return _FakeAsk("")
+
+    monkeypatch.setattr(cli_module.questionary, "text", _fake_text)
+
+    combos = [("whisper-medium-concurrency", "pack-a")]
+    cli_module._wizard_engine_parameters(combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL)
+
+    assert any("1,4,8,16" in p for p in prompts)
+
+
+def test_wizard_engine_parameters_explicit_concurrency_value_overrides_the_suggestion(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", _fake_text_by_param(concurrency="2"))
+
+    combos = [("whisper-medium-concurrency", "pack-a")]
+    expanded = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+
+    assert expanded == [("whisper-medium-concurrency", "pack-a", {"concurrency": "2"})]
+
+
 def test_wizard_run_confirmation_states_total_including_repeats(monkeypatch, capsys):
     """Fixes the pre-existing undercount: --repeats 2 must be reflected in
     the stated total, not just the combo count."""

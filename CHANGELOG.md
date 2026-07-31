@@ -5,6 +5,25 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-07-31
+### Added
+- **whisper-cpp concurrency support** (`metal`/`cuda`/`cpu`) — five new
+  `whispercpp-{tiny,base,small,medium,large-v3}-concurrency` profiles.
+  Needed a genuinely different `run_concurrency` than faster-whisper's:
+  pywhispercpp isn't safe to share one `Model` instance across concurrent
+  threads (confirmed against the actual bound C API), so this builds one
+  full instance per worker instead — a real N-way memory cost, reflected
+  in a tighter `overridable.concurrency.range.max` (16 vs faster-whisper's
+  64). See ADR-0012's addendum.
+- **More faster-whisper concurrency profiles** —
+  `whisper-{tiny,base,small,large-v3}-concurrency` join the existing
+  `whisper-medium-concurrency`.
+- **Wizard: blank Enter on the `concurrency` prompt now suggests a real
+  sweep** (`1,4,8,16`, clamped to the profile's own range) instead of
+  silently running once at the default — a single concurrency=1 run
+  shows nothing about load behavior, the whole point of this
+  benchmark_type.
+
 ## [0.9.7] - 2026-07-31
 ### Added
 - **`GOESB_API_URL` environment variable** overrides the default

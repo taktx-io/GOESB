@@ -505,6 +505,25 @@ def _profile_param_default(profile: dict, param_name: str) -> Any:
     return profile.get("configuration", {}).get(param_name)
 
 
+_SUGGESTED_CONCURRENCY_SWEEP = [1, 4, 8, 16]
+
+
+def _suggested_concurrency_sweep(profile: dict) -> str:
+    """A canned "does this actually get exercised under load" sweep for the
+    wizard's `concurrency` prompt — plain Enter-through on every other
+    parameter means "run once, at the profile default" (today's behavior,
+    unchanged), but that's a uniquely bad default here: concurrency=1 alone
+    shows nothing about load behavior, the entire point of this
+    benchmark_type is comparing several levels. Clamped to whatever ceiling
+    this profile's own `overridable.concurrency` declares — e.g. whisper-cpp's
+    tighter per-instance memory cost (ADR-0012 addendum) caps it lower than
+    faster-whisper's shared-model harness."""
+    domain = profile.get("overridable", {}).get("concurrency", {})
+    ceiling = domain.get("range", {}).get("max")
+    levels = [v for v in _SUGGESTED_CONCURRENCY_SWEEP if ceiling is None or v <= ceiling]
+    return ",".join(str(v) for v in levels) or "1"
+
+
 def _wizard_engine_parameters(
     combos: list[tuple[str, str]], profiles_dir: str, api_url: str
 ) -> list[tuple[str, str, dict[str, str]]] | None:
@@ -553,11 +572,19 @@ def _wizard_engine_parameters(
 
         sweeps: dict[str, list[str]] = {}
         for param_name in sorted(common_params):
-            default = _profile_param_default(profiles_by_id[engine_combos[0][0]], param_name)
-            raw = questionary.text(f"[{engine}] {param_name} (default {default}):").ask()
+            profile_for_default = profiles_by_id[engine_combos[0][0]]
+            if param_name == "concurrency":
+                suggested = _suggested_concurrency_sweep(profile_for_default)
+                prompt = f"[{engine}] concurrency (Enter for {suggested}, or type your own):"
+            else:
+                default = _profile_param_default(profile_for_default, param_name)
+                prompt = f"[{engine}] {param_name} (default {default}):"
+            raw = questionary.text(prompt).ask()
             if raw is None:
                 return None
             raw = raw.strip()
+            if param_name == "concurrency" and not raw:
+                raw = suggested
             if not raw:
                 continue  # Enter: no override for this parameter at all
             sweeps[param_name] = _parse_param_sweep(raw)

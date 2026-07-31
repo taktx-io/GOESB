@@ -145,3 +145,42 @@ to appear.
   dimension: reuse packs/profiles/results as-is, add a narrow, named exception
   to whichever accuracy-specific gate doesn't apply, rather than building a
   parallel data path.
+
+## Addendum (2026-07-31): whisper-cpp/metal support, more sizes, wizard nudge
+
+Extended to a second engine and more model sizes:
+
+- **`profiles/whisper-{tiny,base,small,large-v3}-concurrency`** join the
+  existing `whisper-medium-concurrency` (faster-whisper, cpu/cuda) — same
+  minimal-diff pattern batch profiles already use across sizes (only `id`,
+  `title`, `model.name` differ).
+- **`profiles/whispercpp-{tiny,base,small,medium,large-v3}-concurrency`**
+  (whisper-cpp, cpu/cuda/metal — this engine's own already-declared backend
+  set) are new. This needed a genuinely different `run_concurrency` than
+  faster-whisper's, for a reason confirmed against the actual bound C API,
+  not assumed: **pywhispercpp is not safe to share one `Model` instance
+  across concurrent threads.** `Model.transcribe()` mutates shared instance
+  state (`self._params`, its callback bindings) on every call, and
+  pywhispercpp never binds `whisper_init_state`/`whisper_full_with_state` —
+  the per-thread-state split whisper.cpp's own C API actually has, the
+  mechanism that would otherwise let one set of loaded weights serve many
+  threads (the same shape as vosk's shared-`Model`-plus-per-thread-
+  `KaldiRecognizer` pattern, or ctranslate2's `inter_threads`). Without that
+  split, `whisper_cpp.run_concurrency` builds `concurrency` full, independent
+  `Model` instances up front (one per worker), instead of one shared model
+  with a worker-count knob — a real N-way memory cost (full ggml weights
+  loaded N times), which is why the whisper-cpp `*-concurrency` profiles
+  declare a tighter `overridable.concurrency.range.max` (16) than
+  faster-whisper's (64): the same nominal concurrency level is a much
+  heavier ask on this engine, and the ceiling says so.
+- **Wizard nudge, not a default change.** `configuration.concurrency: 1`
+  stays the correct schema default (matches `num_workers=1`'s own default,
+  matches every other parameter's "Enter = today's behavior" convention) —
+  but Enter-through on every other parameter means "run once, at the
+  default," which is uniquely unhelpful for `concurrency` specifically: a
+  single point shows nothing about load behavior, the entire reason this
+  benchmark_type exists. `_wizard_engine_parameters` now special-cases just
+  this one parameter: blank input expands to a suggested sweep (`1,4,8,16`,
+  clamped to that profile's own range — e.g. `1,4,8` for whisper-cpp),
+  stated in the prompt text itself so nothing happens that isn't visible
+  before it happens.

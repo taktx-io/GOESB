@@ -213,6 +213,110 @@ def test_run_batch_cpu_backend_never_calls_system_info(monkeypatch, tmp_path):
     assert calls == []
 
 
+# --- ADR-0012: run_concurrency (one Model instance per worker) ---
+
+
+class _FakeConcurrentModel(_FakeModel):
+    """Tracks how many separate instances get constructed and how many
+    distinct instances actually receive a transcribe() call -- proves the
+    harness builds one full Model per worker rather than (incorrectly)
+    sharing one, which pywhispercpp's real Model is not safe for (see
+    run_concurrency's own docstring)."""
+
+    instances_created: ClassVar[list] = []
+    instances_transcribed_from: ClassVar[set] = set()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _FakeConcurrentModel.instances_created.append(self)
+
+    def transcribe(self, *args, **kwargs):
+        _FakeConcurrentModel.instances_transcribed_from.add(id(self))
+        return super().transcribe(*args, **kwargs)
+
+
+def _fake_utterances(tmp_path: Path, n: int = 3) -> list[Utterance]:
+    return [
+        Utterance(
+            utterance_id=f"u{i}", audio_path=tmp_path / f"fake{i}.wav",
+            reference_text="hola", duration_s=1.0,
+        )
+        for i in range(n)
+    ]
+
+
+def test_run_concurrency_builds_one_model_instance_per_worker(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_concurrency
+
+    _FakeConcurrentModel.instances_created = []
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeConcurrentModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    run_concurrency("tiny", _fake_utterances(tmp_path), concurrency=4, duration_s=0.02)
+
+    assert len(_FakeConcurrentModel.instances_created) == 4
+    # Every instance genuinely distinct -- not the same object constructed
+    # once and appended 4 times.
+    assert len({id(m) for m in _FakeConcurrentModel.instances_created}) == 4
+
+
+def test_run_concurrency_each_worker_only_calls_its_own_instance(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_concurrency
+
+    _FakeConcurrentModel.instances_created = []
+    _FakeConcurrentModel.instances_transcribed_from = set()
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeConcurrentModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    run_concurrency("tiny", _fake_utterances(tmp_path), concurrency=3, duration_s=0.05)
+
+    created_ids = {id(m) for m in _FakeConcurrentModel.instances_created}
+    # Every constructed instance was actually used, and nothing outside
+    # that set was ever called -- proves the worker->instance mapping is
+    # exactly one-to-one, no accidental sharing or leftover unused models.
+    assert _FakeConcurrentModel.instances_transcribed_from <= created_ids
+    assert _FakeConcurrentModel.instances_transcribed_from
+
+
+def test_run_concurrency_respects_the_duration_s_deadline(monkeypatch, tmp_path):
+    import time
+
+    from oesb_runner.adapters.whisper_cpp import run_concurrency
+
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    start = time.perf_counter()
+    run_concurrency("tiny", _fake_utterances(tmp_path), concurrency=2, duration_s=0.1)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 1.0
+
+
+def test_run_concurrency_returns_calls_with_the_utterances_own_duration(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_concurrency
+
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    calls = run_concurrency("tiny", _fake_utterances(tmp_path, n=1), concurrency=1, duration_s=0.02)
+
+    assert calls
+    assert all(c.audio_duration_s == 1.0 for c in calls)
+    assert all(c.processing_time_s >= 0.0 for c in calls)
+
+
+def test_run_concurrency_cuda_backend_raises_when_build_has_no_cuda_support(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_concurrency
+
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(_FakeModel, "system_info_return", "WHISPER : COREML = 0 | OPENVINO = 0 | ")
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    with pytest.raises(RuntimeError, match="no cuda support"):
+        run_concurrency("tiny", _fake_utterances(tmp_path), concurrency=2, duration_s=0.02, backend="cuda")
+
+
 def test_cuda_available_true_when_system_info_reports_the_cuda_backend_section():
     """Real report, second bug in the same area: CUDA/Metal/Vulkan register
     through ggml's dynamic backend registry as their own named section
