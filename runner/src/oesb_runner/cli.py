@@ -39,8 +39,7 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from rich.console import Console
 from rich.table import Table
 
-from . import __version__, credentials
-from . import cuda_runtime
+from . import __version__, credentials, cuda_runtime
 from . import energy as energy_probe
 from .adapters import (
     get_adapter,
