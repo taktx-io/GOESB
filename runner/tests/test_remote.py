@@ -1,3 +1,4 @@
+import importlib
 import io
 import json
 import urllib.error
@@ -6,6 +7,32 @@ import pytest
 import yaml
 
 from oesb_runner import remote
+
+# --- GOESB_API_URL: point every subcommand (including the wizard, which has
+# no --api-url flag of its own) at a non-production API without editing
+# code. Read once at import time, so these tests reload the module around a
+# monkeypatched env var rather than calling a function -- and always reload
+# again afterward, in a `finally`, so a later test never inherits a stale
+# override left over from this one.
+
+
+def test_default_api_url_falls_back_to_production_when_env_var_unset(monkeypatch):
+    monkeypatch.delenv("GOESB_API_URL", raising=False)
+    try:
+        importlib.reload(remote)
+        assert remote.DEFAULT_API_URL == "https://www.goesb.com/api"
+    finally:
+        importlib.reload(remote)
+
+
+def test_default_api_url_reads_the_env_var_override(monkeypatch):
+    monkeypatch.setenv("GOESB_API_URL", "https://test.goesb.com/api")
+    try:
+        importlib.reload(remote)
+        assert remote.DEFAULT_API_URL == "https://test.goesb.com/api"
+    finally:
+        monkeypatch.delenv("GOESB_API_URL", raising=False)
+        importlib.reload(remote)
 
 
 class _FakeResponse(io.BytesIO):

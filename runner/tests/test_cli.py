@@ -2489,7 +2489,7 @@ def test_wizard_run_checks_outdated_once_not_once_per_reexec(monkeypatch):
 
     cli_module._wizard_run()
 
-    assert check_calls == [("https://www.goesb.com/api",)]
+    assert check_calls == [(cli_module.DEFAULT_API_URL,)]
     assert os.environ.get(cli_module._SKIP_OUTDATED_CHECK_ENV_VAR) == "1"
 
 

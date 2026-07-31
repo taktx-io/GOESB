@@ -24,6 +24,7 @@ per the pack's own `audio.source.fetch_instructions`, same as it always has.
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -31,7 +32,12 @@ from typing import Any
 
 import yaml
 
-DEFAULT_API_URL = "https://www.goesb.com/api"
+# Override for pointing every subcommand -- including the interactive wizard,
+# which has no --api-url flag of its own -- at a non-production API (e.g.
+# test.goesb.com) without editing code. Read once at import time, which is
+# correct here: `export GOESB_API_URL=... && goesb ...` always sets it in the
+# shell before the `goesb` process (and this import) ever starts.
+DEFAULT_API_URL = os.environ.get("GOESB_API_URL", "https://www.goesb.com/api")
 
 # manifest.jsonl isn't part of a pack's own document, so it isn't served by
 # the platform API — the public GOESB repo is the source for it regardless

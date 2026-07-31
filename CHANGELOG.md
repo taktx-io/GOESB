@@ -5,6 +5,16 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-07-31
+### Added
+- **`GOESB_API_URL` environment variable** overrides the default
+  `https://www.goesb.com/api` for every subcommand, including the
+  interactive wizard — which had no `--api-url` flag of its own to
+  point it at a non-production API (e.g. `test.goesb.com`'s API,
+  reachable at `http://test.goesb.com:8001`, not under `/api`).
+  `export GOESB_API_URL=http://test.goesb.com:8001 && goesb` now Just
+  Works instead of needing a manual code edit.
+
 ## [0.9.6] - 2026-07-31
 ### Added
 - **New `concurrency` benchmark_type (ADR-0012): does a GPU/CPU stay fast
