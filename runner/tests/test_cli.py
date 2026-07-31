@@ -3749,6 +3749,52 @@ def test_coerce_param_value_int_and_float():
     assert cli_module._coerce_param_value("0.5", 0.0) == 0.5
 
 
+# --- _sample_during: GPU sampling ---
+
+
+def test_sample_during_collects_gpu_samples_when_available(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.gpu_pct, "sample_gpu_pct", lambda: 42.0)
+
+    _result, _samples, _temp, _rapl, gpu_samples = cli_module._sample_during(
+        lambda: None, interval_s=0.01, gpu_interval_s=0.01
+    )
+
+    assert gpu_samples and all(v == 42.0 for v in gpu_samples)
+
+
+def test_sample_during_gpu_samples_empty_without_nvidia_smi(monkeypatch):
+    """No NVIDIA GPU/nvidia-smi -- same "absent, not fabricated zero"
+    convention as temperature/RAPL."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.gpu_pct, "sample_gpu_pct", lambda: None)
+
+    _result, _samples, _temp, _rapl, gpu_samples = cli_module._sample_during(
+        lambda: None, interval_s=0.01, gpu_interval_s=0.01
+    )
+
+    assert gpu_samples == []
+
+
+def test_sample_during_samples_gpu_less_often_than_cpu(monkeypatch):
+    """GPU sampling spawns a subprocess per call (nvidia-smi) -- must not
+    fire on every fast CPU/RAM tick, only its own coarser cadence."""
+    import time
+
+    from oesb_runner import cli as cli_module
+
+    calls = []
+    monkeypatch.setattr(cli_module.gpu_pct, "sample_gpu_pct", lambda: calls.append(1) or 10.0)
+
+    cli_module._sample_during(lambda: time.sleep(0.05), interval_s=0.01, gpu_interval_s=0.05)
+
+    # ~5 CPU ticks (0.05s / 0.01s) but gpu_interval_s is 5x coarser -- far
+    # fewer GPU samples than CPU ticks, not one per tick.
+    assert 1 <= len(calls) <= 3
+
+
 def test_coerce_param_value_int_rejects_non_numeric():
     from oesb_runner import cli as cli_module
 

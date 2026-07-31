@@ -69,10 +69,12 @@ from .metrics import (
     end_of_speech_latency,
     first_final_latency,
     first_partial_latency,
+    gpu_pct,
     partial_stability,
     rtf,
     streaming_responsiveness,
     temperature,
+    throughput,
     update_frequency,
     wer,
 )
@@ -847,10 +849,12 @@ _METRIC_UNITS = {
     wer.METRIC_ID: wer.UNIT,
     cer.METRIC_ID: cer.UNIT,
     rtf.METRIC_ID: rtf.UNIT,
+    throughput.METRIC_ID: throughput.UNIT,
     cpu_ram.CPU_METRIC_ID: cpu_ram.CPU_UNIT,
     cpu_ram.RAM_METRIC_ID: cpu_ram.RAM_UNIT,
     energy_metric.METRIC_ID: energy_metric.UNIT,
     temperature.METRIC_ID: temperature.UNIT,
+    gpu_pct.METRIC_ID: gpu_pct.UNIT,
     first_partial_latency.METRIC_ID: first_partial_latency.UNIT,
     first_final_latency.METRIC_ID: first_final_latency.UNIT,
     end_of_speech_latency.METRIC_ID: end_of_speech_latency.UNIT,
@@ -1797,28 +1801,43 @@ def doctor() -> None:
         typer.echo(f"\ndoctor: an internal probe failed unexpectedly ({exc}) — this is a bug, please report it.", err=True)
 
 
-def _sample_during(fn, interval_s: float = 0.2):
-    """Run `fn()` while sampling CPU/RAM/temperature in the background, and
-    RAPL energy once before and once after (a monotonic counter, so a single
-    before/after delta is what's needed, not periodic sampling — see
+def _sample_during(fn, interval_s: float = 0.2, gpu_interval_s: float = 1.0):
+    """Run `fn()` while sampling CPU/RAM/temperature/GPU in the background,
+    and RAPL energy once before and once after (a monotonic counter, so a
+    single before/after delta is what's needed, not periodic sampling — see
     energy.py). Returns (result, cpu_ram_samples, temp_samples_c,
-    rapl_uj_delta). `temp_samples_c` is empty and `rapl_uj_delta` is `None`
-    on platforms without hwmon/RAPL (macOS, Windows, RAPL-less Linux) —
+    rapl_uj_delta, gpu_samples). `temp_samples_c`/`gpu_samples` are empty and
+    `rapl_uj_delta` is `None` on platforms without hwmon/RAPL/an NVIDIA GPU —
     callers treat that exactly like any other "not yet implemented" metric
     gap, never a fabricated zero.
+
+    GPU utilisation is sampled on its own, coarser `gpu_interval_s` cadence
+    (default 1s, vs 200ms for everything else) rather than every tick —
+    unlike CPU/RAM (in-process `psutil`) or temperature (an hwmon file
+    read), `gpu_pct.sample_gpu_pct()` spawns an `nvidia-smi` subprocess per
+    call, and polling that every 200ms would add measurable overhead to the
+    very run being timed.
     """
     samples: list[cpu_ram.Sample] = []
     temp_samples_c: list[float] = []
+    gpu_samples: list[float] = []
     stop = threading.Event()
     proc = psutil.Process()
     proc.cpu_percent(interval=None)  # prime baseline
 
     def sampler() -> None:
+        ticks_per_gpu_sample = max(1, round(gpu_interval_s / interval_s))
+        tick = 0
         while not stop.is_set():
             samples.append(cpu_ram.sample_process_tree(proc))
             temp_c = energy_probe.sample_hwmon_temp_c()
             if temp_c is not None:
                 temp_samples_c.append(temp_c)
+            if tick % ticks_per_gpu_sample == 0:
+                gpu_c = gpu_pct.sample_gpu_pct()
+                if gpu_c is not None:
+                    gpu_samples.append(gpu_c)
+            tick += 1
             stop.wait(interval_s)
 
     thread = threading.Thread(target=sampler, daemon=True)
@@ -1840,7 +1859,7 @@ def _sample_during(fn, interval_s: float = 0.2):
         if rapl_start_uj is not None and rapl_end_uj is not None
         else None
     )
-    return result, samples, temp_samples_c, rapl_uj_delta
+    return result, samples, temp_samples_c, rapl_uj_delta, gpu_samples
 
 
 def _parse_param_overrides(param: list[str]) -> dict[str, str]:
@@ -2214,7 +2233,7 @@ def run(
                     backend=backend,
                 )
 
-            transcriptions, samples, temp_samples_c, rapl_uj_delta = _sample_during(_do_transcribe)
+            transcriptions, samples, temp_samples_c, rapl_uj_delta, gpu_samples = _sample_during(_do_transcribe)
             by_id = {t.utterance_id: t for t in transcriptions}
 
             pairs = []
@@ -2236,6 +2255,7 @@ def run(
                 "wer": wer.compute(pairs),
                 "cer": cer.compute(pairs),
                 "real_time_factor": rtf.compute(total_processing_s, pack.total_duration_s),
+                "throughput": throughput.compute(pack.total_duration_s, total_processing_s),
                 "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
                 "ram_mb": cpu_ram.reduce_peak_ram_mb(samples),
             }
@@ -2245,6 +2265,8 @@ def run(
                 computed["energy_wh"] = energy_metric.compute(rapl_uj_delta)
             if temp_samples_c:
                 computed["temperature_c"] = temperature.reduce_peak_temp_c(temp_samples_c)
+            if gpu_samples:
+                computed["gpu_pct"] = gpu_pct.reduce_mean_gpu_pct(gpu_samples)
             for metric_id, values in per_repeat_metrics.items():
                 if metric_id in computed:
                     values.append(computed[metric_id])
@@ -2266,7 +2288,7 @@ def run(
                     backend=backend,
                 )
 
-            traces, samples, temp_samples_c, rapl_uj_delta = _sample_during(_do_transcribe)
+            traces, samples, temp_samples_c, rapl_uj_delta, gpu_samples = _sample_during(_do_transcribe)
             by_id = {t.utterance_id: t for t in traces}
 
             pairs = []
@@ -2295,6 +2317,7 @@ def run(
                 "wer": wer.compute(pairs),
                 "cer": cer.compute(pairs),
                 "real_time_factor": rtf.compute(total_processing_s, pack.total_duration_s),
+                "throughput": throughput.compute(pack.total_duration_s, total_processing_s),
                 "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
                 "ram_mb": cpu_ram.reduce_peak_ram_mb(samples),
                 "update_frequency": update_freq,
@@ -2313,6 +2336,8 @@ def run(
                 computed["energy_wh"] = energy_metric.compute(rapl_uj_delta)
             if temp_samples_c:
                 computed["temperature_c"] = temperature.reduce_peak_temp_c(temp_samples_c)
+            if gpu_samples:
+                computed["gpu_pct"] = gpu_pct.reduce_mean_gpu_pct(gpu_samples)
             for metric_id, values in per_repeat_metrics.items():
                 if metric_id in computed:
                     values.append(computed[metric_id])

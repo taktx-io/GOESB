@@ -50,7 +50,7 @@ def test_sampler_thread_overhead_is_small_relative_to_workload():
         # Production default interval (cli.py's `_sample_during(fn)` call
         # sites never override it) — this is the overhead a real run
         # actually carries, not a worst-case finer-grained hypothetical.
-        elapsed, _samples, _temp, _rapl = _sample_during(_busywork)
+        elapsed, _samples, _temp, _rapl, _gpu = _sample_during(_busywork)
         sampled_times.append(elapsed)
 
     # Median, not mean: robust to the occasional scheduler-jitter outlier

@@ -3,7 +3,16 @@ import os
 import psutil
 import pytest
 
-from oesb_runner.metrics import cer, cpu_ram, energy, rtf, temperature, wer
+from oesb_runner.metrics import (
+    cer,
+    cpu_ram,
+    energy,
+    gpu_pct,
+    rtf,
+    temperature,
+    throughput,
+    wer,
+)
 from oesb_runner.metrics._align import edit_distance
 
 
@@ -95,3 +104,37 @@ def test_temperature_reduce_peak_returns_max():
 def test_temperature_reduce_peak_rejects_empty():
     with pytest.raises(ValueError):
         temperature.reduce_peak_temp_c([])
+
+
+def test_throughput_basic():
+    # 10s of audio processed in 5s wall-clock -> 2.0 audio-s/s
+    assert throughput.compute(10.0, 5.0) == pytest.approx(2.0)
+
+
+def test_throughput_rejects_zero_wall_time():
+    with pytest.raises(ValueError):
+        throughput.compute(10.0, 0.0)
+
+
+def test_gpu_pct_reduce_mean_returns_average():
+    assert gpu_pct.reduce_mean_gpu_pct([40.0, 60.0]) == pytest.approx(50.0)
+
+
+def test_gpu_pct_reduce_mean_rejects_empty():
+    with pytest.raises(ValueError):
+        gpu_pct.reduce_mean_gpu_pct([])
+
+
+def test_gpu_pct_sample_returns_none_without_nvidia_smi(monkeypatch):
+    monkeypatch.setattr(gpu_pct, "_run", lambda cmd: None)
+    assert gpu_pct.sample_gpu_pct() is None
+
+
+def test_gpu_pct_sample_parses_csv_output(monkeypatch):
+    monkeypatch.setattr(gpu_pct, "_run", lambda cmd: "37")
+    assert gpu_pct.sample_gpu_pct() == pytest.approx(37.0)
+
+
+def test_gpu_pct_sample_returns_none_on_unparseable_output(monkeypatch):
+    monkeypatch.setattr(gpu_pct, "_run", lambda cmd: "[N/A]")
+    assert gpu_pct.sample_gpu_pct() is None
