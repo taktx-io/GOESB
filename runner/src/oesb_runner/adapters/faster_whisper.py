@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from .. import cuda_runtime
 from ..pack import Utterance
 from ..streaming import PartialUpdate, StreamTrace
 from . import Transcription, log_progress, register
@@ -33,15 +34,42 @@ def _resolve_model_id(model_name: str) -> str:
 # instead of ever leaving it to ctranslate2's own default.
 _DEVICE_BY_BACKEND = {"cpu": "cpu", "cuda": "cuda"}
 
+# Real report: a fresh Ubuntu box with an NVIDIA driver but the wrong (or no)
+# system CUDA Toolkit crashed here instead of raising a catchable ValueError
+# -- ctranslate2's dlopen("libcublas.so.12") failure surfaces as whatever
+# exception type (or, in the worst case, native abort) its own C++ layer
+# happens to produce, not reliably a ValueError with "CUDA" in the message
+# the way the missing-CUDA-*support* case below does. Matched by substring
+# across exception types instead of a single hardcoded phrase, so any of the
+# actual failure shapes ("CUDA", "cuBLAS", "cuDNN") gets the same clear
+# message instead of a bare third-party stack trace.
+_CUDA_ERROR_MARKERS = ("cuda", "cublas", "cudnn")
+
+
+def _looks_like_cuda_runtime_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _CUDA_ERROR_MARKERS)
+
 
 def _load_model(model_name: str, backend: str, quantization: str, threads: int, download_root):
     """Shared `WhisperModel(...)` construction for both run_batch and
     run_streaming. `--backend cuda` on a CTranslate2 build without CUDA
-    support raises a raw ValueError deep inside ctranslate2 — caught and
+    support raises a raw exception deep inside ctranslate2 — caught and
     re-raised as a clear, actionable RuntimeError (ADR-0008: fails
     immediately, before any model weights load, never a silent CPU
     fallback) rather than surfacing a bare third-party stack trace as the
-    only explanation."""
+    only explanation.
+
+    `cuda_runtime.preload_installed_cublas()` runs first so that, on Linux,
+    a pip-installed `nvidia-cublas-cu12` wheel is already resident under its
+    matching SONAME before ctranslate2 ever tries its own dlopen — turning
+    what used to be a hard crash on a fresh Ubuntu box (driver present,
+    system CUDA Toolkit missing or mismatched) into a working `--backend
+    cuda` run with no extra step from the user. A no-op everywhere else
+    (nothing pip-installed, or a platform this doesn't cover)."""
+    if backend == "cuda":
+        cuda_runtime.preload_installed_cublas()
+
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
@@ -58,11 +86,12 @@ def _load_model(model_name: str, backend: str, quantization: str, threads: int, 
             cpu_threads=threads,
             download_root=str(download_root) if download_root is not None else None,
         )
-    except ValueError as exc:
-        if backend == "cuda" and "CUDA" in str(exc):
+    except (ValueError, RuntimeError, OSError) as exc:
+        if backend == "cuda" and _looks_like_cuda_runtime_error(exc):
             raise RuntimeError(
                 f"--backend cuda failed: {exc}. Run `goesb doctor` to check what's "
-                "missing, or use --backend cpu."
+                "missing (on Ubuntu, `pip install \"goesb-runner[cuda]\"` often fixes "
+                "a missing cuBLAS), or use --backend cpu."
             ) from exc
         raise
 

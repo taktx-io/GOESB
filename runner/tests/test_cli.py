@@ -308,16 +308,19 @@ def test_doctor_reports_no_gpu_and_exits_cleanly(monkeypatch):
     assert "vosk (batch): cpu ready" in result.output
 
 
-def test_doctor_reports_gpu_present_but_cudnn_missing_with_a_next_step(monkeypatch):
-    """Acceptance criterion 4: GPU present but cuDNN not found -> reports it
+def test_doctor_reports_gpu_present_but_cublas_missing_with_a_next_step(monkeypatch):
+    """Acceptance criterion 4: GPU present but cuBLAS not found -> reports it
     plainly with an actionable next step, exits cleanly (0), never a
-    partial/crashed state."""
+    partial/crashed state. Pinned to a platform where cuda_runtime's own
+    pip-wheel fix doesn't apply (see the Linux-specific test below), so this
+    exercises the fallback "install the full Toolkit" wording."""
     from oesb_runner import cli as cli_module
 
     _assume_all_engines_installed(monkeypatch, cli_module)
     fake_gpu = {"model": "NVIDIA RTX 3060", "driver": "550.54.14", "vram": "12288 MiB"}
     monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
     monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 0)
+    monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", lambda: False)
     monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
 
     result = runner.invoke(app, ["doctor"])
@@ -325,8 +328,28 @@ def test_doctor_reports_gpu_present_but_cudnn_missing_with_a_next_step(monkeypat
     assert result.exit_code == 0
     assert "NVIDIA RTX 3060" in result.output
     assert "driver 550.54.14" in result.output
-    assert "cuBLAS/cuDNN is likely missing" in result.output
+    assert "cuBLAS is likely missing" in result.output
     assert "developer.nvidia.com/cudnn" in result.output  # the actionable next step
+    assert "--backend cpu" in result.output  # the escape hatch
+
+
+def test_doctor_reports_gpu_present_but_cublas_missing_on_linux_suggests_pip_fix(monkeypatch):
+    """On a platform cuda_runtime.py actually covers (Linux), doctor's
+    message should point at the lightweight pip-wheel fix goesb run now
+    offers automatically, not just the full Toolkit installer."""
+    from oesb_runner import cli as cli_module
+
+    _assume_all_engines_installed(monkeypatch, cli_module)
+    fake_gpu = {"model": "NVIDIA RTX 3060", "driver": "550.54.14", "vram": "12288 MiB"}
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: fake_gpu)
+    monkeypatch.setattr(cli_module, "_cuda_device_count", lambda: 0)
+    monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", lambda: True)
+    monkeypatch.setattr(cli_module, "_hardware_rows", lambda *a, **k: [])
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert 'pip install "goesb-runner[cuda]"' in result.output
     assert "--backend cpu" in result.output  # the escape hatch
 
 
@@ -3201,6 +3224,76 @@ def test_ensure_engine_installed_frozen_binary_refuses(monkeypatch):
         cli_module._ensure_engine_installed("vosk")
 
 
+def test_ensure_cuda_runtime_ready_noop_for_cpu_backend(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must never probe cuda_runtime for --backend cpu")
+
+    monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", _unexpected)
+
+    cli_module._ensure_cuda_runtime_ready("faster-whisper", "cpu")  # must not raise
+
+
+def test_ensure_cuda_runtime_ready_noop_for_non_faster_whisper_engine(monkeypatch):
+    """whisper-cpp's GPU path is a compiled-binary property, not fixable by
+    installing a cuBLAS wheel -- must never offer this install for it."""
+    from oesb_runner import cli as cli_module
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must never probe cuda_runtime for a non-faster-whisper engine")
+
+    monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", _unexpected)
+
+    cli_module._ensure_cuda_runtime_ready("whisper-cpp", "cuda")  # must not raise
+
+
+def test_ensure_cuda_runtime_ready_noop_on_unsupported_platform(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", lambda: False)
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not check loadability on a platform cuda_runtime doesn't cover")
+
+    monkeypatch.setattr(cli_module.cuda_runtime, "cublas_loadable", _unexpected)
+    monkeypatch.setattr(cli_module, "_offer_install", _unexpected)
+
+    cli_module._ensure_cuda_runtime_ready("faster-whisper", "cuda")  # must not raise
+
+
+def test_ensure_cuda_runtime_ready_noop_when_already_loadable(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", lambda: True)
+    monkeypatch.setattr(cli_module.cuda_runtime, "cublas_loadable", lambda: True)
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not offer to install what's already loadable")
+
+    monkeypatch.setattr(cli_module, "_offer_install", _unexpected)
+
+    cli_module._ensure_cuda_runtime_ready("faster-whisper", "cuda")  # must not raise
+
+
+def test_ensure_cuda_runtime_ready_offers_the_cublas_wheel_when_missing(monkeypatch):
+    """The actual gap this exists to fix: a fresh Ubuntu box with an
+    NVIDIA driver but no cuBLAS on the loader's search path gets offered
+    the pip-installable fix right here, before it ever hits the crash
+    inside ctranslate2."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", lambda: True)
+    monkeypatch.setattr(cli_module.cuda_runtime, "cublas_loadable", lambda: False)
+
+    offered = []
+    monkeypatch.setattr(cli_module, "_offer_install", lambda package: offered.append(package) or True)
+
+    cli_module._ensure_cuda_runtime_ready("faster-whisper", "cuda")
+
+    assert offered == [cli_module.cuda_runtime.CUBLAS_PACKAGE]
+
+
 class _FakeAudioResponse(io.BytesIO):
     def __enter__(self):
         return self
@@ -3257,6 +3350,7 @@ def test_run_command_loads_audio_from_wherever_it_was_actually_fetched(tmp_path,
         pass
 
     monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(cli_module, "_ensure_cuda_runtime_ready", lambda runtime_name, backend: None)
     monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
 
     def _fake_get_adapter(runtime_name, benchmark_type="batch"):
@@ -3826,6 +3920,7 @@ def test_run_with_param_override_records_parameters_and_verifies(tmp_path, monke
     from oesb_runner.signing import verify_result_document
 
     monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(cli_module, "_ensure_cuda_runtime_ready", lambda runtime_name, backend: None)
     monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
 
     captured_kwargs = {}
@@ -3918,6 +4013,7 @@ def _run_with_backend(tmp_path, monkeypatch, backend_args):
     from oesb_runner.adapters import Transcription
 
     monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(cli_module, "_ensure_cuda_runtime_ready", lambda runtime_name, backend: None)
     monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
 
     captured_kwargs = {}

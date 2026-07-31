@@ -165,6 +165,24 @@ def test_run_batch_passes_device_explicitly_for_cuda_backend(monkeypatch, tmp_pa
     assert _FakeWhisperModel.last_init_kwargs.get("device") == "cuda"
 
 
+def test_run_batch_preloads_cublas_only_for_cuda_backend(monkeypatch, tmp_path):
+    """A pip-installed nvidia-cublas-cu12 wheel isn't on the loader's
+    search path just from being installed -- _load_model must preload it
+    before constructing WhisperModel(device="cuda"), and must never pay
+    that (real ctypes/importlib.metadata) cost on the cpu-only path."""
+    from oesb_runner import cuda_runtime
+
+    monkeypatch.setattr("faster_whisper.WhisperModel", _FakeWhisperModel)
+    calls = []
+    monkeypatch.setattr(cuda_runtime, "preload_installed_cublas", lambda: calls.append(True))
+
+    run_batch("tiny", [_fake_utterance(tmp_path)], backend="cpu")
+    assert calls == []
+
+    run_batch("tiny", [_fake_utterance(tmp_path)], backend="cuda")
+    assert calls == [True]
+
+
 def test_run_streaming_passes_device_explicitly_for_cuda_backend(monkeypatch, tmp_path):
     monkeypatch.setattr("faster_whisper.WhisperModel", _FakeWhisperModel)
     monkeypatch.setattr("faster_whisper.audio.decode_audio", lambda *a, **k: [0.0] * 16000)

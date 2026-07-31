@@ -5,6 +5,27 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-07-31
+### Added
+- **`goesb run --backend cuda` now offers to install a missing cuBLAS
+  runtime automatically, on Linux.** Real report: a fresh Ubuntu box with
+  an NVIDIA driver but no (or a version-mismatched) system CUDA Toolkit
+  crashed the first time faster-whisper actually used the GPU —
+  ctranslate2 dlopen's `libcublas.so.12` lazily and declares no pip
+  dependency on it (confirmed against the actual PyPI wheel: no bundled
+  library, no NEEDED entry). NVIDIA also publishes cuBLAS as a standalone
+  pip wheel, `nvidia-cublas-cu12` — the same mechanism PyTorch's cu12x
+  wheels use — so `goesb run` now offers to install and preload it
+  automatically instead of requiring a manual `pip install` after the
+  crash. New optional extra: `pip install "goesb-runner[cuda]"`.
+### Fixed
+- **`--backend cuda` failures other than "not compiled with CUDA support"
+  used to surface as a raw, uncaught exception** instead of the same
+  clear, actionable message — the missing-cuBLAS crash above is exactly
+  this case: ctranslate2's dlopen failure isn't reliably a `ValueError`
+  with "CUDA" in it. Broadened to catch the actual shapes this fails in
+  and match on cuda/cuBLAS/cuDNN in the message, not one hardcoded phrase.
+
 ## [0.9.4] - 2026-07-31
 ### Fixed
 - **Wizard: hardware is now asked once per distinct compute backend, not

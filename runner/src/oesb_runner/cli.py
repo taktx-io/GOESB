@@ -40,6 +40,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__, credentials
+from . import cuda_runtime
 from . import energy as energy_probe
 from .adapters import (
     get_adapter,
@@ -1128,6 +1129,25 @@ def _ensure_engine_installed(runtime_name: str) -> None:
     typer.echo("Installed.", err=True)
 
 
+def _ensure_cuda_runtime_ready(runtime_name: str, backend: str) -> None:
+    """Real report: a fresh Ubuntu box with an NVIDIA driver but no (or a
+    mismatched) system CUDA Toolkit crashed the first time faster-whisper
+    actually used `--backend cuda`, needing a separate manual `pip install
+    nvidia-cublas-cu12` to fix — ctranslate2 dlopen's cuBLAS lazily and
+    declares no pip dependency on it (confirmed against the actual PyPI
+    wheel). Offers that exact install right here, mirroring
+    `_ensure_engine_installed`'s UX, instead of letting the user hit the
+    crash first. Scoped to exactly `cuda_runtime.py`'s own coverage
+    (faster-whisper's ctranslate2 backend, Linux only) — a no-op for cpu,
+    any other engine, any other platform, or when cuBLAS is already
+    loadable some other way (a full system CUDA Toolkit, conda)."""
+    if backend != "cuda" or runtime_name != "faster-whisper":
+        return
+    if not cuda_runtime.cuda_libs_supported() or cuda_runtime.cublas_loadable():
+        return
+    _offer_install(cuda_runtime.CUBLAS_PACKAGE)
+
+
 def _profile_rows(api_url: str, profiles_dir: str, offline: bool) -> list[dict]:
     """Each row: id, language, benchmark_type, version. API first (unless
     --offline), local --profiles-dir as fallback — shared by list-profiles
@@ -1623,12 +1643,21 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
             return f"{label}: cpu ready; cuda readiness unknown (ctranslate2 not installed or probe failed)."
         if cuda_count > 0:
             return f"{label}: cpu ready; cuda ready ({cuda_count} device(s) visible to ctranslate2)."
-        return (
+        missing = (
             f"{label}: cpu ready; {gpu['model']} detected (driver {gpu['driver']}) but "
-            "ctranslate2 sees 0 usable CUDA devices — cuBLAS/cuDNN is likely missing or "
-            "mismatched with that driver. Install the CUDA Toolkit + cuDNN matching your "
-            "driver version (https://developer.nvidia.com/cudnn) to unlock --backend cuda, "
-            "or continue on --backend cpu."
+            "ctranslate2 sees 0 usable CUDA devices — cuBLAS is likely missing or "
+            "mismatched with that driver. "
+        )
+        if cuda_runtime.cuda_libs_supported():
+            return missing + (
+                'Run `goesb run --backend cuda` again — it now offers to `pip install '
+                '"goesb-runner[cuda]"` automatically (a standalone cuBLAS wheel, no '
+                "system CUDA Toolkit install needed), or continue on --backend cpu."
+            )
+        return missing + (
+            "Install the CUDA Toolkit + cuDNN matching your driver version "
+            "(https://developer.nvidia.com/cudnn) to unlock --backend cuda, or continue "
+            "on --backend cpu."
         )
     return f"{label}: installed, supports {sorted(backends)}."
 
@@ -2048,6 +2077,7 @@ def run(
         raise typer.Exit(code=1)
 
     _ensure_engine_installed(profile["runtime"]["name"])
+    _ensure_cuda_runtime_ready(profile["runtime"]["name"], backend)
 
     if not (pack_dir / "pack.yaml").exists():
         if offline:

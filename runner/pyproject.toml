@@ -1,6 +1,6 @@
 [project]
 name = "goesb-runner"
-version = "0.9.4"
+version = "0.9.5"
 description = "Official Open Edge Speech Benchmark (GOESB) runner"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -26,6 +26,13 @@ dependencies = [
 # CI silently pick up a newer ruff whose default rule set changed, breaking
 # a previously-green build with no repo change at all.
 dev = ["pytest>=8.0", "ruff~=0.16.0", "mypy>=1.9"]
+# A pip-installable substitute for the cuBLAS shared library that
+# `faster-whisper`'s ctranslate2 backend dlopen's at runtime for
+# --backend cuda -- lets a fresh Ubuntu box (NVIDIA driver present, no
+# system CUDA Toolkit, or one on the wrong major version) work without
+# the multi-GB Toolkit installer. Linux only -- no wheel exists for
+# macOS/Windows, and cuda_runtime.py only ever attempts this on Linux.
+cuda = ["nvidia-cublas-cu12>=12.0,<13; sys_platform == 'linux'"]
 faster-whisper = ["faster-whisper>=1.0.0"]
 vosk = ["vosk>=0.3.44", "soundfile>=0.12"]
 whisper-cpp = ["pywhispercpp>=1.5.0", "soundfile>=0.12"]
