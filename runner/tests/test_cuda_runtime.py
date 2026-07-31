@@ -1,4 +1,5 @@
 import importlib.metadata
+from pathlib import Path
 
 from oesb_runner import cuda_runtime
 
@@ -114,7 +115,13 @@ def test_preload_installed_cublas_finds_and_loads_the_pip_wheels_library(monkeyp
     monkeypatch.setattr(cuda_runtime.ctypes, "CDLL", fake_cdll)
 
     assert cuda_runtime.preload_installed_cublas() is True
-    assert loaded["path"] == f"/fake/site-packages/nvidia/cublas/lib/{cuda_runtime._CUBLAS_SONAME}"
+    # cuda_runtime.py wraps locate_file()'s result in Path(...), which
+    # normalizes separators for whatever OS pytest itself runs on (this
+    # module's actual behavior is Linux-only, but the test suite still
+    # collects and runs this file on every CI platform) -- build the
+    # expectation the same way instead of hardcoding forward slashes.
+    expected = Path(f"/fake/site-packages/nvidia/cublas/lib/{cuda_runtime._CUBLAS_SONAME}")
+    assert loaded["path"] == str(expected)
     assert loaded["mode"] == cuda_runtime.ctypes.RTLD_GLOBAL
 
 
