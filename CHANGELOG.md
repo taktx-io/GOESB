@@ -5,6 +5,31 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-07-31
+### Added
+- **New `concurrency` benchmark_type (ADR-0012): does a GPU/CPU stay fast
+  under several simultaneous requests, not just one at a time?** Real
+  motivation: comparing an RTX A4000 against an RTX 4090 on the
+  leaderboard showed near-identical RTF at every model size — because
+  every existing benchmark runs one utterance at a time, and small-batch
+  Whisper decoding at that concurrency is latency-bound, not
+  GPU-compute-bound, so a much more powerful card never got to show a
+  difference. `faster-whisper`'s adapter now drives real concurrent
+  inference (`WhisperModel(num_workers=N)`, ctranslate2's own
+  `inter_threads` mechanism — GOESB never set this before). Concurrency
+  levels sweep the same way `--param beam_size=1,4,8` already does; no
+  `language` is needed for this benchmark type (it doesn't score
+  accuracy), but it still reuses a normal, hash-verified pack for audio
+  content rather than bypassing the pack system. New wizard flow: "Run
+  concurrency/load benchmark(s)".
+- **`gpu_pct` and `throughput` metrics** — both documented in
+  `docs/specs/metrics.md` from early on, neither previously implemented.
+  `gpu_pct` samples `nvidia-smi` on its own coarser 1s cadence inside the
+  existing CPU/RAM/temperature sampler (each sample spawns a subprocess,
+  unlike the psutil/hwmon reads next to it). Available on any profile
+  that declares them, including existing batch/streaming ones — no
+  existing profile is affected until it opts in.
+
 ## [0.9.5] - 2026-07-31
 ### Added
 - **`goesb run --backend cuda` now offers to install a missing cuBLAS

@@ -1487,6 +1487,146 @@ def test_wizard_run_declines_confirmation_runs_nothing(monkeypatch):
     assert calls == []
 
 
+# --- ADR-0012: _wizard_run_concurrency ---
+
+
+def test_wizard_run_concurrency_no_profiles_found_echoes_and_returns(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-en-batch", "language": "en-US", "benchmark_type": "batch"}],
+    )
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must never prompt when no concurrency profiles exist")
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", _unexpected)
+
+    cli_module._wizard_run_concurrency()  # must not raise
+
+
+def test_wizard_run_concurrency_skips_the_language_pack_matrix_entirely(monkeypatch):
+    """The whole point of ADR-0012: no _ask_matrix, no _choose_packs_for_language
+    -- a pack is picked automatically, content doesn't matter."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-concurrency", "benchmark_type": "concurrency"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [
+            {"id": "fleurs-nl", "visibility": "open", "language": "nl-NL"},
+            {"id": "librispeech-en", "visibility": "open", "language": "en-US"},
+        ],
+    )
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk(["whisper-medium-concurrency"]))
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must never touch the language/pack matrix machinery")
+
+    monkeypatch.setattr(cli_module, "_ask_matrix", _unexpected)
+    monkeypatch.setattr(cli_module, "_choose_packs_for_language", _unexpected)
+
+    captured_combos = {}
+
+    def _fake_confirm_and_run(combos):
+        captured_combos["combos"] = combos
+
+    monkeypatch.setattr(cli_module, "_wizard_confirm_and_run", _fake_confirm_and_run)
+
+    cli_module._wizard_run_concurrency()
+
+    # librispeech-en preferred over fleurs-nl -- a deterministic pick, not
+    # asked of the user (content is irrelevant to this benchmark type).
+    assert captured_combos["combos"] == [("whisper-medium-concurrency", "librispeech-en")]
+
+
+def test_wizard_run_concurrency_falls_back_to_first_open_pack_alphabetically(monkeypatch):
+    """When librispeech-en isn't available, still picks deterministically
+    rather than prompting."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-concurrency", "benchmark_type": "concurrency"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [
+            {"id": "zzz-pack", "visibility": "open", "language": "de-DE"},
+            {"id": "aaa-pack", "visibility": "open", "language": "fr-FR"},
+        ],
+    )
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk(["whisper-medium-concurrency"]))
+
+    captured_combos = {}
+    monkeypatch.setattr(cli_module, "_wizard_confirm_and_run", lambda combos: captured_combos.update(combos=combos))
+
+    cli_module._wizard_run_concurrency()
+
+    assert captured_combos["combos"] == [("whisper-medium-concurrency", "aaa-pack")]
+
+
+def test_wizard_run_concurrency_no_open_packs_echoes_and_returns(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [{"id": "whisper-medium-concurrency", "benchmark_type": "concurrency"}],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "gated-pack", "visibility": "gated", "language": "en-US"}],
+    )
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk(["whisper-medium-concurrency"]))
+
+    def _unexpected(combos):
+        raise AssertionError("must not proceed with no open packs available")
+
+    monkeypatch.setattr(cli_module, "_wizard_confirm_and_run", _unexpected)
+
+    cli_module._wizard_run_concurrency()  # must not raise
+
+
+def test_wizard_run_concurrency_multiple_profiles_selected(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module, "_profile_rows",
+        lambda *a, **k: [
+            {"id": "whisper-medium-concurrency", "benchmark_type": "concurrency"},
+            {"id": "whisper-large-v3-concurrency", "benchmark_type": "concurrency"},
+            {"id": "whisper-medium-en-batch", "benchmark_type": "batch", "language": "en-US"},
+        ],
+    )
+    monkeypatch.setattr(
+        cli_module, "_pack_rows",
+        lambda *a, **k: [{"id": "librispeech-en", "visibility": "open", "language": "en-US"}],
+    )
+
+    offered_choices = []
+
+    def _fake_checkbox(message, choices):
+        offered_choices.extend(c.value for c in choices)
+        return _FakeAsk([c.value for c in choices])
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", _fake_checkbox)
+
+    captured_combos = {}
+    monkeypatch.setattr(cli_module, "_wizard_confirm_and_run", lambda combos: captured_combos.update(combos=combos))
+
+    cli_module._wizard_run_concurrency()
+
+    # The batch profile is never offered as a choice -- only concurrency ones.
+    assert offered_choices == ["whisper-medium-concurrency", "whisper-large-v3-concurrency"]
+    assert captured_combos["combos"] == [
+        ("whisper-medium-concurrency", "librispeech-en"),
+        ("whisper-large-v3-concurrency", "librispeech-en"),
+    ]
+
 
 # --- ADR-0009: wizard per-engine parameter step ---
 # Real, already-migrated profiles under REPO_ROOT/profiles are used
@@ -4162,6 +4302,136 @@ def test_run_rejects_backend_unsupported_by_this_runtime_before_engine_install(t
     assert "cpu" in result.output  # names what it does support
     assert install_calls == []  # never reached engine-install
     assert "Loaded" not in result.output  # never reached pack/audio resolution
+
+
+# --- ADR-0012: `concurrency` benchmark_type ---
+
+
+def _run_concurrency(tmp_path, monkeypatch, calls_by_repeat=None):
+    """Shared setup mirroring `_run_with_backend` -- real
+    `whisper-medium-concurrency` profile (no `language`), a fake pack whose
+    content is irrelevant (ADR-0012: audio content doesn't matter for this
+    benchmark type), and a fake adapter returning `ConcurrentCall`s instead
+    of `Transcription`s. Returns (captured_kwargs, written result dict)."""
+    from oesb_runner import audio_sources
+    from oesb_runner import cli as cli_module
+    from oesb_runner.adapters import ConcurrentCall
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(cli_module, "_ensure_cuda_runtime_ready", lambda runtime_name, backend: None)
+    monkeypatch.setattr(audio_sources, "CACHE_ROOT", tmp_path / "cache")
+
+    default_calls = [
+        ConcurrentCall(processing_time_s=0.5, audio_duration_s=1.0),
+        ConcurrentCall(processing_time_s=1.0, audio_duration_s=1.0),
+    ]
+    captured_kwargs = {}
+
+    def _fake_get_adapter(runtime_name, benchmark_type="batch"):
+        def _fake_run_concurrency(model_name, utterances, **kwargs):
+            captured_kwargs.update(kwargs)
+            return calls_by_repeat if calls_by_repeat is not None else default_calls
+        return _fake_run_concurrency
+
+    monkeypatch.setattr(cli_module, "get_adapter", _fake_get_adapter)
+
+    source = {"type": "fleurs", "params": {"language": "xx_xx", "split": "dev"}}
+    packs_dir = tmp_path / "packs"
+    pack_dir = packs_dir / "fake-pack"
+    _fake_pack(pack_dir, source)
+    pack_yaml_path = pack_dir / "pack.yaml"
+    pack_yaml = yaml.safe_load(pack_yaml_path.read_text())
+    pack_yaml["profile_id"] = "whisper-medium-concurrency"
+    del pack_yaml["sha256"]
+    from oesb_runner.hashing import canonical_asset_sha256
+    pack_yaml["sha256"] = canonical_asset_sha256(pack_yaml)
+    pack_yaml_path.write_text(yaml.safe_dump(pack_yaml))
+
+    archive_buf = io.BytesIO()
+    with tarfile.open(fileobj=archive_buf, mode="w:gz") as tar:
+        content = b"fake audio bytes"
+        info = tarfile.TarInfo(name="xx_xx/audio/dev/wanted.wav")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+    archive_bytes = archive_buf.getvalue()
+    monkeypatch.setattr(
+        audio_sources.urllib.request, "urlopen",
+        lambda url, **kw: _FakeAudioResponse(archive_bytes),
+    )
+
+    results_dir = tmp_path / "results"
+    result = runner.invoke(app, [
+        "run", "whisper-medium-concurrency", "fake-pack",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(packs_dir),
+        "--results-dir", str(results_dir),
+        "--repeats", "1",
+    ])
+    assert result.exit_code == 0, result.output
+
+    [result_path] = list(results_dir.glob("*.json"))
+    written = json.loads(result_path.read_text())
+    return captured_kwargs, written
+
+
+def test_run_allows_a_language_null_pack_when_benchmark_type_is_concurrency(tmp_path, monkeypatch):
+    """The ADR-0011 exception this whole feature depends on: a concurrency
+    profile declares no `language` at all, and must NOT hit "cannot verify
+    pack is eligible" the way a language-less batch/streaming profile
+    would (see test_run_refuses_a_pack_when_profile_has_no_language_declared)."""
+    from oesb_runner.signing import verify_result_document
+
+    _captured_kwargs, written = _run_concurrency(tmp_path, monkeypatch)
+
+    assert verify_result_document(written)
+    assert written["profile"]["id"] == "whisper-medium-concurrency"
+
+
+def test_run_concurrency_pools_real_time_factor_with_spread(tmp_path, monkeypatch):
+    """real_time_factor is the per-call distribution for concurrency, not a
+    single corpus-aggregate scalar like batch/streaming -- p50/p95 must
+    always be attached, same as the existing streaming latency metrics."""
+    from oesb_runner.adapters import ConcurrentCall
+
+    calls = [
+        ConcurrentCall(processing_time_s=0.5, audio_duration_s=1.0),  # rtf 0.5
+        ConcurrentCall(processing_time_s=1.5, audio_duration_s=1.0),  # rtf 1.5
+    ]
+    _captured_kwargs, written = _run_concurrency(tmp_path, monkeypatch, calls_by_repeat=calls)
+
+    rtf_metric = written["metrics"]["real_time_factor"]
+    assert rtf_metric["value"] == pytest.approx(1.0)  # mean of 0.5 and 1.5
+    assert "spread" in rtf_metric
+    assert rtf_metric["spread"]["p50"] == pytest.approx(1.0)
+
+
+def test_run_concurrency_computes_throughput(tmp_path, monkeypatch):
+    from oesb_runner.adapters import ConcurrentCall
+
+    calls = [
+        ConcurrentCall(processing_time_s=0.5, audio_duration_s=10.0),
+        ConcurrentCall(processing_time_s=0.5, audio_duration_s=10.0),
+    ]
+    _captured_kwargs, written = _run_concurrency(tmp_path, monkeypatch, calls_by_repeat=calls)
+
+    # 20s of audio total / configuration.duration_s (30, the profile default) wall-clock
+    assert written["metrics"]["throughput"]["value"] == pytest.approx(20.0 / 30.0)
+
+
+def test_run_concurrency_never_scores_accuracy(tmp_path, monkeypatch):
+    """No WER/CER -- this benchmark type doesn't touch reference_text at
+    all, and the profile itself never declares these metric ids."""
+    _captured_kwargs, written = _run_concurrency(tmp_path, monkeypatch)
+
+    assert "wer" not in written["metrics"]
+    assert "cer" not in written["metrics"]
+
+
+def test_run_concurrency_passes_concurrency_param_to_adapter(tmp_path, monkeypatch):
+    captured_kwargs, _written = _run_concurrency(tmp_path, monkeypatch)
+
+    assert captured_kwargs["concurrency"] == 1  # profile default, no --param override
+    assert captured_kwargs["duration_s"] == 30
 
 
 def test_resolve_pack_audio_offline_with_nothing_local_exits(tmp_path):

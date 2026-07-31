@@ -1,3 +1,5 @@
+import threading
+import time
 from pathlib import Path
 from typing import ClassVar
 
@@ -14,7 +16,11 @@ faster_whisper = pytest.importorskip(
     "faster_whisper", reason="requires `pip install goesb-runner[faster-whisper]`"
 )
 
-from oesb_runner.adapters.faster_whisper import run_batch, run_streaming
+from oesb_runner.adapters.faster_whisper import (
+    run_batch,
+    run_concurrency,
+    run_streaming,
+)
 from oesb_runner.metrics import rtf, wer
 from oesb_runner.pack import Utterance
 
@@ -181,6 +187,91 @@ def test_run_batch_preloads_cublas_only_for_cuda_backend(monkeypatch, tmp_path):
 
     run_batch("tiny", [_fake_utterance(tmp_path)], backend="cuda")
     assert calls == [True]
+
+
+# --- ADR-0012: run_concurrency ---
+
+
+class _FakeConcurrentWhisperModel:
+    """Tracks how many `.transcribe()` calls are simultaneously in flight
+    -- proves the harness actually runs threads concurrently rather than
+    serializing through one at a time, which a bug in the ThreadPoolExecutor
+    sizing (or in this fake itself) could otherwise hide."""
+
+    last_init_kwargs: ClassVar[dict] = {}
+    max_concurrent_seen: ClassVar[int] = 0
+
+    def __init__(self, *_args, **kwargs):
+        _FakeConcurrentWhisperModel.last_init_kwargs = kwargs
+        self._lock = threading.Lock()
+        self._in_flight = 0
+
+    def transcribe(self, *_args, **kwargs):
+        with self._lock:
+            self._in_flight += 1
+            _FakeConcurrentWhisperModel.max_concurrent_seen = max(
+                _FakeConcurrentWhisperModel.max_concurrent_seen, self._in_flight
+            )
+        time.sleep(0.02)  # long enough for other worker threads to overlap
+        with self._lock:
+            self._in_flight -= 1
+        return [_FakeSegment()], None
+
+
+def _fake_utterances(tmp_path: Path, n: int = 3) -> list[Utterance]:
+    return [
+        Utterance(
+            utterance_id=f"u{i}", audio_path=tmp_path / f"fake{i}.wav",
+            reference_text="hola", duration_s=1.0,
+        )
+        for i in range(n)
+    ]
+
+
+def test_run_concurrency_sets_num_workers_to_the_concurrency_level(monkeypatch, tmp_path):
+    """num_workers must match `concurrency` exactly -- fewer would leave
+    ctranslate2's inter_threads pool idle, more would trigger its own
+    backpressure and understate real achievable concurrency."""
+    _FakeConcurrentWhisperModel.last_init_kwargs = {}
+    monkeypatch.setattr("faster_whisper.WhisperModel", _FakeConcurrentWhisperModel)
+
+    run_concurrency("tiny", _fake_utterances(tmp_path), concurrency=4, duration_s=0.05)
+
+    assert _FakeConcurrentWhisperModel.last_init_kwargs.get("num_workers") == 4
+
+
+def test_run_concurrency_actually_runs_workers_in_parallel(monkeypatch, tmp_path):
+    _FakeConcurrentWhisperModel.max_concurrent_seen = 0
+    monkeypatch.setattr("faster_whisper.WhisperModel", _FakeConcurrentWhisperModel)
+
+    run_concurrency("tiny", _fake_utterances(tmp_path), concurrency=4, duration_s=0.08)
+
+    # Not a strict == 4 assertion -- thread scheduling can't guarantee every
+    # worker overlaps every tick, but a harness that's secretly serial would
+    # never see more than 1 in flight at once.
+    assert _FakeConcurrentWhisperModel.max_concurrent_seen > 1
+
+
+def test_run_concurrency_respects_the_duration_s_deadline(monkeypatch, tmp_path):
+    monkeypatch.setattr("faster_whisper.WhisperModel", _FakeWhisperModel)
+
+    start = time.perf_counter()
+    run_concurrency("tiny", _fake_utterances(tmp_path), concurrency=2, duration_s=0.1)
+    elapsed = time.perf_counter() - start
+
+    # Generous bound -- proves the loop actually stops near duration_s
+    # rather than running indefinitely or for some unrelated fixed count.
+    assert elapsed < 1.0
+
+
+def test_run_concurrency_returns_calls_with_the_utterances_own_duration(monkeypatch, tmp_path):
+    monkeypatch.setattr("faster_whisper.WhisperModel", _FakeWhisperModel)
+
+    calls = run_concurrency("tiny", _fake_utterances(tmp_path, n=1), concurrency=1, duration_s=0.05)
+
+    assert calls
+    assert all(c.audio_duration_s == 1.0 for c in calls)
+    assert all(c.processing_time_s >= 0.0 for c in calls)
 
 
 def test_run_streaming_passes_device_explicitly_for_cuda_backend(monkeypatch, tmp_path):

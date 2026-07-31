@@ -690,6 +690,67 @@ def _wizard_run() -> None:
     if not combos:
         return
 
+    _wizard_confirm_and_run(combos)
+
+
+def _wizard_run_concurrency() -> None:
+    """Concurrency/load benchmark flow (ADR-0012) — no language/pack matrix
+    at all: these profiles measure performance under simultaneous load, not
+    transcription accuracy, so which pack backs the audio has no effect on
+    the result. Picks one canonical open pack automatically instead of
+    asking the user to choose something that doesn't matter; concurrency
+    level(s) are swept the same way beam_size etc. already are, via
+    `_wizard_engine_parameters` reading the profile's own `overridable`
+    block (shared with `_wizard_run` in `_wizard_confirm_and_run`)."""
+    _warn_if_runner_outdated(DEFAULT_API_URL, offline=False)
+    os.environ[_SKIP_OUTDATED_CHECK_ENV_VAR] = "1"
+
+    profiles = _profile_rows(DEFAULT_API_URL, "profiles", offline=False)
+    concurrency_profiles = [p for p in profiles if p["benchmark_type"] == "concurrency"]
+    if not concurrency_profiles:
+        typer.echo("no concurrency profiles found (checked the API and ./profiles)", err=True)
+        return
+
+    profile_ids = questionary.checkbox(
+        "Which engine/model to load-test? (space to toggle)",
+        choices=[questionary.Choice(p["id"], value=p["id"]) for p in concurrency_profiles],
+    ).ask()
+    if not profile_ids:
+        return
+
+    packs = _pack_rows(DEFAULT_API_URL, "packs", offline=False)
+    open_packs = [p for p in packs if p.get("visibility") == "open"]
+    if not open_packs:
+        typer.echo("no open packs found to use as filler audio", err=True)
+        return
+    # Prefer librispeech-en when present -- small, always-available, and
+    # already what several adapter tests use as their own filler content --
+    # falling back to whatever open pack sorts first otherwise. Any open
+    # pack works equally well here; this just picks one deterministically
+    # instead of asking the user to choose something with no effect on the
+    # result (ADR-0012).
+    pack_id = next(
+        (p["id"] for p in open_packs if p["id"] == "librispeech-en"),
+        min(open_packs, key=lambda p: p["id"])["id"],
+    )
+    typer.echo(
+        f"Using {pack_id!r} as filler audio — content is irrelevant to this "
+        "benchmark type (ADR-0012).",
+        err=True,
+    )
+
+    combos = [(profile_id, pack_id) for profile_id in profile_ids]
+    _wizard_confirm_and_run(combos)
+
+
+def _wizard_confirm_and_run(combos: list[tuple[str, str]]) -> None:
+    """Shared tail of every wizard run flow, from pack-credential/engine
+    preflight through the final confirmed `_reexec` queue — used by both
+    `_wizard_run` (the batch/streaming language matrix) and
+    `_wizard_run_concurrency`, which differ only in how `combos` itself
+    gets built. A bad combo (e.g. a missing model download) must not abort
+    the rest of the queue, so each `_reexec` is run in isolation and
+    reported rather than propagated."""
     combos = _preflight_pack_credentials(combos, "packs", DEFAULT_API_URL)
     if not combos:
         return
@@ -816,6 +877,7 @@ def _wizard_submit() -> None:
 def _run_wizard() -> None:
     actions = {
         "Run benchmark(s)": _wizard_run,
+        "Run concurrency/load benchmark(s)": _wizard_run_concurrency,
         "List available profiles": lambda: _reexec(["list-profiles"]),
         "List available packs": lambda: _reexec(["list-packs"]),
         "Validate a profile/pack file": _wizard_validate,
@@ -2136,22 +2198,32 @@ def run(
         raise typer.Exit(code=1)
     # ADR-0011: eligibility is decided by language, not by a pack pinning
     # one exact profile_id — that field is informational only now.
-    profile_language = profile.get("language")
-    pack_language = pack_yaml["metadata"]["language"]
-    if profile_language is None:
-        typer.echo(
-            f"profile {profile_id} has no `language` declared — cannot verify "
-            f"pack {pack_id} ({pack_language!r}) is eligible for it (ADR-0011).",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    if pack_language != profile_language:
-        typer.echo(
-            f"pack {pack_id} is {pack_language!r}, profile {profile_id} is "
-            f"{profile_language!r} — languages must match exactly (ADR-0011).",
-            err=True,
-        )
-        raise typer.Exit(code=1)
+    #
+    # ADR-0012 exception: a `concurrency` profile measures load behavior,
+    # not transcription accuracy — audio content (and its language) is
+    # incidental, only its duration matters, and such a profile never
+    # declares a `language` at all. This check exists to catch an
+    # accidentally-mismatched language for a *scored* profile; it has
+    # nothing to verify for one that isn't scored.
+    if profile["benchmark_type"] == "concurrency":
+        pass
+    else:
+        profile_language = profile.get("language")
+        pack_language = pack_yaml["metadata"]["language"]
+        if profile_language is None:
+            typer.echo(
+                f"profile {profile_id} has no `language` declared — cannot verify "
+                f"pack {pack_id} ({pack_language!r}) is eligible for it (ADR-0011).",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if pack_language != profile_language:
+            typer.echo(
+                f"pack {pack_id} is {pack_language!r}, profile {profile_id} is "
+                f"{profile_language!r} — languages must match exactly (ADR-0011).",
+                err=True,
+            )
+            raise typer.Exit(code=1)
 
     resolved_audio_dir = _resolve_pack_audio(pack_dir, pack_yaml, audio_dir, offline)
     pack = load_pack(pack_dir, audio_dir=resolved_audio_dir)
@@ -2189,19 +2261,37 @@ def run(
     # output instead of a real transcription in the target language.
     profile_language = profile.get("language")
     language_code = profile_language.split("-")[0].lower() if profile_language else None
-    ruleset_id = profile["normalization"]["ruleset_id"]
-    norm_options = {
-        k: v for k, v in profile["normalization"].items()
-        if k in ("lowercase", "remove_punctuation", "expand_numbers")
-    }
+    # A `concurrency` profile never scores text (no WER/CER, see the
+    # pooled_metric_ids/ADR-0011 notes above) and so declares no
+    # `normalization` block at all -- nothing below ever calls normalize()
+    # for it, these are simply unused in that branch.
+    if profile["benchmark_type"] == "concurrency":
+        ruleset_id = None
+        norm_options = {}
+    else:
+        ruleset_id = profile["normalization"]["ruleset_id"]
+        norm_options = {
+            k: v for k, v in profile["normalization"].items()
+            if k in ("lowercase", "remove_punctuation", "expand_numbers")
+        }
 
     models_root_path = Path(models_root) if models_root else Path.home() / ".goesb" / "models" / model_name
     models_root_path.mkdir(parents=True, exist_ok=True)
 
-    scalar_metrics = [m for m in profile["metrics"] if m not in LATENCY_METRIC_IDS]
+    # `real_time_factor` is a single corpus-aggregate scalar for
+    # batch/streaming (today's unchanged behavior), but for `concurrency`
+    # it's the per-call distribution across every worker in the run — the
+    # actual answer to "does an individual request stay fast under load,"
+    # not just a mean. Same metric id, pooled like LATENCY_METRIC_IDS
+    # (p50/p95 always attached, not gated on repeats > 1) only for this
+    # one benchmark_type.
+    pooled_metric_ids = LATENCY_METRIC_IDS | (
+        {rtf.METRIC_ID} if profile["benchmark_type"] == "concurrency" else set()
+    )
+    scalar_metrics = [m for m in profile["metrics"] if m not in pooled_metric_ids]
     per_repeat_metrics: dict[str, list[float]] = {m: [] for m in scalar_metrics}
     latency_samples_ms: dict[str, list[float]] = {
-        m: [] for m in profile["metrics"] if m in LATENCY_METRIC_IDS
+        m: [] for m in profile["metrics"] if m in pooled_metric_ids
     }
     # One entry per utterance per repeat — reference vs what the engine
     # actually produced, captured before normalize() strips casing and
@@ -2343,6 +2433,53 @@ def run(
                     values.append(computed[metric_id])
             for metric_id, values in latency_samples_ms.items():
                 values.extend(this_repeat_latency[metric_id])
+
+        elif benchmark_type == "concurrency":
+
+            def _do_run_concurrency():
+                return adapter(
+                    model_name,
+                    pack.utterances,
+                    concurrency=configuration.get("concurrency", 1),
+                    duration_s=configuration.get("duration_s", 30),
+                    quantization=model_cfg.get("quantization", "int8"),
+                    beam_size=model_cfg.get("beam_size", 5),
+                    temperature=model_cfg.get("temperature", 0.0),
+                    vad=model_cfg.get("vad", True),
+                    threads=configuration.get("threads", 4),
+                    download_root=models_root_path,
+                    language=language_code,
+                    backend=backend,
+                )
+
+            calls, samples, temp_samples_c, rapl_uj_delta, gpu_samples = _sample_during(_do_run_concurrency)
+
+            # No WER/CER, no reference/hypothesis pairing, nothing appended
+            # to utterance_log — this benchmark type never scores accuracy.
+            total_audio_s = sum(c.audio_duration_s for c in calls)
+            wall_s = configuration.get("duration_s", 30)
+            computed = {
+                "throughput": throughput.compute(total_audio_s, wall_s),
+                "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
+                "ram_mb": cpu_ram.reduce_peak_ram_mb(samples),
+            }
+            if external_energy_wh is not None:
+                computed["energy_wh"] = external_energy_wh
+            elif rapl_uj_delta is not None:
+                computed["energy_wh"] = energy_metric.compute(rapl_uj_delta)
+            if temp_samples_c:
+                computed["temperature_c"] = temperature.reduce_peak_temp_c(temp_samples_c)
+            if gpu_samples:
+                computed["gpu_pct"] = gpu_pct.reduce_mean_gpu_pct(gpu_samples)
+            for metric_id, values in per_repeat_metrics.items():
+                if metric_id in computed:
+                    values.append(computed[metric_id])
+            # real_time_factor is pooled per-call here (see pooled_metric_ids
+            # above), not a single corpus-aggregate scalar like batch/streaming.
+            if rtf.METRIC_ID in latency_samples_ms:
+                latency_samples_ms[rtf.METRIC_ID].extend(
+                    rtf.compute(c.processing_time_s, c.audio_duration_s) for c in calls
+                )
 
         else:
             typer.echo(f"unsupported benchmark_type: {benchmark_type!r}", err=True)

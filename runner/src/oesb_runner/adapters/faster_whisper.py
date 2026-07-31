@@ -8,12 +8,13 @@ pattern.
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import cuda_runtime
 from ..pack import Utterance
 from ..streaming import PartialUpdate, StreamTrace
-from . import Transcription, log_progress, register
+from . import ConcurrentCall, Transcription, log_progress, register
 
 
 def _resolve_model_id(model_name: str) -> str:
@@ -51,9 +52,11 @@ def _looks_like_cuda_runtime_error(exc: Exception) -> bool:
     return any(marker in text for marker in _CUDA_ERROR_MARKERS)
 
 
-def _load_model(model_name: str, backend: str, quantization: str, threads: int, download_root):
-    """Shared `WhisperModel(...)` construction for both run_batch and
-    run_streaming. `--backend cuda` on a CTranslate2 build without CUDA
+def _load_model(
+    model_name: str, backend: str, quantization: str, threads: int, download_root, num_workers: int = 1
+):
+    """Shared `WhisperModel(...)` construction for run_batch, run_streaming,
+    and run_concurrency. `--backend cuda` on a CTranslate2 build without CUDA
     support raises a raw exception deep inside ctranslate2 — caught and
     re-raised as a clear, actionable RuntimeError (ADR-0008: fails
     immediately, before any model weights load, never a silent CPU
@@ -66,7 +69,13 @@ def _load_model(model_name: str, backend: str, quantization: str, threads: int, 
     what used to be a hard crash on a fresh Ubuntu box (driver present,
     system CUDA Toolkit missing or mismatched) into a working `--backend
     cuda` run with no extra step from the user. A no-op everywhere else
-    (nothing pip-installed, or a platform this doesn't cover)."""
+    (nothing pip-installed, or a platform this doesn't cover).
+
+    `num_workers` (default 1, matching faster-whisper's own default and
+    today's batch/streaming behavior byte-for-byte) maps straight to
+    ctranslate2's `Translator(inter_threads=N)` — the actual concurrency
+    slot count. run_concurrency is the only caller that ever passes
+    something other than 1."""
     if backend == "cuda":
         cuda_runtime.preload_installed_cublas()
 
@@ -84,6 +93,7 @@ def _load_model(model_name: str, backend: str, quantization: str, threads: int, 
             device=_DEVICE_BY_BACKEND[backend],
             compute_type=quantization,
             cpu_threads=threads,
+            num_workers=num_workers,
             download_root=str(download_root) if download_root is not None else None,
         )
     except (ValueError, RuntimeError, OSError) as exc:
@@ -308,3 +318,88 @@ def run_streaming(
             final_text=updates[-1].text if updates else "",
         ))
     return traces
+
+
+@register(
+    "faster-whisper", benchmark_type="concurrency",
+    applied_parameters=frozenset({"quantization", "beam_size", "temperature", "vad", "threads", "concurrency"}),
+    backends=frozenset(_DEVICE_BY_BACKEND),
+)
+def run_concurrency(
+    model_name: str,
+    utterances: list[Utterance],
+    *,
+    concurrency: int = 1,
+    duration_s: int = 30,
+    quantization: str = "int8",
+    beam_size: int = 5,
+    temperature: float = 0.0,
+    vad: bool = True,
+    threads: int = 4,
+    download_root: str | Path | None = None,
+    language: str | None = None,
+    backend: str = "cpu",
+) -> list[ConcurrentCall]:
+    """Does this hardware stay fast under N simultaneous requests, not just
+    one at a time? `concurrency` worker threads repeatedly call
+    `model.transcribe()` on one shared, already-loaded model instance for a
+    fixed `duration_s` wall-clock window, each call timed independently and
+    pooled into one list the caller feeds through `stats.summarize()` for a
+    p50/p95 RTF distribution — the actual answer to "does an individual
+    request stay fast under load," not just a corpus-aggregate mean.
+
+    No WER/CER: this benchmark type doesn't score accuracy, only
+    performance under load, so `reference_text` is never touched.
+
+    `num_workers=concurrency` is passed straight through to `_load_model` —
+    it must match the `ThreadPoolExecutor`'s own worker count exactly.
+    Fewer workers than `concurrency` would leave ctranslate2's internal
+    `inter_threads` pool partially idle; more would trigger its
+    `max_queued_batches` backpressure (blocking extra threads) and
+    understate what this hardware can actually sustain concurrently.
+
+    Fixed wall-clock duration, not a fixed utterance count per worker:
+    comparing concurrency=1 against concurrency=16 needs the same total
+    measurement window at every level, or throughput numbers across levels
+    aren't comparable — the same reason load-testing tools (wrk, k6) use
+    fixed-duration windows rather than fixed-request counts. Each worker
+    round-robins through `utterances` at its own offset (`worker_id`,
+    `worker_id + concurrency`, ...) so workers never decode the exact same
+    utterance in lockstep.
+
+    No warm-up discard: model load (the genuine cold-start cost) already
+    happens before the timed window starts, matching the existing
+    "model load time deliberately excluded" convention batch/streaming
+    already use. Per-call warm-up inside ctranslate2 is a much smaller
+    effect a multi-second window with many calls per worker should
+    average out — a candidate refinement only if real measurement shows
+    first-call skew, not something to build ahead of data."""
+    model = _load_model(
+        model_name, backend, quantization, threads, download_root, num_workers=concurrency
+    )
+
+    deadline = time.perf_counter() + duration_s
+
+    def _worker(worker_id: int) -> list[ConcurrentCall]:
+        calls: list[ConcurrentCall] = []
+        i = worker_id
+        while time.perf_counter() < deadline:
+            utterance = utterances[i % len(utterances)]
+            start = time.perf_counter()
+            segments, _info = model.transcribe(
+                str(utterance.audio_path),
+                beam_size=beam_size,
+                temperature=temperature,
+                vad_filter=vad,
+                language=language,
+            )
+            list(segments)  # force the full decode before stopping the clock
+            elapsed = time.perf_counter() - start
+            calls.append(ConcurrentCall(processing_time_s=elapsed, audio_duration_s=utterance.duration_s))
+            i += concurrency
+        return calls
+
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = [pool.submit(_worker, w) for w in range(concurrency)]
+        calls = [c for future in futures for c in future.result()]
+    return calls

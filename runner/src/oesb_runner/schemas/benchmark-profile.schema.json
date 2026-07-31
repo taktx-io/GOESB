@@ -12,7 +12,7 @@
     "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$",
       "description": "Semantic version. A changed scoring rule requires a new version." },
     "title": { "type": "string" },
-    "benchmark_type": { "enum": ["batch", "streaming", "conversation"] },
+    "benchmark_type": { "enum": ["batch", "streaming", "conversation", "concurrency"] },
     "language": { "type": "string", "description": "BCP-47 code, e.g. 'nl', 'nl-NL'." },
     "runtime": {
       "type": "object",
@@ -39,7 +39,11 @@
       "properties": {
         "chunk_ms": { "type": "integer", "minimum": 0 },
         "threads": { "type": "integer", "minimum": 1 },
-        "streaming": { "type": "object" }
+        "streaming": { "type": "object" },
+        "concurrency": { "type": "integer", "minimum": 1,
+          "description": "Simultaneous transcription requests to run at once (concurrency benchmark_type only)." },
+        "duration_s": { "type": "integer", "minimum": 1,
+          "description": "Fixed wall-clock measurement window per concurrency level (concurrency benchmark_type only)." }
       }
     },
     "normalization": {

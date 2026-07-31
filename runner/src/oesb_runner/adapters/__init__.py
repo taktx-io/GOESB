@@ -28,6 +28,16 @@ class Transcription:
     processing_time_s: float
 
 
+@dataclass(frozen=True)
+class ConcurrentCall:
+    """One completed transcription call inside a `concurrency` benchmark's
+    worker-thread harness — no `utterance_id`/`hypothesis_text` (unlike
+    `Transcription`) since this benchmark type doesn't score accuracy, only
+    per-call timing pooled across every worker into one RTF distribution."""
+    processing_time_s: float
+    audio_duration_s: float
+
+
 # Keyed by (runtime_name, benchmark_type) — a runtime can implement more than
 # one benchmark type (e.g. faster-whisper's "batch" and "streaming" loops are
 # different callables, same underlying runtime).
