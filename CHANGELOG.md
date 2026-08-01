@@ -5,6 +5,18 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-08-01
+### Changed
+- **`gpu_pct` now reads NVML directly** via `nvidia-ml-py` (optional, the
+  `cuda` extra) instead of shelling out to the `nvidia-smi` CLI and parsing
+  its CSV output. Same data — `nvidia-smi`'s own utilization.gpu column is
+  itself a thin wrapper over the same `nvmlDeviceGetUtilizationRates()`
+  call this now makes directly — but in-process, like the CPU/RAM sampler,
+  instead of a subprocess spawn per sample. Still NVIDIA-only: CUDA's own
+  runtime/driver API has no system-utilization query, NVML is the correct
+  (and only) layer for this on NVIDIA hardware, and no vendor-neutral
+  equivalent exists for other GPUs.
+
 ## [0.9.9] - 2026-08-01
 ### Added
 - **Wizard: auto-detect the useful max concurrency, instead of guessing a

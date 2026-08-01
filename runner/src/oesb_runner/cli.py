@@ -2015,11 +2015,12 @@ def _sample_during(fn, interval_s: float = 0.2, gpu_interval_s: float = 1.0):
     gap, never a fabricated zero.
 
     GPU utilisation is sampled on its own, coarser `gpu_interval_s` cadence
-    (default 1s, vs 200ms for everything else) rather than every tick —
-    unlike CPU/RAM (in-process `psutil`) or temperature (an hwmon file
-    read), `gpu_pct.sample_gpu_pct()` spawns an `nvidia-smi` subprocess per
-    call, and polling that every 200ms would add measurable overhead to the
-    very run being timed.
+    (default 1s, vs 200ms for everything else) rather than every tick.
+    `gpu_pct.sample_gpu_pct()` reads NVML directly now (in-process, no
+    subprocess spawn) so this is no longer working around per-call
+    overhead the way it originally was — kept coarser anyway since GPU
+    utilisation doesn't meaningfully change tick-to-tick the way CPU load
+    can, so nothing is lost by sampling it less often.
     """
     samples: list[cpu_ram.Sample] = []
     temp_samples_c: list[float] = []

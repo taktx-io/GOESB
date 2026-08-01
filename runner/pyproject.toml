@@ -1,6 +1,6 @@
 [project]
 name = "goesb-runner"
-version = "0.9.9"
+version = "0.9.10"
 description = "Official Open Edge Speech Benchmark (GOESB) runner"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -32,7 +32,12 @@ dev = ["pytest>=8.0", "ruff~=0.16.0", "mypy>=1.9"]
 # system CUDA Toolkit, or one on the wrong major version) work without
 # the multi-GB Toolkit installer. Linux only -- no wheel exists for
 # macOS/Windows, and cuda_runtime.py only ever attempts this on Linux.
-cuda = ["nvidia-cublas-cu12>=12.0,<13; sys_platform == 'linux'"]
+#
+# nvidia-ml-py is NVIDIA's own official NVML binding (imports as `pynvml`)
+# -- what gpu_pct.py reads utilization.gpu from instead of shelling out to
+# nvidia-smi. Pure ctypes, no compiled wheel, works wherever the NVIDIA
+# driver itself does (unlike cuBLAS above, not Linux-restricted).
+cuda = ["nvidia-cublas-cu12>=12.0,<13; sys_platform == 'linux'", "nvidia-ml-py>=12.0"]
 faster-whisper = ["faster-whisper>=1.0.0"]
 vosk = ["vosk>=0.3.44", "soundfile>=0.12"]
 whisper-cpp = ["pywhispercpp>=1.5.0", "soundfile>=0.12"]

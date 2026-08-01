@@ -1,4 +1,5 @@
 import os
+import types
 
 import psutil
 import pytest
@@ -125,16 +126,78 @@ def test_gpu_pct_reduce_mean_rejects_empty():
         gpu_pct.reduce_mean_gpu_pct([])
 
 
-def test_gpu_pct_sample_returns_none_without_nvidia_smi(monkeypatch):
-    monkeypatch.setattr(gpu_pct, "_run", lambda cmd: None)
+class _FakeNVMLError(Exception):
+    pass
+
+
+def _fake_pynvml(*, init_raises=False, handle_raises=False, util_raises=False, gpu_value=0.0, on_init=None):
+    """A minimal stand-in for the real `pynvml` module -- just the three
+    calls gpu_pct.py actually uses, plus the NVMLError type its except
+    clauses catch by name."""
+    rates = types.SimpleNamespace(gpu=gpu_value)
+
+    def nvmlInit():
+        if on_init:
+            on_init()
+        if init_raises:
+            raise _FakeNVMLError("no NVIDIA driver")
+
+    def nvmlDeviceGetHandleByIndex(index):
+        if handle_raises:
+            raise _FakeNVMLError("no device 0")
+        return f"handle-{index}"
+
+    def nvmlDeviceGetUtilizationRates(handle):
+        if util_raises:
+            raise _FakeNVMLError("transient read error")
+        return rates
+
+    return types.SimpleNamespace(
+        NVMLError=_FakeNVMLError,
+        nvmlInit=nvmlInit,
+        nvmlDeviceGetHandleByIndex=nvmlDeviceGetHandleByIndex,
+        nvmlDeviceGetUtilizationRates=nvmlDeviceGetUtilizationRates,
+    )
+
+
+def _reset_gpu_pct(monkeypatch, fake_pynvml):
+    # gpu_pct caches its NVML handle at module scope on purpose (nvmlInit()
+    # once per process, not once per sample) -- tests must reset that cache
+    # explicitly or an earlier test's state leaks into the next one.
+    monkeypatch.setattr(gpu_pct, "pynvml", fake_pynvml)
+    monkeypatch.setattr(gpu_pct, "_handle", None)
+    monkeypatch.setattr(gpu_pct, "_unavailable", fake_pynvml is None)
+
+
+def test_gpu_pct_sample_returns_none_without_nvml_installed(monkeypatch):
+    _reset_gpu_pct(monkeypatch, None)
     assert gpu_pct.sample_gpu_pct() is None
 
 
-def test_gpu_pct_sample_parses_csv_output(monkeypatch):
-    monkeypatch.setattr(gpu_pct, "_run", lambda cmd: "37")
+def test_gpu_pct_sample_returns_none_when_nvml_init_fails(monkeypatch):
+    _reset_gpu_pct(monkeypatch, _fake_pynvml(init_raises=True))
+    assert gpu_pct.sample_gpu_pct() is None
+
+
+def test_gpu_pct_sample_returns_none_when_no_device_0(monkeypatch):
+    _reset_gpu_pct(monkeypatch, _fake_pynvml(handle_raises=True))
+    assert gpu_pct.sample_gpu_pct() is None
+
+
+def test_gpu_pct_sample_reads_utilization_gpu(monkeypatch):
+    _reset_gpu_pct(monkeypatch, _fake_pynvml(gpu_value=37))
     assert gpu_pct.sample_gpu_pct() == pytest.approx(37.0)
 
 
-def test_gpu_pct_sample_returns_none_on_unparseable_output(monkeypatch):
-    monkeypatch.setattr(gpu_pct, "_run", lambda cmd: "[N/A]")
+def test_gpu_pct_sample_returns_none_on_a_transient_read_error(monkeypatch):
+    _reset_gpu_pct(monkeypatch, _fake_pynvml(util_raises=True))
     assert gpu_pct.sample_gpu_pct() is None
+
+
+def test_gpu_pct_sample_only_calls_nvml_init_once_across_many_samples(monkeypatch):
+    init_calls = []
+    _reset_gpu_pct(monkeypatch, _fake_pynvml(gpu_value=10, on_init=lambda: init_calls.append(1)))
+    gpu_pct.sample_gpu_pct()
+    gpu_pct.sample_gpu_pct()
+    gpu_pct.sample_gpu_pct()
+    assert len(init_calls) == 1
