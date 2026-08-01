@@ -156,6 +156,20 @@ _MATRIX_COLUMNS = (
     + [("vosk", "small"), ("vosk", "medium")]
 )
 
+# faster-whisper's streaming adapter re-decodes the *entire growing*
+# buffer every chunk (no bounded window) — unlike vosk's genuinely
+# incremental decode, this both runs slower than realtime on modest
+# hardware (measured RTF 3.19x on an Apple M1 Pro) and, worse, makes its
+# own reported latency numbers dishonest once RTF > 1: `emit_time_s`
+# (faster_whisper.py's run_streaming) assumes each chunk starts decoding
+# the instant its audio "arrives," ignoring backlog from earlier chunks
+# still catching up — so first_final_latency understates what a real
+# deployment would experience. Excluded from the wizard's matrix (not
+# deleted — still directly runnable via `goesb run` for testing the
+# bounded-sliding-window rewrite meant to replace this) until that
+# rewrite lands and the numbers are trustworthy again.
+_MATRIX_STREAMING_EXCLUDED_PROFILE_IDS = frozenset({"whisper-medium-en-streaming"})
+
 
 @dataclass
 class _Matrix:
@@ -171,8 +185,11 @@ def _build_matrix(profiles: list[dict], benchmark_type: str = "batch") -> _Matri
     Dutch example profile) just has fewer entries in `cells` — the grid
     renders whatever exists, no "unavailable" placeholders."""
     id_re = _MATRIX_ID_RE[benchmark_type]
+    excluded = _MATRIX_STREAMING_EXCLUDED_PROFILE_IDS if benchmark_type == "streaming" else frozenset()
     by_lang: dict[str, dict[str, str]] = {}
     for p in profiles:
+        if p["id"] in excluded:
+            continue
         match = id_re.match(p["id"])
         if match is None:
             continue

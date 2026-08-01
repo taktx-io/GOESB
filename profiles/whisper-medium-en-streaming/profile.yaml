@@ -1,6 +1,15 @@
 # Example official profile — English streaming. Same runtime/model as
 # whisper-medium-en-batch; benchmark_type + configuration.chunk_ms + streaming
 # metric set differ. Validated against schemas/benchmark-profile.schema.json.
+#
+# KNOWN ISSUE (2026-08-01): the faster-whisper streaming adapter
+# re-decodes the entire growing buffer every chunk (no bounded window),
+# which makes its own first_final_latency/first_partial_latency numbers
+# dishonest once RTF > 1 (measured 3.19x on Apple M1 Pro) — see
+# adapters/faster_whisper.py's run_streaming and cli.py's
+# _MATRIX_STREAMING_EXCLUDED_PROFILE_IDS. Deliberately excluded from the
+# wizard's streaming matrix until a bounded-sliding-window rewrite lands.
+# Still directly runnable via `goesb run` for testing that rewrite.
 id: whisper-medium-en-streaming
 version: 1.1.0
 title: Whisper Medium English (Streaming)

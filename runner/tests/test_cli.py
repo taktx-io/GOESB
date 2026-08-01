@@ -3115,7 +3115,11 @@ def _sample_matrix_profiles():
         # Sparse language: only one of the columns the other languages have.
         {"id": "whisper-medium-nl-batch", "language": "nl-NL", "benchmark_type": "batch"},
         # Not part of the batch grid at all — must be ignored, not crash.
+        # Also the one profile deliberately excluded from the streaming
+        # matrix (_MATRIX_STREAMING_EXCLUDED_PROFILE_IDS) -- see the tests
+        # below.
         {"id": "whisper-medium-en-streaming", "language": "en-US", "benchmark_type": "streaming"},
+        {"id": "vosk-small-en-streaming", "language": "en-US", "benchmark_type": "streaming"},
     ]
 
 
@@ -3141,11 +3145,27 @@ def test_build_matrix_streaming_picks_up_only_streaming_profiles():
 
     matrix = cli_module._build_matrix(_sample_matrix_profiles(), "streaming")
 
-    # The one streaming profile in the sample set (ignored by the default
-    # "batch" matrix per the other test above) is the only thing here.
+    # Two streaming profiles exist in the sample set, but
+    # whisper-medium-en-streaming is deliberately excluded (see the test
+    # below) -- vosk-small-en-streaming is the only one that survives.
     assert matrix.languages == ["en-US"]
-    assert matrix.columns == [("whisper", "medium")]
-    assert matrix.cells == {("en-US", "whisper-medium"): "whisper-medium-en-streaming"}
+    assert matrix.columns == [("vosk", "small")]
+    assert matrix.cells == {("en-US", "vosk-small"): "vosk-small-en-streaming"}
+
+
+def test_build_matrix_streaming_excludes_the_known_dishonest_faster_whisper_profile():
+    """faster-whisper's streaming adapter re-decodes the whole growing
+    buffer every chunk -- its own latency numbers become dishonest once
+    RTF > 1 (measured 3.19x on Apple M1 Pro), so whisper-medium-en-streaming
+    is excluded from the wizard's matrix (_MATRIX_STREAMING_EXCLUDED_PROFILE_IDS)
+    until a bounded-sliding-window rewrite lands -- it must never resurface
+    here even though its id matches the streaming pattern."""
+    from oesb_runner import cli as cli_module
+
+    matrix = cli_module._build_matrix(_sample_matrix_profiles(), "streaming")
+
+    assert "whisper-medium-en-streaming" not in matrix.cells.values()
+    assert ("whisper", "medium") not in matrix.columns
 
 
 def test_toggle_selection_column_header_selects_and_clears_the_whole_column():
