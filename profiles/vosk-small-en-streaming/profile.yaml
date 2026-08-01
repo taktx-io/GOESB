@@ -1,0 +1,52 @@
+# Vosk streaming — small English tier. Same runtime/model as
+# vosk-small-en-batch; benchmark_type + configuration.chunk_ms + streaming
+# metric set differ, same relationship whisper-medium-en-streaming has to
+# whisper-medium-en-batch. Only chunk_ms is genuinely overridable — vosk's
+# Kaldi decoder has no beam_size/quantization/temperature/vad equivalent
+# (see run_batch's own docstring in adapters/vosk.py), so this doesn't
+# declare them, unlike the faster-whisper streaming profile. Validated
+# against schemas/benchmark-profile.schema.json.
+id: vosk-small-en-streaming
+version: 1.0.0
+title: Vosk Small English (Streaming)
+benchmark_type: streaming
+language: en-US
+runtime:
+  name: vosk
+  min_version: "0.3.44"
+model:
+  name: vosk-model-small-en-us-0.15
+configuration:
+  threads: 4
+  chunk_ms: 1000
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: goesb-en-v1
+scoring:
+  primary_metric: first_partial_latency
+  tie_breakers:
+  - streaming_responsiveness
+  - real_time_factor
+metrics:
+- wer
+- real_time_factor
+- cpu_pct
+- ram_mb
+- first_partial_latency
+- first_final_latency
+- end_of_speech_latency
+- update_frequency
+- partial_stability
+- streaming_responsiveness
+overridable:
+  chunk_ms:
+    allowed:
+    - 250
+    - 500
+    - 1000
+    - 2000
+changelog:
+- version: 1.0.0
+  notes: Initial vosk streaming profile — second runtime adapter proving the streaming benchmark_type (M5).

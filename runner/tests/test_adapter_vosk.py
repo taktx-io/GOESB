@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import ClassVar
 
@@ -178,3 +179,119 @@ def test_run_concurrency_returns_calls_with_the_utterances_own_duration(monkeypa
     assert calls
     assert all(c.audio_duration_s == 1.0 for c in calls)
     assert all(c.processing_time_s >= 0.0 for c in calls)
+
+
+# --- run_streaming (real incremental decoder state, unlike faster_whisper's
+# whole-buffer re-decode -- see the adapter's own docstring) ---
+
+
+class _FakeStreamSamples:
+    """Stands in for decode_pcm's numpy return value for run_streaming,
+    which (unlike run_batch/run_concurrency) needs `len()` and slicing to
+    carve the buffer into chunks, not just `.tobytes()`."""
+
+    def __init__(self, n: int):
+        self._n = n
+
+    def __len__(self) -> int:
+        return self._n
+
+    def __getitem__(self, key: slice) -> "_FakeStreamSamples":
+        return _FakeStreamSamples(len(range(*key.indices(self._n))))
+
+    def tobytes(self) -> bytes:
+        return b"\x00\x00" * self._n
+
+
+class _FakeStreamingRecognizer:
+    """Stands in for vosk.KaldiRecognizer in run_streaming: never naturally
+    endpoints (AcceptWaveform always False, matching one continuous
+    stretch of speech with no mid-utterance pause), so every chunk but the
+    last yields a partial, and the last chunk's audio-exhausted
+    force-flush (FinalResult) is what actually commits the word-timed
+    final result."""
+
+    words_enabled: ClassVar[bool] = False
+
+    def __init__(self, model, sample_rate):
+        pass
+
+    def SetWords(self, enabled):
+        _FakeStreamingRecognizer.words_enabled = enabled
+
+    def AcceptWaveform(self, data):
+        return False
+
+    def PartialResult(self):
+        return '{"partial": "hel"}'
+
+    def FinalResult(self):
+        return json.dumps({
+            "text": "hello world",
+            "result": [
+                {"word": "hello", "start": 0.20, "end": 0.45, "conf": 1.0},
+                {"word": "world", "start": 0.50, "end": 0.90, "conf": 1.0},
+            ],
+        })
+
+
+def _stub_streaming_deps(monkeypatch, tmp_path):
+    monkeypatch.setattr(vosk, "Model", _FakeModel)
+    monkeypatch.setattr(vosk, "KaldiRecognizer", _FakeStreamingRecognizer)
+    monkeypatch.setattr(vosk_module, "_resolve_model_dir", lambda model_name, root: tmp_path)
+    # 2s of fake audio at the module's 16kHz -> exactly 2 chunks at the
+    # default chunk_ms=1000, so the fake recognizer's "partial then final"
+    # script above lines up with (non-last chunk, last chunk).
+    monkeypatch.setattr(vosk_module, "decode_pcm", lambda *a, **k: _FakeStreamSamples(32000))
+
+
+def test_run_streaming_enables_word_timings(monkeypatch, tmp_path):
+    from oesb_runner.adapters.vosk import run_streaming
+
+    _FakeStreamingRecognizer.words_enabled = False
+    _stub_streaming_deps(monkeypatch, tmp_path)
+
+    run_streaming("vosk-model-small-en-us-0.15", _fake_utterances(tmp_path, n=1))
+
+    # Word timings are how this adapter locates speech onset/offset (see
+    # run_streaming's own docstring) -- without them every trace would
+    # fall back to the "no speech ever detected" default.
+    assert _FakeStreamingRecognizer.words_enabled is True
+
+
+def test_run_streaming_commits_the_force_flushed_final_result(monkeypatch, tmp_path):
+    from oesb_runner.adapters.vosk import run_streaming
+
+    _stub_streaming_deps(monkeypatch, tmp_path)
+
+    traces = run_streaming("vosk-model-small-en-us-0.15", _fake_utterances(tmp_path, n=1))
+
+    assert len(traces) == 1
+    trace = traces[0]
+    assert trace.utterance_id == "u0"
+    assert trace.final_text == "hello world"
+    assert len(trace.updates) == 2
+    # First chunk never endpoints -> only the uncommitted partial is seen.
+    assert trace.updates[0].text == "hel"
+    assert trace.updates[0].committed_word_count == 0
+    # Second (last) chunk force-flushes -> the final result is fully committed.
+    assert trace.updates[1].text == "hello world"
+    assert trace.updates[1].committed_word_count == 2
+
+
+def test_run_streaming_zeroes_the_clock_at_detected_speech_onset(monkeypatch, tmp_path):
+    from oesb_runner.adapters.vosk import run_streaming
+
+    _stub_streaming_deps(monkeypatch, tmp_path)
+
+    traces = run_streaming("vosk-model-small-en-us-0.15", _fake_utterances(tmp_path, n=1))
+
+    trace = traces[0]
+    # words[0]["start"] == 0.20s from the fake FinalResult -> that's the
+    # onset every chunk_end_s/emit_time_s below gets zeroed against
+    # (streaming.py's own convention).
+    assert trace.updates[0].chunk_end_s == pytest.approx(1.0 - 0.20)
+    assert trace.updates[1].chunk_end_s == pytest.approx(2.0 - 0.20)
+    # speech_offset_s == min(words[-1]["end"], chunk_end_s) == 0.90 ->
+    # audio_duration_s == offset - onset.
+    assert trace.audio_duration_s == pytest.approx(0.90 - 0.20)
