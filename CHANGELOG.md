@@ -5,6 +5,14 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.16] - 2026-08-01
+### Added
+- **Streaming matrix in the interactive wizard.** "Run benchmark(s)"
+  previously only matched `<engine>-<size>-<lang>-batch` profile ids —
+  streaming profiles had no entry point anywhere in the wizard. Added a
+  "Run streaming benchmark(s)" menu item with the same language x
+  engine/size matrix picker batch already has.
+
 ## [0.9.15] - 2026-08-01
 ### Added
 - **vosk streaming adapter** — second engine for the `streaming`
