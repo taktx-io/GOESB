@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import difflib
+import functools
 import importlib.util
 import json
 import os
@@ -329,15 +330,24 @@ def _ask_matrix(matrix: _Matrix) -> list[str] | None:
         return None
 
 
+@functools.cache
 def _load_profile_for_wizard(profile_id: str, profiles_dir: str, api_url: str) -> dict | None:
     """Best-effort full profile load for wizard-side preflight steps —
-    local dir first, else fetch_profile (cached under ~/.goesb/cache after
-    the first fetch, so a second call within the same wizard run, e.g. by
-    both _preflight_engines and _wizard_engine_parameters, is a cheap disk
-    read, not a repeat network round-trip). Returns None on any network
-    failure so callers can degrade gracefully rather than crash the
-    wizard — the per-combo `run()` call surfaces the real error properly
-    when it actually runs."""
+    local dir first, else `fetch_profile`. Memoized per (profile_id,
+    profiles_dir, api_url) for the life of this process: `fetch_profile`
+    itself now hits the network unconditionally on every call (a later,
+    deliberate fix for stale-cache staleness — see remote.py's own
+    docstring — that inadvertently broke this function's *own* original
+    "second call is a cheap disk read" contract, since a single wizard run
+    calls this multiple times for the same profile, e.g. by both
+    `_preflight_engines` and `_wizard_engine_parameters`). This restores
+    that contract at the right layer: still one fresh network fetch per
+    profile per `goesb` process (each `_reexec`'d run gets its own fresh
+    fetch, so staleness-across-runs is unaffected), just not one fetch per
+    *call* within that same process's own preflight sequence. Returns
+    `None` on any network failure so callers can degrade gracefully rather
+    than crash the wizard — the per-combo `run()` call surfaces the real
+    error properly when it actually runs."""
     profile_path = Path(profiles_dir) / profile_id / "profile.yaml"
     try:
         if profile_path.exists():
@@ -347,12 +357,14 @@ def _load_profile_for_wizard(profile_id: str, profiles_dir: str, api_url: str) -
         return None
 
 
+@functools.cache
 def _load_pack_for_wizard(pack_id: str, packs_dir: str, api_url: str) -> dict | None:
     """Best-effort full pack.yaml load for wizard-side preflight steps — the
     credential check needs audio.source.credential, which _pack_rows'
     lightweight rows (id/visibility/version/profile_id) don't carry. Same
-    local-dir-first-else-fetch-and-cache shape as _load_profile_for_wizard,
-    and the same "degrade, never crash the wizard" contract on failure."""
+    local-dir-first-else-fetch shape, same per-process memoization, and the
+    same "degrade, never crash the wizard" contract as
+    `_load_profile_for_wizard` above."""
     pack_path = Path(packs_dir) / pack_id / "pack.yaml"
     try:
         if pack_path.exists():
@@ -1378,10 +1390,22 @@ def _ensure_cuda_runtime_ready(runtime_name: str, backend: str) -> None:
     crash first. Scoped to exactly `cuda_runtime.py`'s own coverage
     (faster-whisper's ctranslate2 backend, Linux only) — a no-op for cpu,
     any other engine, any other platform, or when cuBLAS is already
-    loadable some other way (a full system CUDA Toolkit, conda)."""
+    loadable some other way (a full system CUDA Toolkit, conda).
+
+    Real report: checks via `cublas_loadable()` alone used to re-prompt
+    "install nvidia-cublas-cu12?" on every single run even after it had
+    already been installed via the pip wheel -- `cublas_loadable()` only
+    does a bare `dlopen("libcublas.so.12")` against the OS loader's
+    *default* search path, which a pip-installed wheel's
+    `nvidia/cublas/lib/` is never on (see `_pip_cublas_lib_path`'s own
+    docstring). `preload_installed_cublas()` is the function that actually
+    checks the pip-wheel install location too (loading it explicitly by
+    absolute path first) -- using the narrower check here for "is there
+    anything to do" was always wrong, it just happened to look right on a
+    machine with a full system CUDA Toolkit instead of the pip wheel."""
     if backend != "cuda" or runtime_name != "faster-whisper":
         return
-    if not cuda_runtime.cuda_libs_supported() or cuda_runtime.cublas_loadable():
+    if not cuda_runtime.cuda_libs_supported() or cuda_runtime.preload_installed_cublas():
         return
     _offer_install(cuda_runtime.CUBLAS_PACKAGE)
 

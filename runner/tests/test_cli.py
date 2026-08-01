@@ -3689,7 +3689,7 @@ def test_ensure_cuda_runtime_ready_noop_on_unsupported_platform(monkeypatch):
     def _unexpected(*a, **k):
         raise AssertionError("must not check loadability on a platform cuda_runtime doesn't cover")
 
-    monkeypatch.setattr(cli_module.cuda_runtime, "cublas_loadable", _unexpected)
+    monkeypatch.setattr(cli_module.cuda_runtime, "preload_installed_cublas", _unexpected)
     monkeypatch.setattr(cli_module, "_offer_install", _unexpected)
 
     cli_module._ensure_cuda_runtime_ready("faster-whisper", "cuda")  # must not raise
@@ -3699,7 +3699,7 @@ def test_ensure_cuda_runtime_ready_noop_when_already_loadable(monkeypatch):
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", lambda: True)
-    monkeypatch.setattr(cli_module.cuda_runtime, "cublas_loadable", lambda: True)
+    monkeypatch.setattr(cli_module.cuda_runtime, "preload_installed_cublas", lambda: True)
 
     def _unexpected(*a, **k):
         raise AssertionError("must not offer to install what's already loadable")
@@ -3709,15 +3709,39 @@ def test_ensure_cuda_runtime_ready_noop_when_already_loadable(monkeypatch):
     cli_module._ensure_cuda_runtime_ready("faster-whisper", "cuda")  # must not raise
 
 
-def test_ensure_cuda_runtime_ready_offers_the_cublas_wheel_when_missing(monkeypatch):
-    """The actual gap this exists to fix: a fresh Ubuntu box with an
-    NVIDIA driver but no cuBLAS on the loader's search path gets offered
-    the pip-installable fix right here, before it ever hits the crash
-    inside ctranslate2."""
+def test_ensure_cuda_runtime_ready_does_not_reprompt_a_pip_installed_wheel(monkeypatch):
+    """Regression test for a real report: this used to check via the
+    narrower `cublas_loadable()` alone, which never sees a pip-installed
+    `nvidia-cublas-cu12` wheel (its library lives under
+    `nvidia/cublas/lib/`, never on the OS loader's default search path) --
+    so it kept re-offering the install on every single run even right
+    after the user had already installed it. `preload_installed_cublas()`
+    is the function that actually checks the pip-wheel location too."""
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", lambda: True)
-    monkeypatch.setattr(cli_module.cuda_runtime, "cublas_loadable", lambda: False)
+    # A bare loadability check would say False here (nothing preloaded
+    # yet); preload_installed_cublas() finds the pip wheel, loads it, and
+    # correctly reports True -- must be trusted over the narrower check.
+    monkeypatch.setattr(cli_module.cuda_runtime, "preload_installed_cublas", lambda: True)
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not re-offer installing an already pip-installed cuBLAS wheel")
+
+    monkeypatch.setattr(cli_module, "_offer_install", _unexpected)
+
+    cli_module._ensure_cuda_runtime_ready("faster-whisper", "cuda")  # must not raise
+
+
+def test_ensure_cuda_runtime_ready_offers_the_cublas_wheel_when_missing(monkeypatch):
+    """The actual gap this exists to fix: a fresh Ubuntu box with an
+    NVIDIA driver but no cuBLAS on the loader's search path (system
+    Toolkit or pip wheel) gets offered the pip-installable fix right
+    here, before it ever hits the crash inside ctranslate2."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.cuda_runtime, "cuda_libs_supported", lambda: True)
+    monkeypatch.setattr(cli_module.cuda_runtime, "preload_installed_cublas", lambda: False)
 
     offered = []
     monkeypatch.setattr(cli_module, "_offer_install", lambda package: offered.append(package) or True)
@@ -3725,6 +3749,80 @@ def test_ensure_cuda_runtime_ready_offers_the_cublas_wheel_when_missing(monkeypa
     cli_module._ensure_cuda_runtime_ready("faster-whisper", "cuda")
 
     assert offered == [cli_module.cuda_runtime.CUBLAS_PACKAGE]
+
+
+# --- regression: _load_profile_for_wizard/_load_pack_for_wizard must not
+# re-fetch the same id over and over within one process ---
+
+
+def test_load_profile_for_wizard_caches_within_one_process(monkeypatch, tmp_path):
+    """Regression test for a real report ("packs and profiles ... each
+    time it seems to reinstall"): `fetch_profile` hits the network
+    unconditionally on every call (a deliberate, separate fix for a real
+    stale-cache bug -- see remote.py's own docstring), which broke this
+    function's own "second call within one wizard run is a cheap cached
+    read" contract, since a single wizard run calls this several times
+    for the same profile (e.g. by both `_preflight_engines` and
+    `_wizard_engine_parameters`). Memoized here instead, at the right
+    layer: still one fresh fetch per profile per `goesb` process (each
+    `_reexec`'d run gets its own fresh fetch), just not one fetch per
+    call within that process's own preflight sequence."""
+    from oesb_runner import cli as cli_module
+
+    cli_module._load_profile_for_wizard.cache_clear()
+    fetch_calls = []
+    monkeypatch.setattr(
+        cli_module, "fetch_profile",
+        lambda profile_id, api_url: fetch_calls.append(profile_id) or {"id": profile_id},
+    )
+
+    first = cli_module._load_profile_for_wizard("whisper-medium-en-batch", str(tmp_path), "https://example.test/api")
+    second = cli_module._load_profile_for_wizard("whisper-medium-en-batch", str(tmp_path), "https://example.test/api")
+
+    assert first == second == {"id": "whisper-medium-en-batch"}
+    assert fetch_calls == ["whisper-medium-en-batch"]  # not fetched twice
+    cli_module._load_profile_for_wizard.cache_clear()
+
+
+def test_load_profile_for_wizard_reads_local_file_without_ever_fetching(monkeypatch, tmp_path):
+    from oesb_runner import cli as cli_module
+
+    cli_module._load_profile_for_wizard.cache_clear()
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not fetch over the network when a local profile.yaml exists")
+
+    monkeypatch.setattr(cli_module, "fetch_profile", _unexpected)
+
+    profile_dir = tmp_path / "whisper-medium-en-batch"
+    profile_dir.mkdir()
+    (profile_dir / "profile.yaml").write_text("id: whisper-medium-en-batch\n")
+
+    result = cli_module._load_profile_for_wizard("whisper-medium-en-batch", str(tmp_path), "https://example.test/api")
+
+    assert result == {"id": "whisper-medium-en-batch"}
+    cli_module._load_profile_for_wizard.cache_clear()
+
+
+def test_load_pack_for_wizard_caches_within_one_process(monkeypatch, tmp_path):
+    from oesb_runner import cli as cli_module
+
+    cli_module._load_pack_for_wizard.cache_clear()
+    fetch_calls = []
+    fake_dir = tmp_path / "fetched-pack"
+    fake_dir.mkdir()
+    (fake_dir / "pack.yaml").write_text("id: some-pack\n")
+    monkeypatch.setattr(
+        cli_module, "fetch_pack",
+        lambda pack_id, api_url: fetch_calls.append(pack_id) or fake_dir,
+    )
+
+    first = cli_module._load_pack_for_wizard("some-pack", str(tmp_path / "does-not-exist"), "https://example.test/api")
+    second = cli_module._load_pack_for_wizard("some-pack", str(tmp_path / "does-not-exist"), "https://example.test/api")
+
+    assert first == second == {"id": "some-pack"}
+    assert fetch_calls == ["some-pack"]  # not fetched twice
+    cli_module._load_pack_for_wizard.cache_clear()
 
 
 class _FakeAudioResponse(io.BytesIO):

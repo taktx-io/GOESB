@@ -5,6 +5,27 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.14] - 2026-08-01
+### Fixed
+- **`--backend cuda` no longer re-prompts to install `nvidia-cublas-cu12`
+  on every run, even right after installing it.** Real report on an RTX
+  5090. The check used `cublas_loadable()` alone, which only does a bare
+  `dlopen` against the OS loader's *default* search path — a pip-wheel
+  install's `nvidia/cublas/lib/` is never on it, so the check kept saying
+  "not installed" forever after. Now uses `preload_installed_cublas()`,
+  the function that actually accounts for the pip-wheel location too.
+- **Profiles and packs no longer get re-fetched over the network
+  multiple times within one wizard run.** Real report ("packs and
+  profiles ... each time it seems to reinstall"). A prior fix made
+  `fetch_profile`/`fetch_pack` always hit the network (correctly, to
+  avoid serving a stale cached copy) — but a single wizard run calls
+  `_load_profile_for_wizard`/`_load_pack_for_wizard` several times for
+  the *same* profile/pack (preflight, parameter resolution, hardware
+  picks, ...), and each call re-fetched. Now memoized per process: one
+  fresh fetch per id per `goesb` invocation, not one per call — staleness
+  across separate runs is unaffected, since each `_reexec`'d run is its
+  own fresh process.
+
 ## [0.9.13] - 2026-08-01
 ### Fixed
 - **vosk concurrency profiles are no longer split per language.**
