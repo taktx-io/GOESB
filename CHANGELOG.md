@@ -5,6 +5,22 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.11] - 2026-08-01
+### Added
+- **vosk concurrency support** — `whisper-cpp` and `faster-whisper` had it,
+  vosk didn't. `run_concurrency` builds one full `vosk.Model` instance per
+  worker, not a shared one — alphacep/vosk-api#606 documents a real SIGSEGV
+  from racing `KaldiRecognizer` construction against a shared model's C++
+  reference counting, and that can't be independently confirmed fixed from
+  the Python binding alone. See ADR-0012's addendum. 12 new
+  `vosk-{small,medium}-{en,es,fr,de,nl,pt}-concurrency` profiles.
+- **vosk's larger per-language model tier**, alongside the existing small
+  one — this project had only ever wired up vosk's ~40-50MB models;
+  Vosk itself always published a bigger, more accurate model per language
+  too (e.g. en-us: 1.8GB, WER 5.69 vs the small tier's 40MB, WER 9.85).
+  6 new `vosk-medium-{lang}-batch` profiles; the wizard's batch matrix now
+  shows both vosk columns.
+
 ## [0.9.10] - 2026-08-01
 ### Changed
 - **`gpu_pct` now reads NVML directly** via `nvidia-ml-py` (optional, the

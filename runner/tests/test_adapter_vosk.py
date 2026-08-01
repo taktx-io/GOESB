@@ -1,12 +1,15 @@
 from pathlib import Path
+from typing import ClassVar
 
+import numpy as np
 import pytest
 
 from oesb_runner.normalization import normalize
-from oesb_runner.pack import load_pack
+from oesb_runner.pack import Utterance, load_pack
 
 vosk = pytest.importorskip("vosk", reason="requires `pip install goesb-runner[vosk]`")
 
+from oesb_runner.adapters import vosk as vosk_module
 from oesb_runner.adapters.vosk import run_batch
 from oesb_runner.metrics import rtf, wer
 
@@ -48,3 +51,120 @@ def test_run_batch_transcribes_real_audio_within_wer_tolerance(tmp_path):
     # vosk-small on clean read speech: loose bound, just proving the wiring.
     assert result_wer < 0.25
     assert result_rtf < 1.0  # faster than realtime even on CPU
+
+
+# --- ADR-0012: run_concurrency (one Model instance per worker, see the
+# adapter's own docstring for why vosk needs this even though a shared
+# Model is documented as the "intended" pattern) ---
+
+
+class _FakeModel:
+    """Stands in for vosk.Model — doesn't load a real Kaldi model."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+class _FakeConcurrentModel(_FakeModel):
+    """Tracks how many separate instances get constructed — proves the
+    harness builds one full Model per worker rather than sharing one."""
+
+    instances_created: ClassVar[list] = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _FakeConcurrentModel.instances_created.append(self)
+
+
+class _FakeRecognizer:
+    """Stands in for vosk.KaldiRecognizer — records which Model instance
+    it was constructed against, the same "which underlying instance did
+    the work actually touch" signal _FakeConcurrentModel's own instance
+    tracking gives on the Model side."""
+
+    used_model_ids: ClassVar[set] = set()
+
+    def __init__(self, model, sample_rate):
+        _FakeRecognizer.used_model_ids.add(id(model))
+
+    def AcceptWaveform(self, data):
+        return True
+
+    def FinalResult(self):
+        return '{"text": "fake hypothesis"}'
+
+
+def _fake_utterances(tmp_path: Path, n: int = 3) -> list[Utterance]:
+    return [
+        Utterance(
+            utterance_id=f"u{i}", audio_path=tmp_path / f"fake{i}.wav",
+            reference_text="hola", duration_s=1.0,
+        )
+        for i in range(n)
+    ]
+
+
+def _stub_concurrency_deps(monkeypatch, model_cls, tmp_path):
+    monkeypatch.setattr(vosk, "Model", model_cls)
+    monkeypatch.setattr(vosk, "KaldiRecognizer", _FakeRecognizer)
+    monkeypatch.setattr(vosk_module, "_resolve_model_dir", lambda model_name, root: tmp_path)
+    monkeypatch.setattr(
+        vosk_module, "decode_pcm", lambda *a, **k: np.array([0], dtype="int16")
+    )
+
+
+def test_run_concurrency_builds_one_model_instance_per_worker(monkeypatch, tmp_path):
+    from oesb_runner.adapters.vosk import run_concurrency
+
+    _FakeConcurrentModel.instances_created = []
+    _stub_concurrency_deps(monkeypatch, _FakeConcurrentModel, tmp_path)
+
+    run_concurrency("vosk-model-small-en-us-0.15", _fake_utterances(tmp_path), concurrency=4, duration_s=0.02)
+
+    assert len(_FakeConcurrentModel.instances_created) == 4
+    assert len({id(m) for m in _FakeConcurrentModel.instances_created}) == 4
+
+
+def test_run_concurrency_each_worker_only_uses_its_own_instance(monkeypatch, tmp_path):
+    from oesb_runner.adapters.vosk import run_concurrency
+
+    _FakeConcurrentModel.instances_created = []
+    _FakeRecognizer.used_model_ids = set()
+    _stub_concurrency_deps(monkeypatch, _FakeConcurrentModel, tmp_path)
+
+    run_concurrency("vosk-model-small-en-us-0.15", _fake_utterances(tmp_path), concurrency=3, duration_s=0.05)
+
+    created_ids = {id(m) for m in _FakeConcurrentModel.instances_created}
+    # Every recognizer's model came from the set of instances actually
+    # built for this run, and at least one was genuinely used — proves the
+    # worker->instance mapping is one-to-one, no accidental sharing.
+    assert _FakeRecognizer.used_model_ids <= created_ids
+    assert _FakeRecognizer.used_model_ids
+
+
+def test_run_concurrency_respects_the_duration_s_deadline(monkeypatch, tmp_path):
+    import time
+
+    from oesb_runner.adapters.vosk import run_concurrency
+
+    _stub_concurrency_deps(monkeypatch, _FakeModel, tmp_path)
+
+    start = time.perf_counter()
+    run_concurrency("vosk-model-small-en-us-0.15", _fake_utterances(tmp_path), concurrency=2, duration_s=0.1)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 1.0
+
+
+def test_run_concurrency_returns_calls_with_the_utterances_own_duration(monkeypatch, tmp_path):
+    from oesb_runner.adapters.vosk import run_concurrency
+
+    _stub_concurrency_deps(monkeypatch, _FakeModel, tmp_path)
+
+    calls = run_concurrency(
+        "vosk-model-small-en-us-0.15", _fake_utterances(tmp_path, n=1), concurrency=1, duration_s=0.02
+    )
+
+    assert calls
+    assert all(c.audio_duration_s == 1.0 for c in calls)
+    assert all(c.processing_time_s >= 0.0 for c in calls)

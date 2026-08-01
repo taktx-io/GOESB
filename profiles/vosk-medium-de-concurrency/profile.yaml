@@ -1,0 +1,40 @@
+# Concurrency/load profile (ADR-0012): does this hardware stay fast under N
+# simultaneous requests? vosk's Kaldi decoder has no equivalent tunables to
+# beam_size/quantization/etc (see the batch profile's own note) -- only
+# concurrency is a real, effective parameter here. One full vosk.Model
+# instance per worker, not a shared model -- see run_concurrency's own
+# docstring for why (a real, documented vosk-api thread-safety concern,
+# not a theoretical one).
+id: vosk-medium-de-concurrency
+version: 1.0.0
+title: Vosk Medium DE (Concurrency)
+benchmark_type: concurrency
+runtime:
+  name: vosk
+  min_version: 0.3.44
+model:
+  name: vosk-model-de-0.21
+configuration:
+  threads: 4
+  concurrency: 1
+  duration_s: 30
+scoring:
+  primary_metric: real_time_factor
+  tie_breakers:
+  - throughput
+  - energy_wh
+metrics:
+- real_time_factor
+- throughput
+- cpu_pct
+- ram_mb
+- energy_wh
+- temperature_c
+overridable:
+  concurrency:
+    range:
+      min: 1
+      max: 8
+changelog:
+- version: 1.0.0
+  notes: Initial profile (ADR-0012 vosk support).

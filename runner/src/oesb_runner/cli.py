@@ -143,7 +143,7 @@ _MATRIX_SIZES = ["tiny", "base", "small", "medium", "large-v3"]
 _MATRIX_COLUMNS = (
     [("whisper", size) for size in _MATRIX_SIZES]
     + [("whispercpp", size) for size in _MATRIX_SIZES]
-    + [("vosk", "small")]
+    + [("vosk", "small"), ("vosk", "medium")]
 )
 
 

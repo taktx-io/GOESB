@@ -233,3 +233,47 @@ runner already measures throughput at every level it runs.
   doubling-from-1 approach means a runaway level is reached gradually, not
   requested outright, which is a real (if softer) mitigation until a
   dedicated check exists.
+
+## Addendum (2026-08-01): vosk concurrency support — a third, different thread-safety answer
+
+Extended to a third engine, following the same "verify, don't assume"
+discipline the whisper-cpp addendum above established — and landing on a
+third distinct answer, after faster-whisper's "safe to share" and
+whisper-cpp's "confirmed unsafe to share":
+
+- **`profiles/vosk-{small,medium}-{en,es,fr,de,nl,pt}-concurrency`** are
+  new (12 profiles) — matches vosk's own batch profiles in needing a
+  `language` per profile id (unlike whisper/whisper-cpp, a vosk *model* is
+  itself language-specific, so there's no single canonical
+  language-agnostic model the way `whisper-medium-concurrency` has). The
+  `language` field itself is still omitted from these profiles, same as
+  every other concurrency profile — it's metadata for pack-matching that
+  concurrency doesn't use, not something `run_concurrency` reads.
+- **`profiles/vosk-medium-{lang}-batch`** are also new (6 profiles) — this
+  codebase had only ever wired up vosk's small (~40-50MB) model tier into
+  `_MODEL_URLS`; Vosk itself has always published a larger, more accurate
+  model per language too (confirmed against alphacephei.com/vosk/models
+  directly: en-us 1.8GB/WER 5.69 vs small's 40MB/WER 9.85, and the other
+  five languages each have a comparable larger tier). `_MATRIX_COLUMNS`
+  gains `("vosk", "medium")` so the wizard's batch matrix shows both.
+- **vosk's `run_concurrency` builds one full `vosk.Model` instance per
+  worker, not a shared model** — the same shape whisper-cpp's addendum
+  landed on, but for a different, still-real reason: alphacep/vosk-api#606
+  documents a SIGSEGV crash from creating `KaldiRecognizer` instances in
+  parallel threads against one shared `Model`, traced to a race in the
+  model's own C++ reference counting (concurrent `UnRef()` calls). The
+  Python binding adds no locking around construction/destruction to guard
+  against it. Vosk's own reference server implementation *does* use one
+  shared Model with one Recognizer per connection/thread — strongly
+  suggesting the pattern is intended to be safe and the 2021 bug was
+  meant to be fixed — but that couldn't be independently confirmed from
+  the Python layer or the (closed, resolution-unclear) issue thread alone.
+  Given a real, specific crash report and no way to verify it's actually
+  resolved, this takes the same stance as whisper-cpp: don't share what
+  can't be confirmed safe to share. Cheaper here than it was for
+  whisper-cpp, though — vosk's models are small enough (small tier
+  40-50MB; the larger per-language tier tops out around 1-2GB) that N
+  full instances is a bounded cost, not a forced-into-a-tiny-ceiling one —
+  reflected in `range.max`: 32 for the small tier, 8 for the larger one
+  (tighter, matching the same "heavier per-instance memory cost" logic
+  whisper-cpp's own tighter ceiling already established).
