@@ -5,6 +5,19 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.13] - 2026-08-01
+### Fixed
+- **vosk concurrency profiles are no longer split per language.**
+  0.9.11 shipped 12 `vosk-{small,medium}-{lang}-concurrency` profiles,
+  matching vosk's batch profiles — wrong: concurrency measures hardware
+  capacity, not transcription accuracy, so which language's model backs
+  it doesn't matter. Replaced with 2 profiles
+  (`vosk-{small,medium}-concurrency`), the same naming shape every other
+  engine's concurrency profiles already use (no language segment) — each
+  still has to pick one concrete model to load (vosk models are
+  themselves language-specific), English chosen arbitrarily. See
+  ADR-0012's addendum.
+
 ## [0.9.12] - 2026-08-01
 ### Changed
 - **Auto-sweep is more robust and better-resolved near the plateau.**

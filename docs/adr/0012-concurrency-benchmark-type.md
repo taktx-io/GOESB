@@ -241,14 +241,20 @@ discipline the whisper-cpp addendum above established — and landing on a
 third distinct answer, after faster-whisper's "safe to share" and
 whisper-cpp's "confirmed unsafe to share":
 
-- **`profiles/vosk-{small,medium}-{en,es,fr,de,nl,pt}-concurrency`** are
-  new (12 profiles) — matches vosk's own batch profiles in needing a
-  `language` per profile id (unlike whisper/whisper-cpp, a vosk *model* is
-  itself language-specific, so there's no single canonical
-  language-agnostic model the way `whisper-medium-concurrency` has). The
-  `language` field itself is still omitted from these profiles, same as
-  every other concurrency profile — it's metadata for pack-matching that
-  concurrency doesn't use, not something `run_concurrency` reads.
+- **`profiles/vosk-{small,medium}-concurrency`** are new (2 profiles, not
+  split per language) — concurrency measures hardware capacity, not
+  transcription accuracy, so which language's model happens to back it is
+  irrelevant to the answer; these follow the exact same naming shape
+  `whisper-medium-concurrency` already uses, no language segment. A vosk
+  *model* is itself language-specific (unlike whisper's one multilingual
+  model), so each profile still has to pick one concrete model to
+  actually load — English, arbitrarily, matching this codebase's existing
+  "prefer librispeech-en when present" default elsewhere
+  (`_wizard_run_concurrency`'s own filler-pack choice). An earlier version
+  of this addendum shipped 12 profiles (one per language, matching vosk's
+  batch profiles) before this was caught and corrected — the batch
+  profiles genuinely need a language axis (that's what they're measuring),
+  concurrency profiles never did.
 - **`profiles/vosk-medium-{lang}-batch`** are also new (6 profiles) — this
   codebase had only ever wired up vosk's small (~40-50MB) model tier into
   `_MODEL_URLS`; Vosk itself has always published a larger, more accurate

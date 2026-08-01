@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import ClassVar
 
-import numpy as np
 import pytest
 
 from oesb_runner.normalization import normalize
@@ -104,13 +103,24 @@ def _fake_utterances(tmp_path: Path, n: int = 3) -> list[Utterance]:
     ]
 
 
+class _FakeSamples:
+    """Stands in for decode_pcm's real numpy return value -- the adapter
+    only ever calls `.tobytes()` on it, so that's all this needs to
+    provide (avoids a hard numpy dependency in this test file; numpy
+    isn't part of the `[dev]` extra CI installs when `[vosk]` isn't also
+    requested, and this whole module is meant to skip cleanly in that
+    case via the `pytest.importorskip("vosk", ...)` above -- a top-level
+    `import numpy` would defeat that by failing collection outright)."""
+
+    def tobytes(self) -> bytes:
+        return b"\x00\x00"
+
+
 def _stub_concurrency_deps(monkeypatch, model_cls, tmp_path):
     monkeypatch.setattr(vosk, "Model", model_cls)
     monkeypatch.setattr(vosk, "KaldiRecognizer", _FakeRecognizer)
     monkeypatch.setattr(vosk_module, "_resolve_model_dir", lambda model_name, root: tmp_path)
-    monkeypatch.setattr(
-        vosk_module, "decode_pcm", lambda *a, **k: np.array([0], dtype="int16")
-    )
+    monkeypatch.setattr(vosk_module, "decode_pcm", lambda *a, **k: _FakeSamples())
 
 
 def test_run_concurrency_builds_one_model_instance_per_worker(monkeypatch, tmp_path):
