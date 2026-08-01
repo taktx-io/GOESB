@@ -552,6 +552,21 @@ def _latest_result_throughput(results_dir: str, profile_id: str, pack_id: str) -
     return result.get("metrics", {}).get("throughput", {}).get("value")
 
 
+def _next_concurrency_level(level: int) -> int:
+    """1, 2, 4, 8, then +4 a level: doubling covers the cheap, uninteresting
+    low end in a handful of runs, but by the time levels are large enough
+    to be near a real knee, doubling's own step size has gotten coarse
+    right where resolution matters most (8 -> 16 is already a +100% jump,
+    hiding any real ceiling at e.g. 10, 11, or 12 between them). Switching
+    to a fixed +4 step once level >= 8 trades that away for real
+    resolution near the plateau, at the cost of more levels (and more wall
+    clock) to reach a very high ceiling -- an acceptable trade for this
+    tool's actual target hardware (edge/local devices, not racks of GPUs;
+    every real sweep run so far this session plateaued in the single-to-
+    low-double digits)."""
+    return level + 4 if level >= 8 else level * 2
+
+
 def _run_concurrency_auto_sweep(
     profile_id: str,
     pack_id: str,
@@ -563,20 +578,29 @@ def _run_concurrency_auto_sweep(
     api_url: str = DEFAULT_API_URL,
     results_dir: str = "runs/results",
 ) -> list[tuple[str, str, dict[str, str], bool]]:
-    """Doubles concurrency (1, 2, 4, 8, ...), reading back each level's
-    throughput to decide whether the next doubling is still worth running —
-    stops once a doubling buys less than `_CONCURRENCY_PLATEAU_GAIN` more
-    throughput (the "does this hardware stay fast under load" knee this
-    benchmark_type exists to find) or the profile's own
-    `overridable.concurrency.range.max` ceiling is reached. Replaces
-    guessing a static sweep with the actual number for this hardware —
-    every level explored is still a normal, independently-submittable `run`
-    result; only the SET of levels to run is decided at runtime instead of
-    upfront. Returns one outcome tuple per level explored, same shape
+    """Climbs concurrency (1, 2, 4, 8, 12, 16, ... — see
+    `_next_concurrency_level`), reading back each level's throughput to
+    decide whether the next level is still worth running — stops once TWO
+    CONSECUTIVE levels each buy less than `_CONCURRENCY_PLATEAU_GAIN` more
+    throughput than the one before (the "does this hardware stay fast
+    under load" knee this benchmark_type exists to find), or the profile's
+    own `overridable.concurrency.range.max` ceiling is reached. Two
+    consecutive low-gain levels, not just one: a single `duration_s`
+    window's throughput reading carries real run-to-run measurement
+    noise, and stopping on the first low reading risks calling a false
+    plateau from noise alone rather than the hardware's actual ceiling —
+    a second low reading in a row confirms it's real. A level that
+    recovers back above the gain floor resets the counter; it wasn't a
+    plateau, just a noisy dip. Replaces guessing a static sweep with the
+    actual number for this hardware — every level explored is still a
+    normal, independently-submittable `run` result; only the SET of
+    levels to run is decided at runtime instead of upfront. Returns one
+    outcome tuple per level explored, same shape
     `_wizard_confirm_and_run`'s manual-sweep path already produces."""
     ceiling = _concurrency_ceiling(profile_id, profiles_dir, api_url)
     outcomes: list[tuple[str, str, dict[str, str], bool]] = []
     prev_throughput: float | None = None
+    consecutive_low_gain = 0
     level = 1
     while True:
         overrides = {**other_overrides, "concurrency": str(level)}
@@ -598,19 +622,27 @@ def _run_concurrency_auto_sweep(
         if prev_throughput is not None and throughput is not None and prev_throughput > 0:
             gain = (throughput - prev_throughput) / prev_throughput
             typer.echo(
-                f"  concurrency={level}: {throughput:.2f} audio-s/s "
-                f"({gain:+.0%} vs concurrency={level // 2})",
+                f"  concurrency={level}: {throughput:.2f} audio-s/s ({gain:+.0%} vs the previous level)",
                 err=True,
             )
             if gain < _CONCURRENCY_PLATEAU_GAIN:
-                typer.echo(f"  plateaued at concurrency={level} — stopping the auto-sweep", err=True)
-                break
+                consecutive_low_gain += 1
+                if consecutive_low_gain >= 2:
+                    typer.echo(
+                        f"  plateaued at concurrency={level} — two low-gain levels in a row, "
+                        "stopping the auto-sweep",
+                        err=True,
+                    )
+                    break
+            else:
+                consecutive_low_gain = 0
 
         if ceiling is not None and level >= ceiling:
             break
 
         prev_throughput = throughput
-        level = min(level * 2, ceiling) if ceiling is not None else level * 2
+        next_level = _next_concurrency_level(level)
+        level = min(next_level, ceiling) if ceiling is not None else next_level
 
     return outcomes
 

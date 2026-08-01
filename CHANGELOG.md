@@ -5,6 +5,16 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-08-01
+### Changed
+- **Auto-sweep is more robust and better-resolved near the plateau.**
+  Requires two consecutive low-gain levels before stopping (a single
+  noisy reading no longer ends the sweep early), and switches from
+  doubling to a flat +4 step once concurrency reaches 8 — `1, 2, 4, 8,
+  12, 16, 20, 24, ...` instead of `1, 2, 4, 8, 16, 32, ...` — so the
+  levels near a real knee are close enough together to actually find it,
+  not just bracket it loosely. See ADR-0012's addendum.
+
 ## [0.9.11] - 2026-08-01
 ### Added
 - **vosk concurrency support** — `whisper-cpp` and `faster-whisper` had it,

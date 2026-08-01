@@ -277,3 +277,35 @@ whisper-cpp's "confirmed unsafe to share":
   reflected in `range.max`: 32 for the small tier, 8 for the larger one
   (tighter, matching the same "heavier per-instance memory cost" logic
   whisper-cpp's own tighter ceiling already established).
+
+## Addendum (2026-08-01): auto-sweep robustness — two-strike stop, doubling-then-linear steps
+
+Two refinements to the auto-sweep from the earlier same-day addendum,
+prompted by looking at real sweep data collected on real hardware this
+session:
+
+- **Two consecutive low-gain levels required to stop, not one.** A single
+  `duration_s` window's throughput reading carries real run-to-run
+  measurement noise — stopping on the very first doubling that comes in
+  under `_CONCURRENCY_PLATEAU_GAIN` risked calling a false plateau from a
+  single noisy reading rather than the hardware's actual ceiling. A level
+  that recovers back above the gain floor resets the streak (it wasn't a
+  real plateau, just a dip); only two low-gain levels *in a row* stop the
+  sweep now. Costs one extra level on every sweep, including the clean,
+  non-noisy ones — accepted, since a false-early-stop undermines the
+  entire point of the feature more than one extra `duration_s` window
+  costs.
+- **Doubling up to concurrency=8, then +4 a level, not doubling forever.**
+  Pure doubling is cheap for the uninteresting low end (1, 2, 4, 8 in just
+  four levels) but by the time levels are large enough to be near a real
+  knee, doubling's own step has gotten coarse exactly where resolution
+  matters most — 8 to 16 is already a +100% jump, easily hiding a real
+  ceiling at 10, 11, or 12 between them. `_next_concurrency_level` keeps
+  doubling below 8, then switches to a flat +4 step at and above it:
+  1, 2, 4, 8, 12, 16, 20, 24, .... Trades away doubling's logarithmic
+  reach on a hypothetical very-high-ceiling machine for real resolution
+  near the plateau on this tool's actual target hardware — every real
+  sweep run collected so far this session plateaued in the single-to-
+  low-double-digit range, never anywhere near needing doubling's reach
+  past 24. A hard ceiling (`range.max`) still bounds the worst case
+  regardless.

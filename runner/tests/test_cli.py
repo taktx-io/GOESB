@@ -1852,25 +1852,58 @@ def test_wizard_engine_parameters_explicit_concurrency_value_overrides_auto(monk
 # --- _run_concurrency_auto_sweep: doubling until throughput plateaus ---
 
 
-def test_run_concurrency_auto_sweep_stops_once_gain_plateaus(monkeypatch):
+def test_next_concurrency_level_doubles_then_steps_by_four():
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._next_concurrency_level(1) == 2
+    assert cli_module._next_concurrency_level(2) == 4
+    assert cli_module._next_concurrency_level(4) == 8
+    assert cli_module._next_concurrency_level(8) == 12
+    assert cli_module._next_concurrency_level(12) == 16
+    assert cli_module._next_concurrency_level(20) == 24
+
+
+def test_run_concurrency_auto_sweep_stops_after_two_consecutive_low_gain_levels(monkeypatch):
     from oesb_runner import cli as cli_module
 
     reexec_calls = []
     monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
     monkeypatch.setattr(cli_module, "_concurrency_ceiling", lambda *a, **k: 64)
-    # 1 -> 10, 2 -> 20 (+100%, keep climbing), 4 -> 22 (+10%, below the 15% floor -- stop)
-    throughputs = iter([10.0, 20.0, 22.0])
+    # 1 -> 10, 2 -> 20 (+100%, keep climbing), 4 -> 22 (+10%, strike 1),
+    # 8 -> 23 (+4.5%, strike 2 -- two low-gain levels in a row, stop)
+    throughputs = iter([10.0, 20.0, 22.0, 23.0])
     monkeypatch.setattr(cli_module, "_latest_result_throughput", lambda *a, **k: next(throughputs))
 
     outcomes = cli_module._run_concurrency_auto_sweep(
         "whispercpp-medium-concurrency", "pack-a", "2", "cpu", "some-cpu", {}
     )
 
-    assert [o[2]["concurrency"] for o in outcomes] == ["1", "2", "4"]
+    assert [o[2]["concurrency"] for o in outcomes] == ["1", "2", "4", "8"]
     assert all(o[3] for o in outcomes)
-    assert len(reexec_calls) == 3
+    assert len(reexec_calls) == 4
     assert "concurrency=1" in reexec_calls[0]
-    assert "concurrency=4" in reexec_calls[2]
+    assert "concurrency=8" in reexec_calls[3]
+
+
+def test_run_concurrency_auto_sweep_a_single_low_gain_dip_does_not_stop_it(monkeypatch):
+    """A single noisy low reading must not be mistaken for a real plateau
+    -- only two low-gain levels IN A ROW should stop the sweep. A level
+    that recovers back above the gain floor resets the streak, and the
+    step size switches from doubling to +4 once level >= 8."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+    monkeypatch.setattr(cli_module, "_concurrency_ceiling", lambda *a, **k: 64)
+    # 1->10, 2->20 (+100%), 4->21 (+5%, strike 1), 8->50 (+138%, recovers --
+    # resets the streak), 12->51 (+2%, strike 1 again), 16->52 (+2%, strike 2 -- stop)
+    throughputs = iter([10.0, 20.0, 21.0, 50.0, 51.0, 52.0])
+    monkeypatch.setattr(cli_module, "_latest_result_throughput", lambda *a, **k: next(throughputs))
+
+    outcomes = cli_module._run_concurrency_auto_sweep(
+        "whispercpp-medium-concurrency", "pack-a", "2", "cpu", "some-cpu", {}
+    )
+
+    assert [o[2]["concurrency"] for o in outcomes] == ["1", "2", "4", "8", "12", "16"]
 
 
 def test_run_concurrency_auto_sweep_stops_at_the_profile_ceiling(monkeypatch):
