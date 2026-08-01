@@ -507,21 +507,112 @@ def _profile_param_default(profile: dict, param_name: str) -> Any:
 
 _SUGGESTED_CONCURRENCY_SWEEP = [1, 4, 8, 16]
 
+# How much extra throughput the next doubling has to buy to be worth
+# running — below this, `_run_concurrency_auto_sweep` calls the previous
+# level the knee and stops. 15%: comfortably above run-to-run measurement
+# noise (the existing FR-5.3 tolerance check flags >15% relative std as
+# noteworthy on its own) but well below a real scaling step, which roughly
+# doubles throughput until contention sets in.
+_CONCURRENCY_PLATEAU_GAIN = 0.15
+
 
 def _suggested_concurrency_sweep(profile: dict) -> str:
-    """A canned "does this actually get exercised under load" sweep for the
-    wizard's `concurrency` prompt — plain Enter-through on every other
-    parameter means "run once, at the profile default" (today's behavior,
-    unchanged), but that's a uniquely bad default here: concurrency=1 alone
-    shows nothing about load behavior, the entire point of this
-    benchmark_type is comparing several levels. Clamped to whatever ceiling
-    this profile's own `overridable.concurrency` declares — e.g. whisper-cpp's
-    tighter per-instance memory cost (ADR-0012 addendum) caps it lower than
-    faster-whisper's shared-model harness."""
+    """An example sweep shown in the wizard's `concurrency` prompt for users
+    who want to type their own instead of the auto-detected default.
+    Clamped to whatever ceiling this profile's own `overridable.concurrency`
+    declares — e.g. whisper-cpp's tighter per-instance memory cost (ADR-0012
+    addendum) caps it lower than faster-whisper's shared-model harness."""
     domain = profile.get("overridable", {}).get("concurrency", {})
     ceiling = domain.get("range", {}).get("max")
     levels = [v for v in _SUGGESTED_CONCURRENCY_SWEEP if ceiling is None or v <= ceiling]
     return ",".join(str(v) for v in levels) or "1"
+
+
+def _concurrency_ceiling(profile_id: str, profiles_dir: str, api_url: str) -> int | None:
+    profile = _load_profile_for_wizard(profile_id, profiles_dir, api_url)
+    domain = (profile or {}).get("overridable", {}).get("concurrency", {})
+    return domain.get("range", {}).get("max")
+
+
+def _latest_result_throughput(results_dir: str, profile_id: str, pack_id: str) -> float | None:
+    """Read back the throughput metric from the result `run` just wrote to
+    disk for this (profile, pack) — `_reexec` streams its child's output
+    live rather than capturing it, so this is how the auto-sweep's plateau
+    decision gets at a level's outcome without re-deriving it. `None` if no
+    matching file exists (e.g. the run failed before writing one) or the
+    result has no throughput metric — either way the caller can't judge a
+    plateau and should stop climbing rather than guess."""
+    matches = sorted(
+        Path(results_dir).glob(f"{profile_id}__{pack_id}__*.json"),
+        key=lambda p: p.stat().st_mtime,
+    )
+    if not matches:
+        return None
+    result = json.loads(matches[-1].read_text())
+    return result.get("metrics", {}).get("throughput", {}).get("value")
+
+
+def _run_concurrency_auto_sweep(
+    profile_id: str,
+    pack_id: str,
+    repeats: str,
+    backend: str,
+    hardware_id: str,
+    other_overrides: dict[str, str],
+    profiles_dir: str = "profiles",
+    api_url: str = DEFAULT_API_URL,
+    results_dir: str = "runs/results",
+) -> list[tuple[str, str, dict[str, str], bool]]:
+    """Doubles concurrency (1, 2, 4, 8, ...), reading back each level's
+    throughput to decide whether the next doubling is still worth running —
+    stops once a doubling buys less than `_CONCURRENCY_PLATEAU_GAIN` more
+    throughput (the "does this hardware stay fast under load" knee this
+    benchmark_type exists to find) or the profile's own
+    `overridable.concurrency.range.max` ceiling is reached. Replaces
+    guessing a static sweep with the actual number for this hardware —
+    every level explored is still a normal, independently-submittable `run`
+    result; only the SET of levels to run is decided at runtime instead of
+    upfront. Returns one outcome tuple per level explored, same shape
+    `_wizard_confirm_and_run`'s manual-sweep path already produces."""
+    ceiling = _concurrency_ceiling(profile_id, profiles_dir, api_url)
+    outcomes: list[tuple[str, str, dict[str, str], bool]] = []
+    prev_throughput: float | None = None
+    level = 1
+    while True:
+        overrides = {**other_overrides, "concurrency": str(level)}
+        args = ["run", profile_id, pack_id, "--repeats", repeats, "--hardware", hardware_id]
+        if backend != "cpu":
+            args += ["--backend", backend]
+        for key, value in overrides.items():
+            args += ["--param", f"{key}={value}"]
+
+        try:
+            _reexec(args)
+        except typer.Exit:
+            outcomes.append((profile_id, pack_id, overrides, False))
+            break  # a failed level can't inform whether to keep climbing
+
+        outcomes.append((profile_id, pack_id, overrides, True))
+        throughput = _latest_result_throughput(results_dir, profile_id, pack_id)
+
+        if prev_throughput is not None and throughput is not None and prev_throughput > 0:
+            gain = (throughput - prev_throughput) / prev_throughput
+            typer.echo(
+                f"  concurrency={level}: {throughput:.2f} audio-s/s "
+                f"({gain:+.0%} vs concurrency={level // 2})",
+                err=True,
+            )
+            if gain < _CONCURRENCY_PLATEAU_GAIN:
+                typer.echo(f"  plateaued at concurrency={level} — stopping the auto-sweep", err=True)
+                break
+
+        if ceiling is not None and level >= ceiling:
+            break
+
+        prev_throughput = throughput
+        level = min(level * 2, ceiling) if ceiling is not None else level * 2
+
+    return outcomes
 
 
 def _wizard_engine_parameters(
@@ -574,8 +665,11 @@ def _wizard_engine_parameters(
         for param_name in sorted(common_params):
             profile_for_default = profiles_by_id[engine_combos[0][0]]
             if param_name == "concurrency":
-                suggested = _suggested_concurrency_sweep(profile_for_default)
-                prompt = f"[{engine}] concurrency (Enter for {suggested}, or type your own):"
+                example = _suggested_concurrency_sweep(profile_for_default)
+                prompt = (
+                    f"[{engine}] concurrency (Enter to auto-detect the useful max, "
+                    f"or your own comma list e.g. {example}):"
+                )
             else:
                 default = _profile_param_default(profile_for_default, param_name)
                 prompt = f"[{engine}] {param_name} (default {default}):"
@@ -584,9 +678,16 @@ def _wizard_engine_parameters(
                 return None
             raw = raw.strip()
             if param_name == "concurrency" and not raw:
-                raw = suggested
+                raw = "auto"
             if not raw:
                 continue  # Enter: no override for this parameter at all
+            if param_name == "concurrency" and raw.lower() == "auto":
+                # A sentinel, not a real value — `_run_concurrency_auto_sweep`
+                # expands it into concrete levels at run time, once
+                # throughput is actually measured, so it never reaches
+                # _resolve_one_param's int-range domain check below.
+                sweeps[param_name] = ["auto"]
+                continue
             sweeps[param_name] = _parse_param_sweep(raw)
 
         if not sweeps:
@@ -600,6 +701,8 @@ def _wizard_engine_parameters(
             profile = profiles_by_id[pid]
             for param_name, values in sweeps.items():
                 for raw_value in values:
+                    if param_name == "concurrency" and raw_value == "auto":
+                        continue
                     try:
                         _resolve_one_param(profile, param_name, raw_value)
                     except ValueError as exc:
@@ -823,8 +926,10 @@ def _wizard_confirm_and_run(combos: list[tuple[str, str]]) -> None:
     if repeats is None:
         return
 
+    has_auto_sweep = any(overrides.get("concurrency") == "auto" for _p, _pk, overrides in expanded)
     total_runs = len(expanded) * int(repeats)
-    typer.echo(f"About to run {len(expanded)} benchmark(s) ({total_runs} runs incl. {repeats} repeats):")
+    auto_note = " — auto-sweeps will run more than this" if has_auto_sweep else ""
+    typer.echo(f"About to run {len(expanded)} benchmark(s) ({total_runs} runs incl. {repeats} repeats){auto_note}:")
     for profile_id, pack_id, overrides in expanded:
         typer.echo(f"  {_format_combo_label(profile_id, pack_id, overrides)}")
     if len(expanded) > 20 and not questionary.confirm(
@@ -837,6 +942,15 @@ def _wizard_confirm_and_run(combos: list[tuple[str, str]]) -> None:
     outcomes: list[tuple[str, str, dict[str, str], bool]] = []
     for profile_id, pack_id, overrides in expanded:
         backend = combo_backend(profile_id)
+        if overrides.get("concurrency") == "auto":
+            other_overrides = {k: v for k, v in overrides.items() if k != "concurrency"}
+            typer.echo(f"Auto-detecting max useful concurrency for {profile_id} x {pack_id} ...")
+            outcomes.extend(
+                _run_concurrency_auto_sweep(
+                    profile_id, pack_id, repeats, backend, hardware_by_backend[backend], other_overrides
+                )
+            )
+            continue
         args = [
             "run", profile_id, pack_id, "--repeats", repeats,
             "--hardware", hardware_by_backend[backend],

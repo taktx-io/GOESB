@@ -1786,11 +1786,14 @@ def test_suggested_concurrency_sweep_clamped_to_profile_range():
     assert cli_module._suggested_concurrency_sweep(no_range) == "1,4,8,16"
 
 
-def test_wizard_engine_parameters_blank_concurrency_expands_to_suggested_sweep(monkeypatch):
+def test_wizard_engine_parameters_blank_concurrency_defaults_to_auto(monkeypatch):
     """The actual gap this exists to fix: plain Enter-through on every
     other parameter means "run once, at the default" -- concurrency=1
-    alone shows nothing about load behavior, so blank input here must
-    expand to a real sweep instead, not silently do the single boring run."""
+    alone shows nothing about load behavior. Blank input here must resolve
+    to the "auto" sentinel (expanded into real levels later, by
+    `_run_concurrency_auto_sweep`, once throughput is actually measured)
+    rather than silently doing the single boring run or guessing a static
+    sweep that ignores this hardware's real ceiling."""
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(""))
@@ -1800,15 +1803,23 @@ def test_wizard_engine_parameters_blank_concurrency_expands_to_suggested_sweep(m
         combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
     )
 
-    assert expanded == [
-        ("whisper-medium-concurrency", "pack-a", {"concurrency": "1"}),
-        ("whisper-medium-concurrency", "pack-a", {"concurrency": "4"}),
-        ("whisper-medium-concurrency", "pack-a", {"concurrency": "8"}),
-        ("whisper-medium-concurrency", "pack-a", {"concurrency": "16"}),
-    ]
+    assert expanded == [("whisper-medium-concurrency", "pack-a", {"concurrency": "auto"})]
 
 
-def test_wizard_engine_parameters_concurrency_prompt_shows_the_suggestion(monkeypatch):
+def test_wizard_engine_parameters_explicit_auto_also_resolves_to_the_sentinel(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", _fake_text_by_param(concurrency="auto"))
+
+    combos = [("whisper-medium-concurrency", "pack-a")]
+    expanded = cli_module._wizard_engine_parameters(
+        combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL
+    )
+
+    assert expanded == [("whisper-medium-concurrency", "pack-a", {"concurrency": "auto"})]
+
+
+def test_wizard_engine_parameters_concurrency_prompt_explains_auto_and_shows_an_example(monkeypatch):
     from oesb_runner import cli as cli_module
 
     prompts = []
@@ -1822,10 +1833,10 @@ def test_wizard_engine_parameters_concurrency_prompt_shows_the_suggestion(monkey
     combos = [("whisper-medium-concurrency", "pack-a")]
     cli_module._wizard_engine_parameters(combos, str(REPO_ROOT / "profiles"), cli_module.DEFAULT_API_URL)
 
-    assert any("1,4,8,16" in p for p in prompts)
+    assert any("auto-detect" in p and "1,4,8,16" in p for p in prompts)
 
 
-def test_wizard_engine_parameters_explicit_concurrency_value_overrides_the_suggestion(monkeypatch):
+def test_wizard_engine_parameters_explicit_concurrency_value_overrides_auto(monkeypatch):
     from oesb_runner import cli as cli_module
 
     monkeypatch.setattr(cli_module.questionary, "text", _fake_text_by_param(concurrency="2"))
@@ -1836,6 +1847,187 @@ def test_wizard_engine_parameters_explicit_concurrency_value_overrides_the_sugge
     )
 
     assert expanded == [("whisper-medium-concurrency", "pack-a", {"concurrency": "2"})]
+
+
+# --- _run_concurrency_auto_sweep: doubling until throughput plateaus ---
+
+
+def test_run_concurrency_auto_sweep_stops_once_gain_plateaus(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+    monkeypatch.setattr(cli_module, "_concurrency_ceiling", lambda *a, **k: 64)
+    # 1 -> 10, 2 -> 20 (+100%, keep climbing), 4 -> 22 (+10%, below the 15% floor -- stop)
+    throughputs = iter([10.0, 20.0, 22.0])
+    monkeypatch.setattr(cli_module, "_latest_result_throughput", lambda *a, **k: next(throughputs))
+
+    outcomes = cli_module._run_concurrency_auto_sweep(
+        "whispercpp-medium-concurrency", "pack-a", "2", "cpu", "some-cpu", {}
+    )
+
+    assert [o[2]["concurrency"] for o in outcomes] == ["1", "2", "4"]
+    assert all(o[3] for o in outcomes)
+    assert len(reexec_calls) == 3
+    assert "concurrency=1" in reexec_calls[0]
+    assert "concurrency=4" in reexec_calls[2]
+
+
+def test_run_concurrency_auto_sweep_stops_at_the_profile_ceiling(monkeypatch):
+    """Throughput that never plateaus on its own (unrealistic, but the
+    ceiling must still be a hard stop -- ADR-0012's whisper-cpp per-instance
+    memory cost is exactly why this ceiling exists)."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: None)
+    monkeypatch.setattr(cli_module, "_concurrency_ceiling", lambda *a, **k: 4)
+    throughputs = iter([10.0, 100.0, 1000.0])
+    monkeypatch.setattr(cli_module, "_latest_result_throughput", lambda *a, **k: next(throughputs))
+
+    outcomes = cli_module._run_concurrency_auto_sweep(
+        "whispercpp-medium-concurrency", "pack-a", "2", "cpu", "some-cpu", {}
+    )
+
+    assert [o[2]["concurrency"] for o in outcomes] == ["1", "2", "4"]
+
+
+def test_run_concurrency_auto_sweep_stops_on_a_failed_level(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    def _fail_at_two(args):
+        if "concurrency=2" in args:
+            raise typer.Exit(code=1)
+
+    monkeypatch.setattr(cli_module, "_reexec", _fail_at_two)
+    monkeypatch.setattr(cli_module, "_concurrency_ceiling", lambda *a, **k: 64)
+    monkeypatch.setattr(cli_module, "_latest_result_throughput", lambda *a, **k: 10.0)
+
+    outcomes = cli_module._run_concurrency_auto_sweep(
+        "whispercpp-medium-concurrency", "pack-a", "2", "cpu", "some-cpu", {}
+    )
+
+    assert [(o[2]["concurrency"], o[3]) for o in outcomes] == [("1", True), ("2", False)]
+
+
+def test_run_concurrency_auto_sweep_preserves_other_overrides_at_every_level(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+    monkeypatch.setattr(cli_module, "_concurrency_ceiling", lambda *a, **k: 2)
+    monkeypatch.setattr(cli_module, "_latest_result_throughput", lambda *a, **k: 10.0)
+
+    outcomes = cli_module._run_concurrency_auto_sweep(
+        "whispercpp-medium-concurrency", "pack-a", "2", "cpu", "some-cpu", {"threads": "8"}
+    )
+
+    assert all(o[2]["threads"] == "8" for o in outcomes)
+    assert all("threads=8" in c for c in reexec_calls)
+
+
+def test_run_concurrency_auto_sweep_passes_backend_and_hardware_through(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+    monkeypatch.setattr(cli_module, "_concurrency_ceiling", lambda *a, **k: 1)
+    monkeypatch.setattr(cli_module, "_latest_result_throughput", lambda *a, **k: 10.0)
+
+    cli_module._run_concurrency_auto_sweep(
+        "whispercpp-medium-concurrency", "pack-a", "3", "cuda", "nvidia-rtx-4090", {}
+    )
+
+    assert reexec_calls == [
+        [
+            "run", "whispercpp-medium-concurrency", "pack-a", "--repeats", "3",
+            "--hardware", "nvidia-rtx-4090", "--backend", "cuda", "--param", "concurrency=1",
+        ]
+    ]
+
+
+def test_latest_result_throughput_reads_the_newest_matching_file(tmp_path):
+    from oesb_runner import cli as cli_module
+
+    older = tmp_path / "whispercpp-medium-concurrency__pack-a__20260101T000000Z.json"
+    older.write_text(json.dumps({"metrics": {"throughput": {"value": 1.0}}}))
+    newer = tmp_path / "whispercpp-medium-concurrency__pack-a__20260101T000100Z.json"
+    newer.write_text(json.dumps({"metrics": {"throughput": {"value": 2.0}}}))
+    os.utime(older, (1, 1))
+    os.utime(newer, (2, 2))
+
+    result = cli_module._latest_result_throughput(str(tmp_path), "whispercpp-medium-concurrency", "pack-a")
+
+    assert result == 2.0
+
+
+def test_latest_result_throughput_none_when_no_result_written(tmp_path):
+    from oesb_runner import cli as cli_module
+
+    assert cli_module._latest_result_throughput(str(tmp_path), "whispercpp-medium-concurrency", "pack-a") is None
+
+
+# --- _wizard_confirm_and_run routes concurrency=auto to the sweep helper ---
+
+
+def _stub_confirm_and_run_collaborators(monkeypatch, cli_module, engine="whisper-cpp"):
+    monkeypatch.setattr(cli_module, "_preflight_pack_credentials", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_preflight_engines", lambda combos, *a, **k: combos)
+    monkeypatch.setattr(cli_module, "_load_profile_for_wizard", lambda *a, **k: {"runtime": {"name": engine}})
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+    monkeypatch.setattr(cli_module, "_wizard_pick_backends", lambda runtime_by_profile, gpu: dict.fromkeys(runtime_by_profile.values(), "cpu"))
+    monkeypatch.setattr(cli_module, "_pick_hardware_ids_by_backend", lambda backends, gpu: dict.fromkeys(backends, "apple-m1-pro"))
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk("2"))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+
+
+def test_wizard_confirm_and_run_routes_auto_concurrency_to_the_sweep_helper(monkeypatch, capsys):
+    from oesb_runner import cli as cli_module
+
+    _stub_confirm_and_run_collaborators(monkeypatch, cli_module)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {"concurrency": "auto"}) for pid, pack in combos],
+    )
+    sweep_calls = []
+    monkeypatch.setattr(
+        cli_module,
+        "_run_concurrency_auto_sweep",
+        lambda *a, **k: sweep_calls.append(a)
+        or [("whispercpp-medium-concurrency", "pack-a", {"concurrency": "1"}, True)],
+    )
+    monkeypatch.setattr(
+        cli_module, "_reexec", lambda args: pytest.fail("auto-sweep combos must not fall through to a plain _reexec")
+    )
+
+    cli_module._wizard_confirm_and_run([("whispercpp-medium-concurrency", "pack-a")])
+
+    out = capsys.readouterr().out
+    assert "auto-sweeps will run more" in out
+    assert len(sweep_calls) == 1
+    assert sweep_calls[0][:2] == ("whispercpp-medium-concurrency", "pack-a")
+
+
+def test_wizard_confirm_and_run_manual_sweep_skips_the_auto_note_and_helper(monkeypatch, capsys):
+    from oesb_runner import cli as cli_module
+
+    _stub_confirm_and_run_collaborators(monkeypatch, cli_module)
+    monkeypatch.setattr(
+        cli_module, "_wizard_engine_parameters",
+        lambda combos, *a, **k: [(pid, pack, {"concurrency": "4"}) for pid, pack in combos],
+    )
+    monkeypatch.setattr(
+        cli_module, "_run_concurrency_auto_sweep",
+        lambda *a, **k: pytest.fail("a manual sweep value must not trigger the auto-sweep helper"),
+    )
+    reexec_calls = []
+    monkeypatch.setattr(cli_module, "_reexec", lambda args: reexec_calls.append(args))
+
+    cli_module._wizard_confirm_and_run([("whispercpp-medium-concurrency", "pack-a")])
+
+    out = capsys.readouterr().out
+    assert "auto-sweeps will run more" not in out
+    assert len(reexec_calls) == 1
+    assert "concurrency=4" in reexec_calls[0]
 
 
 def test_wizard_run_confirmation_states_total_including_repeats(monkeypatch, capsys):

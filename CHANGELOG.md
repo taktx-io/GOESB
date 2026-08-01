@@ -5,6 +5,19 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-08-01
+### Added
+- **Wizard: auto-detect the useful max concurrency, instead of guessing a
+  static sweep.** Blank Enter on the `concurrency` prompt now runs
+  concurrency=1, reads back its own throughput, doubles, and keeps doubling
+  only while each doubling still buys at least 15% more throughput —
+  stopping at the knee (or the profile's own
+  `overridable.concurrency.range.max`, whichever comes first) instead of
+  the previous static `1,4,8,16` guess. Typing your own comma-separated
+  list still works exactly as before and always takes priority — the
+  prompt states both options explicitly. See ADR-0012's 2026-08-01
+  addendum.
+
 ## [0.9.8] - 2026-07-31
 ### Added
 - **whisper-cpp concurrency support** (`metal`/`cuda`/`cpu`) — five new

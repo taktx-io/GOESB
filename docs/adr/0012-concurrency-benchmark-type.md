@@ -180,7 +180,56 @@ Extended to a second engine and more model sizes:
   default," which is uniquely unhelpful for `concurrency` specifically: a
   single point shows nothing about load behavior, the entire reason this
   benchmark_type exists. `_wizard_engine_parameters` now special-cases just
-  this one parameter: blank input expands to a suggested sweep (`1,4,8,16`,
-  clamped to that profile's own range — e.g. `1,4,8` for whisper-cpp),
-  stated in the prompt text itself so nothing happens that isn't visible
-  before it happens.
+  this one parameter, stated in the prompt text itself so nothing happens
+  that isn't visible before it happens. See the 2026-08-01 addendum below
+  for what blank input actually does now — superseding the static
+  `1,4,8,16` sweep this paragraph originally described.
+
+## Addendum (2026-08-01): auto-detecting the useful max, instead of guessing it
+
+The static `1,4,8,16` sweep from the previous addendum was still a guess —
+picked to look reasonable across engines, not measured against any real
+hardware. Two problems: it can undershoot (real capacity is past 16, the
+sweep never finds the knee) or overshoot (wastes a run well past the point
+throughput stopped improving, and for whisper-cpp specifically, each extra
+level is a full additional model load per ADR-0012's own note above). The
+knee is exactly what the whole `metric vs concurrency` web chart (Phase 3)
+displays — no reason to leave finding it to a human's static guess when the
+runner already measures throughput at every level it runs.
+
+- **`_run_concurrency_auto_sweep` is now the wizard's default** for the
+  `concurrency` parameter — blank Enter resolves to an `"auto"` sentinel
+  (not a real `--param` value; `_resolve_one_param` never sees it) that
+  `_wizard_confirm_and_run` expands at *run time* instead of upfront: run
+  concurrency=1, read back that run's own `throughput` metric from the
+  result JSON `run` just wrote to `runs/results/`, double to 2, compare —
+  if the doubling bought less than 15% more throughput, the previous level
+  was the knee and the sweep stops there; otherwise keep doubling. Still
+  clamped to the profile's own `overridable.concurrency.range.max` as a
+  hard ceiling regardless of how the throughput curve looks (whisper-cpp's
+  16 vs faster-whisper's 64) — the auto-sweep finds the knee *within* that
+  ceiling, it doesn't replace it.
+- **15% is a floor, not a tuned constant** — comfortably above normal
+  run-to-run measurement noise (FR-5.3's own tolerance check already flags
+  >15% relative std as noteworthy) but well under a real scaling step
+  (throughput roughly doubles with concurrency until contention sets in).
+  Revisit if it proves too twitchy in practice; not worth a config knob
+  until it does.
+- **Typing your own comma list still works and always has priority** — the
+  prompt says so explicitly (`"Enter to auto-detect the useful max, or your
+  own comma list e.g. 1,4,8,16"`). A manual sweep skips the auto-sweep path
+  entirely and behaves exactly as before (upfront expansion via
+  `_parse_param_sweep`, one `_reexec` per listed value).
+- **Every level the auto-sweep explores is still a normal, independently
+  signed `run` result** — no new schema, no new submission path. Only the
+  *set* of concurrency values to run is decided adaptively; each one still
+  goes through the exact same `goesb run ... --param concurrency=N` path a
+  manually-typed sweep would.
+- **Not implemented: a pre-run OOM safety check.** A separate, narrower
+  problem from "what's the useful max" — whether a *requested* level would
+  exceed available RAM/VRAM before even starting it (relevant mainly to
+  whisper-cpp's N-full-model-instances harness). Flagged during design as
+  worth adding alongside this, deliberately deferred — the auto-sweep's own
+  doubling-from-1 approach means a runaway level is reached gradually, not
+  requested outright, which is a real (if softer) mitigation until a
+  dedicated check exists.
