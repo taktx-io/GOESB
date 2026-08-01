@@ -5,6 +5,17 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.15] - 2026-08-01
+### Added
+- **vosk streaming adapter** — second engine for the `streaming`
+  benchmark type, alongside faster-whisper. vosk's `KaldiRecognizer`
+  carries real incremental decoder state across chunks (unlike
+  faster-whisper's whole-buffer re-decode): `AcceptWaveform` only ever
+  sees new audio, and Kaldi's own endpointing genuinely finalizes text,
+  so committed words never need revising. New `vosk-small-en-streaming`
+  / `vosk-medium-en-streaming` profiles and a `librispeech-en-vosk-streaming`
+  pack.
+
 ## [0.9.14] - 2026-08-01
 ### Fixed
 - **`--backend cuda` no longer re-prompts to install `nvidia-cublas-cu12`
