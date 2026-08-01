@@ -133,12 +133,21 @@ def _matching_packs(packs: list[dict], language: str) -> list[dict]:
     return [p for p in packs if p["language"] == language] or packs
 
 
-# Bulk-generated batch profile ids are a clean <engine>-<size>-<lang>-batch
-# grid (e.g. "whisper-medium-en-batch", "vosk-small-es-batch") — confirmed
-# across every profile in the official set. Anything not matching this (e.g.
-# the one streaming profile) just doesn't get a matrix cell, same as any
-# hand-authored profile outside the bulk set.
-_MATRIX_ID_RE = re.compile(r"^(whisper|whispercpp|vosk)-(tiny|base|small|medium|large-v3)-([a-z]{2})-batch$")
+# Bulk-generated profile ids are a clean <engine>-<size>-<lang>-<benchmark_type>
+# grid (e.g. "whisper-medium-en-batch", "vosk-small-es-batch",
+# "vosk-small-en-streaming") — confirmed across every profile in the
+# official set. Anything not matching this (e.g. a hand-authored profile
+# outside the bulk set) just doesn't get a matrix cell. One compiled
+# pattern per matrix-shaped benchmark type — concurrency has no language
+# axis (see _wizard_run_concurrency's own docstring) so it was never a
+# candidate here.
+_MATRIX_BENCHMARK_TYPES = ("batch", "streaming")
+_MATRIX_ID_RE = {
+    benchmark_type: re.compile(
+        rf"^(whisper|whispercpp|vosk)-(tiny|base|small|medium|large-v3)-([a-z]{{2}})-{benchmark_type}$"
+    )
+    for benchmark_type in _MATRIX_BENCHMARK_TYPES
+}
 
 _MATRIX_SIZES = ["tiny", "base", "small", "medium", "large-v3"]
 _MATRIX_COLUMNS = (
@@ -155,14 +164,16 @@ class _Matrix:
     cells: dict[tuple[str, str], str]  # (language, "<engine>-<size>") -> profile_id
 
 
-def _build_matrix(profiles: list[dict]) -> _Matrix:
-    """Groups batch profiles into the wizard's language x engine/size grid.
-    A language missing most columns (e.g. the single Dutch example profile)
-    just has fewer entries in `cells` — the grid renders whatever exists,
-    no "unavailable" placeholders."""
+def _build_matrix(profiles: list[dict], benchmark_type: str = "batch") -> _Matrix:
+    """Groups profiles of one matrix-shaped benchmark type (batch or
+    streaming — see `_MATRIX_BENCHMARK_TYPES`) into the wizard's language x
+    engine/size grid. A language missing most columns (e.g. the single
+    Dutch example profile) just has fewer entries in `cells` — the grid
+    renders whatever exists, no "unavailable" placeholders."""
+    id_re = _MATRIX_ID_RE[benchmark_type]
     by_lang: dict[str, dict[str, str]] = {}
     for p in profiles:
-        match = _MATRIX_ID_RE.match(p["id"])
+        match = id_re.match(p["id"])
         if match is None:
             continue
         engine, size, _lang_code = match.groups()
@@ -814,14 +825,17 @@ def _choose_packs_for_language(
     ).ask()
 
 
-def _wizard_run() -> None:
-    """The wizard's sole run flow: a language x engine/size matrix picker
-    (single cells, whole rows, or whole columns — one selection runs one
-    benchmark, more runs a batch), packs resolved automatically
+def _wizard_run_matrix(benchmark_type: str) -> None:
+    """Shared run flow for every matrix-shaped benchmark type (batch,
+    streaming — `_MATRIX_BENCHMARK_TYPES`): a language x engine/size matrix
+    picker (single cells, whole rows, or whole columns — one selection runs
+    one benchmark, more runs a batch), packs resolved automatically
     (one-pack-per-profile), one shared repeats value, then a single
     confirmed queue. A bad combo (e.g. a missing model download) must not
     abort the rest of the queue, so each `_reexec` is run in isolation and
-    reported rather than propagated."""
+    reported rather than propagated. Concurrency doesn't fit this shape
+    (no language axis — see `_wizard_run_concurrency`'s own docstring), so
+    it stays a separate flow."""
     # Once here, not once per _reexec'd `run` below -- see
     # _SKIP_OUTDATED_CHECK_ENV_VAR's docstring on _warn_if_runner_outdated.
     _warn_if_runner_outdated(DEFAULT_API_URL, offline=False)
@@ -831,9 +845,12 @@ def _wizard_run() -> None:
     if not profiles:
         typer.echo("no profiles found (checked the API and ./profiles)", err=True)
         return
-    matrix = _build_matrix(profiles)
+    matrix = _build_matrix(profiles, benchmark_type)
     if not matrix.columns:
-        typer.echo("no batch-matrix profiles found (none matched the <engine>-<size>-<lang>-batch id pattern)", err=True)
+        typer.echo(
+            f"no {benchmark_type}-matrix profiles found (none matched the "
+            f"<engine>-<size>-<lang>-{benchmark_type} id pattern)", err=True,
+        )
         return
 
     typer.echo(_MATRIX_LEGEND, err=True)
@@ -865,6 +882,16 @@ def _wizard_run() -> None:
         return
 
     _wizard_confirm_and_run(combos)
+
+
+def _wizard_run() -> None:
+    """Batch run flow — see `_wizard_run_matrix`."""
+    _wizard_run_matrix("batch")
+
+
+def _wizard_run_streaming() -> None:
+    """Streaming run flow — see `_wizard_run_matrix`."""
+    _wizard_run_matrix("streaming")
 
 
 def _wizard_run_concurrency() -> None:
@@ -920,7 +947,7 @@ def _wizard_run_concurrency() -> None:
 def _wizard_confirm_and_run(combos: list[tuple[str, str]]) -> None:
     """Shared tail of every wizard run flow, from pack-credential/engine
     preflight through the final confirmed `_reexec` queue — used by both
-    `_wizard_run` (the batch/streaming language matrix) and
+    `_wizard_run_matrix` (batch and streaming's shared language matrix) and
     `_wizard_run_concurrency`, which differ only in how `combos` itself
     gets built. A bad combo (e.g. a missing model download) must not abort
     the rest of the queue, so each `_reexec` is run in isolation and
@@ -1062,6 +1089,7 @@ def _wizard_submit() -> None:
 def _run_wizard() -> None:
     actions = {
         "Run benchmark(s)": _wizard_run,
+        "Run streaming benchmark(s)": _wizard_run_streaming,
         "Run concurrency/load benchmark(s)": _wizard_run_concurrency,
         "List available profiles": lambda: _reexec(["list-profiles"]),
         "List available packs": lambda: _reexec(["list-packs"]),

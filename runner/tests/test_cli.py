@@ -1223,6 +1223,44 @@ def test_wizard_dispatch_calls_wizard_run(monkeypatch):
     assert called == [True]
 
 
+def test_wizard_dispatch_calls_wizard_run_streaming(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    called = []
+    monkeypatch.setattr(cli_module, "_wizard_run_streaming", lambda: called.append(True))
+
+    responses = iter(["Run streaming benchmark(s)", "Exit"])
+    monkeypatch.setattr(
+        cli_module.questionary, "select", lambda *a, **k: _FakeAsk(next(responses))
+    )
+
+    cli_module._run_wizard()
+
+    assert called == [True]
+
+
+def test_wizard_run_streaming_calls_wizard_run_matrix_with_streaming(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    calls = []
+    monkeypatch.setattr(cli_module, "_wizard_run_matrix", lambda benchmark_type: calls.append(benchmark_type))
+
+    cli_module._wizard_run_streaming()
+
+    assert calls == ["streaming"]
+
+
+def test_wizard_run_calls_wizard_run_matrix_with_batch(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    calls = []
+    monkeypatch.setattr(cli_module, "_wizard_run_matrix", lambda benchmark_type: calls.append(benchmark_type))
+
+    cli_module._wizard_run()
+
+    assert calls == ["batch"]
+
+
 def test_wizard_run_builds_combos_and_continues_past_failures(monkeypatch, capsys):
     from oesb_runner import cli as cli_module
 
@@ -3096,6 +3134,18 @@ def test_build_matrix_shapes_languages_columns_and_cells():
         ("fr-FR", "whisper-tiny"): "whisper-tiny-fr-batch",
         ("nl-NL", "whisper-medium"): "whisper-medium-nl-batch",
     }
+
+
+def test_build_matrix_streaming_picks_up_only_streaming_profiles():
+    from oesb_runner import cli as cli_module
+
+    matrix = cli_module._build_matrix(_sample_matrix_profiles(), "streaming")
+
+    # The one streaming profile in the sample set (ignored by the default
+    # "batch" matrix per the other test above) is the only thing here.
+    assert matrix.languages == ["en-US"]
+    assert matrix.columns == [("whisper", "medium")]
+    assert matrix.cells == {("en-US", "whisper-medium"): "whisper-medium-en-streaming"}
 
 
 def test_toggle_selection_column_header_selects_and_clears_the_whole_column():
