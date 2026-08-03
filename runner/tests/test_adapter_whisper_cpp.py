@@ -371,3 +371,204 @@ def test_metal_available_false_when_system_info_omits_mtl():
             return "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | "
 
     assert whisper_cpp.metal_available(_Model) is False
+
+
+# --- run_streaming (shared bounded-window engine, streaming.py; this
+# adapter's own job is just the decode call + language resolution) ---
+
+
+class _FakeStreamWord:
+    def __init__(self, text: str, t0: int, t1: int):
+        self.text = text
+        self.t0 = t0
+        self.t1 = t1
+
+
+class _FakeStreamingModel:
+    """Stands in for pywhispercpp.model.Model for run_streaming tests --
+    unlike every other adapter call shape, language is resolved once per
+    utterance and passed to `transcribe()` per CALL, not baked in at
+    construction (see run_streaming's own docstring for the real bug --
+    `detect_language=True` at construction time silently returned zero
+    segments once combined with word-timestamp params -- this fixed)."""
+
+    last_init_kwargs: ClassVar[dict] = {}
+    transcribe_calls: ClassVar[list] = []
+    auto_detect_calls: ClassVar[list] = []
+    detected_language: ClassVar[tuple] = (("en", 0.99), {"en": 0.99})
+    words: ClassVar[list] = [_FakeStreamWord("hello", 0, 50)]
+
+    def __init__(self, *_args, **kwargs):
+        _FakeStreamingModel.last_init_kwargs = kwargs
+
+    def transcribe(self, _samples_slice, **kwargs):
+        _FakeStreamingModel.transcribe_calls.append(kwargs)
+        return list(_FakeStreamingModel.words)
+
+    def auto_detect_language(self, media, **_kwargs):
+        _FakeStreamingModel.auto_detect_calls.append(media)
+        return _FakeStreamingModel.detected_language
+
+    @staticmethod
+    def system_info():
+        return "WHISPER : COREML = 0 | OPENVINO = 0 | MTL : EMBED_LIBRARY = 1 | "
+
+
+def _reset_fake_streaming_model():
+    _FakeStreamingModel.last_init_kwargs = {}
+    _FakeStreamingModel.transcribe_calls = []
+    _FakeStreamingModel.auto_detect_calls = []
+    _FakeStreamingModel.words = [_FakeStreamWord("hello", 0, 50)]
+
+
+def _fake_streaming_deps(monkeypatch):
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeStreamingModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0] * 32000)  # 2s at 16kHz
+
+
+def test_run_streaming_passes_explicit_language_to_every_decode_call(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+
+    run_streaming("tiny", [_fake_utterance(tmp_path)], language="es", chunk_ms=1000)
+
+    assert _FakeStreamingModel.transcribe_calls
+    assert all(c.get("language") == "es" for c in _FakeStreamingModel.transcribe_calls)
+    assert _FakeStreamingModel.auto_detect_calls == []
+
+
+def test_run_streaming_english_only_model_never_detects(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+
+    run_streaming("whisper-base.en", [_fake_utterance(tmp_path)], language=None, chunk_ms=1000)
+
+    assert all(c.get("language") == "en" for c in _FakeStreamingModel.transcribe_calls)
+    assert _FakeStreamingModel.auto_detect_calls == []
+
+
+def test_run_streaming_detects_language_once_per_utterance_not_once_per_chunk(monkeypatch, tmp_path):
+    """Real bug this guards against: detecting language fresh every chunk
+    (a sub-second window) would be unreliable even setting aside the
+    zero-segment bug -- must resolve once per utterance, from its own
+    full audio, and reuse that for every chunk's decode call."""
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+
+    # 2s of fake audio at chunk_ms=500 -> 4 chunks, so a once-per-chunk
+    # bug would show up as 4 auto_detect_language calls, not 1.
+    run_streaming("tiny", [_fake_utterance(tmp_path)], language=None, chunk_ms=500)
+
+    assert len(_FakeStreamingModel.auto_detect_calls) == 1
+    assert all(c.get("language") == "en" for c in _FakeStreamingModel.transcribe_calls)
+
+
+def test_run_streaming_filters_empty_text_segments(monkeypatch, tmp_path):
+    """whisper.cpp occasionally emits an empty leading Segment
+    (t0=0, t1=0, text='') alongside real word segments -- confirmed on
+    real audio, not assumed -- must never surface as a "word" with
+    duration 0."""
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+    _FakeStreamingModel.words = [_FakeStreamWord("", 0, 0), _FakeStreamWord("hello", 0, 50)]
+
+    traces = run_streaming("tiny", [_fake_utterance(tmp_path)], language="en", chunk_ms=1000)
+
+    assert "hello" in traces[0].final_text
+    assert traces[0].final_text.strip() != ""
+
+
+def test_run_streaming_converts_centiseconds_to_seconds(monkeypatch, tmp_path):
+    """whisper.cpp's own native timestamp unit is centiseconds (t1=50 ->
+    0.5s), NOT the same unit faster-whisper's Word.start/.end use
+    (seconds) -- confirmed by direct measurement on real audio (a
+    single word's t1 came back as a small integer like 53, not 0.53).
+    Getting this wrong would make every streaming latency metric off by
+    100x."""
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+    _FakeStreamingModel.words = [_FakeStreamWord("hi", 100, 150)]  # 1.0s -> 1.5s
+
+    traces = run_streaming("tiny", [_fake_utterance(tmp_path)], language="en", chunk_ms=1000)
+
+    # audio_duration_s is derived from detected word start/end (see
+    # streaming.py) -- 100/150 centiseconds misread as raw seconds would
+    # blow this metric up by 100x instead of landing at a plausible
+    # sub-clip-length value.
+    assert 0.0 <= traces[0].audio_duration_s < 2.0
+
+
+def test_run_streaming_passes_use_gpu_true_for_metal_backend(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+
+    run_streaming("tiny", [_fake_utterance(tmp_path)], language="en", backend="metal")
+
+    assert _FakeStreamingModel.last_init_kwargs.get("context_params") == {"use_gpu": True}
+
+
+def test_run_streaming_passes_use_gpu_false_for_default_cpu_backend(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+
+    run_streaming("tiny", [_fake_utterance(tmp_path)], language="en")
+
+    assert _FakeStreamingModel.last_init_kwargs.get("context_params") == {"use_gpu": False}
+
+
+def test_run_streaming_metal_backend_raises_when_build_has_no_metal_support(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+    monkeypatch.setattr(
+        _FakeStreamingModel, "system_info",
+        staticmethod(lambda: "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA : ARCHS = 89 | "),
+    )
+
+    with pytest.raises(RuntimeError, match="no metal support"):
+        run_streaming("tiny", [_fake_utterance(tmp_path)], language="en", backend="metal")
+
+    assert _FakeStreamingModel.last_init_kwargs == {}
+
+
+@pytest.mark.slow
+def test_run_streaming_transcribes_real_audio_within_wer_tolerance():
+    """End-to-end proof, real audio, default (cpu) backend for CI
+    portability -- same loose-bound convention run_batch's own real-audio
+    test uses ("just proving the wiring"), not a performance assertion."""
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+    from oesb_runner.metrics import rtf, wer
+
+    pack = load_pack(PACK_DIR)
+    traces = run_streaming("tiny.en", pack.utterances, chunk_ms=1000)
+    by_id = {t.utterance_id: t for t in traces}
+
+    pairs = []
+    for utterance in pack.utterances:
+        hypothesis = by_id[utterance.utterance_id].final_text
+        pairs.append((
+            normalize("goesb-en-v1", utterance.reference_text),
+            normalize("goesb-en-v1", hypothesis),
+        ))
+
+    result_wer = wer.compute(pairs)
+    total_processing_s = sum(t.processing_time_s for t in traces)
+    result_rtf = rtf.compute(total_processing_s, pack.total_duration_s)
+
+    assert result_wer < 0.3
+    assert result_rtf < 5.0

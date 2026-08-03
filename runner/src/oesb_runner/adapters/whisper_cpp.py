@@ -15,6 +15,7 @@ from typing import Any
 
 from ..audio import decode_pcm
 from ..pack import Utterance
+from ..streaming import StreamTrace, run_windowed_local_agreement_streaming
 from . import ConcurrentCall, Transcription, log_progress, register
 
 # whisper.cpp's own build-info string (whisper_print_system_info(), bound
@@ -200,6 +201,141 @@ def run_batch(
             processing_time_s=elapsed,
         ))
     return results
+
+
+@register(
+    "whisper-cpp", benchmark_type="streaming",
+    applied_parameters=frozenset({"threads", "temperature", "chunk_ms"}),
+    backends=frozenset(_USE_GPU_BY_BACKEND),
+)
+def run_streaming(
+    model_name: str,
+    utterances: list[Utterance],
+    *,
+    chunk_ms: int = 1000,
+    quantization: str = "int8",
+    beam_size: int = 5,
+    temperature: float = 0.0,
+    vad: bool = True,
+    threads: int = 4,
+    download_root: str | Path | None = None,
+    language: str | None = None,
+    backend: str = "cpu",
+) -> list[StreamTrace]:
+    """Feed each utterance to whisper.cpp in `chunk_ms` chunks via
+    `streaming.run_windowed_local_agreement_streaming` — same shared,
+    real-audio-validated bounded-window design `faster_whisper.run_streaming`
+    uses (see that shared function's own docstring), since whisper.cpp,
+    like faster-whisper, has no incremental decoder state to resume
+    through `pywhispercpp`'s API and must re-decode to produce a
+    streaming trace at all. This adapter only supplies the
+    engine-specific decode call and word extraction.
+
+    Word-level timestamps come from `token_timestamps=True,
+    split_on_word=True, max_len=1` on the `Model` — confirmed by direct
+    inspection of pywhispercpp's actual `Segment` output (not assumed
+    from docs) that this is what turns whisper.cpp's normal
+    sentence/phrase-level segments into one `Segment` per word, each
+    with its own `t0`/`t1`. Those timestamps are in whisper.cpp's own
+    native unit — centiseconds (hundredths of a second), NOT the same
+    unit faster-whisper's `Word.start`/`.end` use (seconds) — confirmed
+    by direct measurement (a word's `t1` came back as a small integer
+    like 53, not 0.53), so this divides by 100 before handing them to
+    the shared windowing function, which expects seconds throughout.
+    whisper.cpp also occasionally emits an empty leading `Segment`
+    (`t0=0, t1=0, text=''`, confirmed on real audio) — filtered out here
+    since it isn't a real word.
+
+    `quantization`/`beam_size`/`vad` are accepted for call-shape parity
+    with `run_batch` (see its own docstring for why they're unused) —
+    unlike faster-whisper's streaming adapter, `vad` genuinely has
+    nothing to attach to here: whisper.cpp's own VAD is a separate,
+    optional pass this adapter doesn't wire up.
+
+    Unlike faster-whisper (CPU/CUDA only), `--backend metal` is real
+    here on Apple Silicon (`_USE_GPU_BY_BACKEND`) — confirmed live on an
+    Apple M1 Pro: Metal actually initializes (`ggml_metal_device_init`)
+    and this is the one Whisper-family streaming path with real GPU
+    acceleration on that hardware, unlike faster-whisper's CPU-bound
+    ctranslate2 backend (no Metal support at all — see
+    `faster_whisper.run_streaming`'s own docstring).
+    """
+    try:
+        from pywhispercpp.model import Model
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise RuntimeError(
+            "pywhispercpp is not installed; run "
+            "`pip install goesb-runner[whisper-cpp]`"
+        ) from exc
+
+    if backend in _GGML_BACKEND_SECTION_RE:
+        info = Model.system_info()
+        if not _GGML_BACKEND_SECTION_RE[backend].search(info or ""):
+            raise RuntimeError(
+                f"--backend {backend} failed: this pywhispercpp build has no {backend} "
+                f"support (system_info: {info!r}). Run `goesb doctor` to check what's "
+                "available, or use --backend cpu."
+            )
+
+    resolved_model_id = _resolve_model_id(model_name)
+    fixed_language: str | None
+    if language:
+        fixed_language = language
+    elif resolved_model_id.endswith(".en"):
+        fixed_language = "en"
+    else:
+        fixed_language = None  # resolved per utterance below, via auto_detect_language
+
+    # `language=` set explicitly here (never `detect_language=True`) —
+    # real bug, confirmed by direct measurement: `detect_language=True`
+    # combined with `token_timestamps`/`split_on_word`/`max_len` (needed
+    # for word-level timestamps below) silently returned ZERO segments,
+    # not a wrong-language guess. `Model.auto_detect_language()` (a
+    # dedicated method, not this same code path) doesn't have that
+    # problem, so `fixed_language is None` gets resolved once per
+    # utterance from that instead, below.
+    model = Model(
+        resolved_model_id,
+        models_dir=str(download_root) if download_root is not None else None,
+        n_threads=threads,
+        temperature=temperature,
+        print_realtime=False,
+        print_progress=False,
+        token_timestamps=True,
+        split_on_word=True,
+        max_len=1,
+        context_params={"use_gpu": _USE_GPU_BY_BACKEND[backend]},
+        language=fixed_language or "en",  # placeholder when None; overridden per-call below
+    )
+
+    traces: list[StreamTrace] = []
+    for i, utterance in enumerate(utterances, start=1):
+        samples = decode_pcm(utterance.audio_path, _SAMPLE_RATE, dtype="float32")
+
+        # Resolved ONCE per utterance from its own full audio, not
+        # re-guessed every chunk — a streaming session re-detecting
+        # language from a sub-second first window every chunk would be
+        # unreliable even without the bug above, and a real deployment
+        # wouldn't flip-flop language mid-conversation either.
+        if fixed_language is not None:
+            utterance_language = fixed_language
+        else:
+            (detected, _prob), _all_probs = model.auto_detect_language(samples)
+            utterance_language = detected
+
+        def decode_window(samples_slice, _lang=utterance_language) -> list[dict]:
+            segments = model.transcribe(samples_slice, language=_lang)
+            return [
+                {"word": s.text.strip(), "start": s.t0 / 100.0, "end": s.t1 / 100.0}
+                for s in segments if s.text.strip()
+            ]
+
+        trace = run_windowed_local_agreement_streaming(
+            utterance, samples, sample_rate=_SAMPLE_RATE, chunk_ms=chunk_ms, decode_window=decode_window,
+        )
+        log_progress(i, len(utterances), utterance.utterance_id, trace.processing_time_s)
+        traces.append(trace)
+    return traces
 
 
 @register(

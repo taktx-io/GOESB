@@ -1,0 +1,56 @@
+# whisper.cpp streaming — tiny English tier. Same runtime/model as
+# whispercpp-tiny-en-batch; benchmark_type + configuration.chunk_ms +
+# streaming metric set differ. Unlike faster-whisper (`--backend metal`
+# not supported at all by its ctranslate2 backend — see
+# whisper-medium-en-streaming's own profile comment), whisper.cpp
+# genuinely supports Metal on Apple Silicon: run with `--backend metal`
+# for real GPU acceleration, confirmed live on an Apple M1 Pro (RTF
+# 0.085x with this tiny tier — see adapters/whisper_cpp.py's
+# run_streaming docstring for the full validation). Only chunk_ms is
+# declared overridable — quantization/beam_size/vad are accepted for
+# call-shape parity but unused (see run_batch's own docstring).
+# Validated against schemas/benchmark-profile.schema.json.
+id: whispercpp-tiny-en-streaming
+version: 1.0.0
+title: Whisper.cpp Tiny EN (Streaming)
+benchmark_type: streaming
+language: en-US
+runtime:
+  name: whisper-cpp
+  min_version: 1.5.0
+model:
+  name: whisper-tiny.en
+configuration:
+  threads: 4
+  chunk_ms: 1000
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: goesb-en-v1
+scoring:
+  primary_metric: first_partial_latency
+  tie_breakers:
+  - streaming_responsiveness
+  - real_time_factor
+metrics:
+- wer
+- real_time_factor
+- cpu_pct
+- ram_mb
+- first_partial_latency
+- first_final_latency
+- end_of_speech_latency
+- update_frequency
+- partial_stability
+- streaming_responsiveness
+overridable:
+  chunk_ms:
+    allowed:
+    - 250
+    - 500
+    - 1000
+    - 2000
+changelog:
+- version: 1.0.0
+  notes: Initial whisper.cpp streaming profile — third streaming engine, first with real GPU (Metal) acceleration on this hardware (M5).

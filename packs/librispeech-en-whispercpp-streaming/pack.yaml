@@ -1,0 +1,38 @@
+id: librispeech-en-whispercpp-streaming
+version: 1.0.0
+sha256: a2cb98d938c917feba2909e9e3d81178171ecadc9eb94c093c3af01d7738109a
+profile_id: whispercpp-tiny-en-streaming
+visibility: open
+license: CC-BY-4.0
+audio:
+  count: 15
+  total_duration_s: 145.195
+  sample_rate_hz: 16000
+  manifest_sha256: 6b9cdcf81a565496b7d4ef4881b035d98593eb941e61d87780591f0aba5852d9
+  source:
+    type: librispeech
+    params:
+      speaker: '1272'
+      chapter: '128104'
+      split: dev-clean
+    fetch_instructions: 'Identical audio to librispeech-en — auto-fetched the same
+      way (same speaker/chapter). Manual fallback: run scripts/fetch_librispeech_subset.py
+      for that pack, then pass `--audio-dir packs/librispeech-en/audio` to `goesb
+      run`, or symlink/copy that pack''s audio/ directory here.'
+metadata:
+  language: en-US
+  dialect: general-american
+  age_group: mixed
+  recording_environment: quiet
+  microphone: consumer usb
+  sample_rate_hz: 16000
+  background_noise: none
+  num_speakers: 100
+  speech_style: read
+  transcription_style: verbatim
+  tags:
+  - librispeech
+  - english
+  - clean
+  - whisper-cpp
+  - streaming
