@@ -5,6 +5,28 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.18] - 2026-08-03
+### Added
+- **whisper.cpp streaming**, third streaming engine, real Metal GPU
+  acceleration. `whisper.cpp`'s Metal backend (already wired for batch/
+  concurrency) is genuinely GPU-accelerated on Apple Silicon, unlike
+  faster-whisper's ctranslate2 backend (no Metal support at all).
+  Measured live on an Apple M1 Pro: RTF 0.06-0.09x with the tiny tier —
+  the only Whisper-family streaming path on this hardware that's
+  actually realtime-capable. New `whispercpp-tiny-en-streaming` profile.
+  The bounded-window local-agreement streaming loop built for
+  faster-whisper's own fix is now a shared
+  `streaming.run_windowed_local_agreement_streaming`, used by both
+  engines instead of being duplicated.
+### Changed
+- **`whisper-medium-en-streaming` is back in the wizard's streaming
+  matrix.** It was briefly excluded after measuring RTF 3.19x on one
+  Apple M1 Pro CPU — but GOESB is hardware-generic (docs/00-vision.md):
+  that's a property of that machine, not of the profile. `--backend
+  cuda` on real NVIDIA hardware, or a different CPU, may give a
+  completely different answer, and that's exactly what the benchmark
+  should measure and show, not hide.
+
 ## [0.9.17] - 2026-08-03
 ### Fixed
 - **faster-whisper streaming's re-decode window is now bounded, not the
