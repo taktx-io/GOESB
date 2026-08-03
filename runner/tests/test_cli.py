@@ -672,6 +672,44 @@ def test_wizard_pick_backends_one_prompt_per_distinct_engine(monkeypatch):
     assert result == {"faster-whisper": "cuda", "vosk": "cuda"}
 
 
+def test_wizard_pick_backends_aborts_after_a_successful_whisper_cpp_cuda_rebuild(monkeypatch):
+    """A rebuilt pywhispercpp extension can't take effect until a real
+    process restart (see _offer_whisper_cpp_cuda_build's own docstring) --
+    the wizard must abort here the same way a declined backend prompt
+    does, never silently continue with the stale cpu-only build."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *a, **k: frozenset({"cpu"}))
+    monkeypatch.setattr(cli_module, "_offer_whisper_cpp_cuda_build", lambda: True)
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not prompt for a backend after aborting to rebuild")
+
+    monkeypatch.setattr(cli_module.questionary, "select", _unexpected)
+
+    assert cli_module._wizard_pick_backends({"p1": "whisper-cpp"}, None) is None
+
+
+def test_wizard_pick_backends_continues_normally_when_no_rebuild_happens(monkeypatch):
+    """Declining the rebuild offer (or it being a no-op on this
+    platform/hardware) must fall through to the ordinary cpu-only-skip
+    behavior, not abort the wizard."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *a, **k: frozenset({"cpu"}))
+    monkeypatch.setattr(cli_module, "_offer_whisper_cpp_cuda_build", lambda: False)
+    prompted = []
+    monkeypatch.setattr(
+        cli_module.questionary, "select",
+        lambda *a, **k: prompted.append(1) or _FakeAsk("cpu"),
+    )
+
+    result = cli_module._wizard_pick_backends({"p1": "whisper-cpp"}, None)
+
+    assert result == {}
+    assert not prompted  # cpu-only, no rebuild -- same as any other cpu-only engine
+
+
 def test_wizard_run_threads_chosen_backend_into_reexec_args(monkeypatch):
     """End-to-end proof the wizard's backend choice actually reaches the
     re-exec'd `run` invocation, not just an internal dict."""
@@ -3831,6 +3869,152 @@ def test_ensure_cuda_runtime_ready_offers_the_cublas_wheel_when_missing(monkeypa
     assert offered == [cli_module.cuda_runtime.CUBLAS_PACKAGE]
 
 
+# --- _whisper_cpp_cuda_build_ready / _offer_whisper_cpp_cuda_build ---
+
+
+def test_whisper_cpp_cuda_build_ready_false_when_not_importable(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setitem(sys.modules, "pywhispercpp", None)
+    monkeypatch.setitem(sys.modules, "pywhispercpp.model", None)
+
+    assert cli_module._whisper_cpp_cuda_build_ready() is False
+
+
+def test_whisper_cpp_cuda_build_ready_delegates_to_adapters_cuda_available(monkeypatch):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.adapters import whisper_cpp as whisper_cpp_adapter
+
+    monkeypatch.setattr(whisper_cpp_adapter, "cuda_available", lambda model_cls: True)
+
+    assert cli_module._whisper_cpp_cuda_build_ready() is True
+
+
+def test_offer_whisper_cpp_cuda_build_noop_on_non_linux(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Darwin")
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not probe gpu/nvcc on a platform this doesn't cover")
+
+    monkeypatch.setattr(cli_module, "_capture_gpu", _unexpected)
+
+    assert cli_module._offer_whisper_cpp_cuda_build() is False
+
+
+def test_offer_whisper_cpp_cuda_build_noop_when_not_a_tty(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: False)
+
+    assert cli_module._offer_whisper_cpp_cuda_build() is False
+
+
+def test_offer_whisper_cpp_cuda_build_noop_without_a_gpu(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: None)
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not offer a build with no GPU to build for")
+
+    monkeypatch.setattr(cli_module.questionary, "confirm", _unexpected)
+
+    assert cli_module._offer_whisper_cpp_cuda_build() is False
+
+
+def test_offer_whisper_cpp_cuda_build_noop_without_nvcc(monkeypatch):
+    """A real NVIDIA GPU (driver) is not the same as a real CUDA Toolkit
+    (nvcc) -- the source build needs the latter, and a fresh GPU box very
+    commonly has only the former."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: {"model": "H100"})
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: None)
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not offer a build without a CUDA Toolkit to build with")
+
+    monkeypatch.setattr(cli_module.questionary, "confirm", _unexpected)
+
+    assert cli_module._offer_whisper_cpp_cuda_build() is False
+
+
+def _stub_questionary_confirm(monkeypatch, answer: bool):
+    class _FakeConfirm:
+        def ask(self):
+            return answer
+
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeConfirm())
+
+
+def test_offer_whisper_cpp_cuda_build_returns_false_when_declined(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: {"model": "H100"})
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/usr/local/cuda/bin/nvcc")
+    _stub_questionary_confirm(monkeypatch, False)
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not run pip when the user declined")
+
+    monkeypatch.setattr(cli_module.subprocess, "run", _unexpected)
+
+    assert cli_module._offer_whisper_cpp_cuda_build() is False
+
+
+def test_offer_whisper_cpp_cuda_build_runs_pip_with_ggml_cuda_env(monkeypatch):
+    """The actual gap this exists to fix: rebuild pywhispercpp from source
+    with CUDA baked in, via the exact command upstream documents
+    (GGML_CUDA=1 pip install git+...), so this doesn't have to be run by
+    hand on every fresh GPU box."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: {"model": "H100"})
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/usr/local/cuda/bin/nvcc")
+    _stub_questionary_confirm(monkeypatch, True)
+
+    captured = {}
+
+    def _fake_run(cmd, env=None, check=False):
+        captured["cmd"] = cmd
+        captured["env"] = env
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", _fake_run)
+
+    assert cli_module._offer_whisper_cpp_cuda_build() is True
+    assert cli_module._PYWHISPERCPP_CUDA_SOURCE in captured["cmd"]
+    assert captured["env"]["GGML_CUDA"] == "1"
+
+
+def test_offer_whisper_cpp_cuda_build_returns_false_when_pip_fails(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module, "_capture_gpu", lambda unavailable: {"model": "H100"})
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/usr/local/cuda/bin/nvcc")
+    _stub_questionary_confirm(monkeypatch, True)
+    monkeypatch.setattr(
+        cli_module.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=1)
+    )
+
+    assert cli_module._offer_whisper_cpp_cuda_build() is False
+
+
 # --- regression: _load_profile_for_wizard/_load_pack_for_wizard must not
 # re-fetch the same id over and over within one process ---
 
@@ -4548,6 +4732,57 @@ def test_run_command_param_against_whispercpp_fails_before_model_load(tmp_path, 
     assert result.exit_code == 1
     assert "not declared overridable" in result.output
     assert "Loaded" not in result.output  # never reached pack/audio resolution
+
+
+def test_run_command_exits_cleanly_after_a_successful_whisper_cpp_cuda_rebuild(tmp_path, monkeypatch):
+    """A successful rebuild can't take effect in this same process (see
+    _offer_whisper_cpp_cuda_build's own docstring) -- `run` must stop and
+    ask for a re-run rather than continue on with the stale cpu-only
+    build it already checked."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(cli_module, "_ensure_cuda_runtime_ready", lambda runtime_name, backend: None)
+    monkeypatch.setattr(cli_module, "_whisper_cpp_cuda_build_ready", lambda: False)
+    monkeypatch.setattr(cli_module, "_offer_whisper_cpp_cuda_build", lambda: True)
+
+    result = runner.invoke(app, [
+        "run", "whispercpp-base-en-batch", "some-pack-that-does-not-exist",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(tmp_path / "packs"),
+        "--backend", "cuda",
+    ])
+
+    assert result.exit_code == 0
+    assert "Loaded" not in result.output  # never reached pack/audio resolution
+
+
+def test_run_command_continues_normally_when_whisper_cpp_cuda_already_built(tmp_path, monkeypatch):
+    """No rebuild offered/needed when the build already has CUDA -- must
+    not early-exit in that case."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_ensure_engine_installed", lambda runtime_name: None)
+    monkeypatch.setattr(cli_module, "_ensure_cuda_runtime_ready", lambda runtime_name, backend: None)
+    monkeypatch.setattr(cli_module, "_whisper_cpp_cuda_build_ready", lambda: True)
+
+    def _unexpected():
+        raise AssertionError("must not offer a rebuild when CUDA is already built")
+
+    monkeypatch.setattr(cli_module, "_offer_whisper_cpp_cuda_build", _unexpected)
+
+    result = runner.invoke(app, [
+        "run", "whispercpp-base-en-batch", "some-pack-that-does-not-exist",
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(tmp_path / "packs"),
+        "--backend", "cuda",
+    ])
+
+    # Proceeds past the rebuild check to real pack resolution, which then
+    # fails for the unrelated reason that this pack doesn't exist --
+    # proves it got past the rebuild gate, not that the whole run succeeded.
+    assert result.exit_code == 1
+    assert "not found" in result.output
 
 
 def test_parse_param_overrides_splits_key_value_pairs():

@@ -141,10 +141,17 @@ def _matching_packs(packs: list[dict], language: str) -> list[dict]:
 # pattern per matrix-shaped benchmark type — concurrency has no language
 # axis (see _wizard_run_concurrency's own docstring) so it was never a
 # candidate here.
+#
+# "tdt-v3" is parakeet's own "size" slot — it isn't a size tier the way
+# tiny/.../large-v3 are (parakeet-tdt-0.6b-v3 is one multilingual
+# checkpoint, no per-size variants the way Whisper has), but the id/matrix
+# shape only needs a literal alternative to match against, same as
+# "large-v3" already being a hyphenated literal in this same alternation —
+# it isn't split apart by hyphen count.
 _MATRIX_BENCHMARK_TYPES = ("batch", "streaming")
 _MATRIX_ID_RE = {
     benchmark_type: re.compile(
-        rf"^(whisper|whispercpp|vosk)-(tiny|base|small|medium|large-v3)-([a-z]{{2}})-{benchmark_type}$"
+        rf"^(whisper|whispercpp|vosk|parakeet)-(tiny|base|small|medium|large-v3|tdt-v3)-([a-z]{{2}})-{benchmark_type}$"
     )
     for benchmark_type in _MATRIX_BENCHMARK_TYPES
 }
@@ -153,6 +160,7 @@ _MATRIX_SIZES = ["tiny", "base", "small", "medium", "large-v3"]
 _MATRIX_COLUMNS = (
     [("whisper", size) for size in _MATRIX_SIZES]
     + [("whispercpp", size) for size in _MATRIX_SIZES]
+    + [("parakeet", "tdt-v3")]
     + [("vosk", "small"), ("vosk", "medium")]
 )
 
@@ -247,12 +255,15 @@ def _selection_to_profile_ids(selected: set[tuple[int, int]], matrix: _Matrix) -
     return sorted(profile_ids)
 
 
-_MATRIX_ENGINE_SHORT = {"whisper": "fw", "whispercpp": "wc", "vosk": "vk"}
-_MATRIX_SIZE_SHORT = {"tiny": "T", "base": "B", "small": "S", "medium": "M", "large-v3": "L"}
+_MATRIX_ENGINE_SHORT = {"whisper": "fw", "whispercpp": "wc", "vosk": "vk", "parakeet": "pk"}
+_MATRIX_SIZE_SHORT = {
+    "tiny": "T", "base": "B", "small": "S", "medium": "M", "large-v3": "L", "tdt-v3": "V3",
+}
 _MATRIX_COLUMN_WIDTH = 7
 _MATRIX_ROW_HEADER_WIDTH = 8
 _MATRIX_LEGEND = (
-    "fw=faster-whisper  wc=whisper-cpp  vk=vosk    T=tiny B=base S=small M=medium L=large-v3\n"
+    "fw=faster-whisper  wc=whisper-cpp  vk=vosk  pk=parakeet    "
+    "T=tiny B=base S=small M=medium L=large-v3 V3=tdt-v3\n"
     "Arrows to move, space to toggle a cell/row/column, enter to confirm, escape to go back."
 )
 
@@ -1306,6 +1317,7 @@ _ENGINE_MODULE_NAMES = {
     "faster-whisper": "faster_whisper",
     "vosk": "vosk",
     "whisper-cpp": "pywhispercpp",
+    "parakeet": "transformers",
 }
 
 
@@ -1448,6 +1460,76 @@ def _ensure_cuda_runtime_ready(runtime_name: str, backend: str) -> None:
     if not cuda_runtime.cuda_libs_supported() or cuda_runtime.preload_installed_cublas():
         return
     _offer_install(cuda_runtime.CUBLAS_PACKAGE)
+
+
+_PYWHISPERCPP_CUDA_SOURCE = "git+https://github.com/absadiki/pywhispercpp"
+
+
+def _whisper_cpp_cuda_build_ready() -> bool:
+    """True iff the pywhispercpp build already importable in this process
+    genuinely has CUDA compiled in — same check `goesb doctor`/the wizard
+    already use (`whisper_cpp.cuda_available`), exposed standalone so the
+    build-offer below can be a no-op when there's nothing to do."""
+    try:
+        from pywhispercpp.model import Model
+
+        from .adapters import whisper_cpp as whisper_cpp_adapter
+    except ImportError:
+        return False
+    return whisper_cpp_adapter.cuda_available(Model)
+
+
+def _offer_whisper_cpp_cuda_build() -> bool:
+    """pywhispercpp ships no prebuilt CUDA wheel anywhere — confirmed
+    directly against its own README/PyPI page: `pip install pywhispercpp`
+    is always a CPU-only build; CUDA only exists via a from-source rebuild
+    with `GGML_CUDA=1` set at build time. Without this, `--backend cuda`
+    for whisper-cpp is a dead end forever on a fresh Linux GPU box —
+    `goesb doctor` could only ever report "not compiled into this build,"
+    with no path to fix it short of a human finding and running that exact
+    upstream command by hand. Offers to run it right here instead,
+    mirroring `_offer_install`'s UX. Scoped to Linux + a real NVIDIA GPU +
+    a real CUDA Toolkit (`nvcc` on PATH, the actual build-time requirement,
+    not just a driver) all present — otherwise this would just fail loudly
+    a few minutes into a pointless compile.
+
+    Returns True iff a rebuild actually happened. The caller MUST treat
+    that as "stop and ask for a re-run," never "continue this same
+    process": whichever caller reaches this point has, by construction,
+    already imported `pywhispercpp` once (to learn CUDA isn't compiled
+    in), so the freshly-built extension on disk can't take effect until a
+    real process restart — the same reason `pip install --upgrade` on an
+    already-imported C-extension module never takes effect in the process
+    that ran the upgrade either."""
+    if platform.system() != "Linux" or getattr(sys, "frozen", False) or not sys.stdin.isatty():
+        return False
+    if _capture_gpu({}) is None or shutil.which("nvcc") is None:
+        return False
+
+    if not questionary.confirm(
+        "pywhispercpp has no CUDA support compiled in (no prebuilt CUDA wheel exists "
+        "upstream, ever) — rebuild it from source with CUDA now? Needs a C++ compiler "
+        "and cmake already on this box; takes a few minutes.",
+        default=True,
+    ).ask():
+        return False
+
+    typer.echo("Rebuilding pywhispercpp with GGML_CUDA=1 (compiling whisper.cpp from source) ...", err=True)
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--force-reinstall", _PYWHISPERCPP_CUDA_SOURCE],
+        env={**os.environ, "GGML_CUDA": "1"},
+        check=False,
+    )
+    if result.returncode != 0:
+        typer.echo(
+            "Rebuild failed — see output above (a missing CUDA Toolkit dev "
+            "package or compiler is the usual cause). `goesb doctor` still "
+            "reports cpu-only until this succeeds.",
+            err=True,
+        )
+        return False
+    typer.echo("Rebuilt pywhispercpp with CUDA support — re-run this exact command to use it.", err=True)
+    return True
 
 
 def _profile_rows(api_url: str, profiles_dir: str, offline: bool) -> list[dict]:
@@ -1818,6 +1900,21 @@ def _cuda_device_count() -> int | None:
         return None
 
 
+def _torch_cuda_available() -> bool | None:
+    """`None` means "couldn't check" (torch not installed, or the probe
+    itself raised) — same "can't check" vs "checked, and it's false"
+    distinction `_cuda_device_count` makes for ctranslate2. Read-only:
+    never initializes a model, just asks torch what it can see."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    try:
+        return bool(torch.cuda.is_available())
+    except Exception:  # noqa: BLE001 - a probe must never itself crash `doctor`
+        return None
+
+
 def _ready_backends(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] | None) -> frozenset[str]:
     """Backends actually usable on this machine right now for this engine
     — `get_supported_backends` alone is declared-only (what the adapter
@@ -1855,6 +1952,11 @@ def _ready_backends(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] 
             return frozenset({"cpu", "cuda"})
         return frozenset({"cpu"})
 
+    if runtime_name == "parakeet":
+        if _torch_cuda_available():
+            return frozenset({"cpu", "cuda"})
+        return frozenset({"cpu"})
+
     return backends  # unknown engine shape — trust declared support
 
 
@@ -1869,10 +1971,21 @@ def _wizard_pick_backends(
     Enter-through-everything still reproduces today's cpu-only behavior
     byte-for-byte. Returns runtime_name -> chosen backend (cpu entries
     omitted, since that's the `run` default already), or None if the
-    user aborts a prompt."""
+    user aborts a prompt.
+
+    whisper-cpp gets one extra step before its own prompt: if `ready` came
+    back cpu-only, that might just mean this build was never compiled with
+    CUDA (not that the hardware can't do it) — `_offer_whisper_cpp_cuda_build`
+    offers to fix that in place. A successful rebuild aborts the wizard the
+    same way a declined prompt does (`return None`): the rebuilt extension
+    can't take effect until a real process restart, so continuing this run
+    would silently keep using the stale cpu-only one — see that function's
+    own docstring."""
     chosen: dict[str, str] = {}
     for runtime_name in sorted({r for r in runtime_by_profile.values() if r is not None}):
         ready = _ready_backends(runtime_name, "batch", gpu)
+        if runtime_name == "whisper-cpp" and "cuda" not in ready and _offer_whisper_cpp_cuda_build():
+            return None
         if ready <= {"cpu"}:
             continue
         backend = questionary.select(
@@ -1927,7 +2040,13 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
         for gpu_backend in sorted(backends - {"cpu"}):
             check = whisper_cpp_adapter._BACKEND_AVAILABILITY_CHECK.get(gpu_backend)
             if check is None or not check(Model):
-                parts.append(f"{gpu_backend} unavailable (not compiled into this build)")
+                suffix = (
+                    " — `goesb run --backend cuda` or the wizard will offer to rebuild "
+                    "it for you"
+                    if gpu_backend == "cuda"
+                    else ""
+                )
+                parts.append(f"{gpu_backend} unavailable (not compiled into this build){suffix}")
             elif gpu_backend == "cuda" and gpu is None:
                 parts.append(f"{gpu_backend} compiled in, but no NVIDIA GPU detected — unlikely to work")
             elif gpu_backend == "cuda":
@@ -1961,6 +2080,21 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
             "(https://developer.nvidia.com/cudnn) to unlock --backend cuda, or continue "
             "on --backend cpu."
         )
+
+    if runtime_name == "parakeet":
+        cuda_ok = _torch_cuda_available()
+        if cuda_ok is None:
+            return f"{label}: cpu ready; cuda readiness unknown (torch not installed or probe failed)."
+        if cuda_ok:
+            return f"{label}: cpu ready; cuda ready (torch.cuda.is_available() is True, {gpu['model']} detected)."
+        return (
+            f"{label}: cpu ready; {gpu['model']} detected (driver {gpu['driver']}) but "
+            "torch.cuda.is_available() is False — likely a CPU-only torch build. "
+            "Install a CUDA-enabled torch matching your driver "
+            "(https://pytorch.org/get-started/locally/) to unlock --backend cuda, or "
+            "continue on --backend cpu."
+        )
+
     return f"{label}: installed, supports {sorted(backends)}."
 
 
@@ -2396,6 +2530,13 @@ def run(
 
     _ensure_engine_installed(profile["runtime"]["name"])
     _ensure_cuda_runtime_ready(profile["runtime"]["name"], backend)
+    if (
+        profile["runtime"]["name"] == "whisper-cpp"
+        and backend == "cuda"
+        and not _whisper_cpp_cuda_build_ready()
+        and _offer_whisper_cpp_cuda_build()
+    ):
+        raise typer.Exit(code=0)
 
     if not (pack_dir / "pack.yaml").exists():
         if offline:

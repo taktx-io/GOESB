@@ -41,6 +41,12 @@ cuda = ["nvidia-cublas-cu12>=12.0,<13; sys_platform == 'linux'", "nvidia-ml-py>=
 faster-whisper = ["faster-whisper>=1.0.0"]
 vosk = ["vosk>=0.3.44", "soundfile>=0.12"]
 whisper-cpp = ["pywhispercpp>=1.5.0", "soundfile>=0.12"]
+# transformers' AutoModelForTDT/AutoProcessor (native Parakeet support, no
+# nemo_toolkit needed -- confirmed via the transformers docs directly:
+# nemo_toolkit['all'] pulls in a much heavier stack -- pytorch-lightning,
+# hydra-core, onnx, etc. -- that this adapter never needs). Pinned to the
+# release line that actually ships Parakeet model classes.
+parakeet = ["transformers>=5.9", "torch>=2.2", "soundfile>=0.12", "librosa>=0.10"]
 mozilla-data-collective = ["datacollective>=0.5.0"]
 
 [project.scripts]
@@ -55,6 +61,7 @@ markers = ["slow: exercises a real model/network (e.g. faster-whisper inference)
 "src/oesb_runner/adapters/__init__.py" = ["E402"]
 "src/oesb_runner/normalization/__init__.py" = ["E402"]
 "tests/test_adapter_faster_whisper.py" = ["E402"]
+"tests/test_adapter_parakeet.py" = ["E402"]
 "tests/test_adapter_vosk.py" = ["E402"]
 "tests/test_adapter_whisper_cpp.py" = ["E402"]
 "tests/test_audio.py" = ["E402"]
