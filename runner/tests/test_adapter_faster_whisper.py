@@ -105,10 +105,21 @@ def test_run_streaming_transcribes_real_audio_in_chunks():
     assert wer.compute(pairs) < 0.25
 
 
+class _FakeWord:
+    """Stands in for faster_whisper's Word namedtuple — run_streaming's
+    bounded-window rewrite reads segment.words (word_timestamps=True) to
+    find where to trim the window, so a fake segment with no .words
+    attribute no longer round-trips through it."""
+    word = " fake"
+    start = 0.0
+    end = 1.0
+
+
 class _FakeSegment:
     text = "fake hypothesis"
     start = 0.0
     end = 1.0
+    words: ClassVar[list] = [_FakeWord()]
 
 
 class _FakeWhisperModel:

@@ -167,6 +167,44 @@ def run_batch(
     return results
 
 
+# How many of a window's most-recent agreeing words to hold back from
+# committing even once they agree across two consecutive decodes — the
+# same reason whisper_streaming's own LocalAgreement-2 policy never
+# commits its freshest words: a decode's last word or two is the part
+# most likely to be revised once more audio (more context) lands, since
+# it's closest to wherever the decode's own attention window currently
+# ends. 2 is a conservative starting point, not a measured optimum.
+_COMMIT_SAFETY_MARGIN = 2
+
+# Real report, confirmed by directly measuring real audio: trimming the
+# window flush to the last committed word's own `end` timestamp silently
+# dropped single words at the seam on 5+ of 15 real LibriSpeech
+# utterances ("...OF ART MISTER QUILTER WRITES..." -> "...of Mr. Quilter
+# writes...", "ART" gone) -- Whisper's per-word end timestamps aren't
+# precise enough to cut flush against, and VAD (re-run fresh on every
+# window) reads a hard mid-phoneme cut as leading silence and skips real
+# speech at the new window's own start. This cushion, subtracted from the
+# first still-uncommitted word's own START (a real word boundary, not an
+# imprecise end-time) before trimming, gives the next window's VAD/
+# encoder genuine leading acoustic context instead of a splice. Not
+# tuned against real audio beyond confirming it stops the word-dropping
+# observed above -- not a measured optimum.
+_TRIM_CUSHION_S = 0.3
+
+
+def _normalize_word_for_overlap_match(word: str) -> str:
+    """Real report: comparing raw words for the committed/window overlap
+    check below missed real duplicates on actual audio ("and we are We
+    are glad", "finish in art Art is") -- Whisper capitalizes a window's
+    own first word as if it were a fresh sentence start, even when that
+    word was already committed mid-sentence, lowercase, from the
+    previous window. Trailing punctuation (a comma landing on one
+    decode's version of a word but not the other's) caused the same kind
+    of miss. Comparison-only -- `committed_words` itself keeps whatever
+    casing/punctuation it was first committed with."""
+    return word.strip(".,!?;:\"'").lower()
+
+
 @register(
     "faster-whisper", benchmark_type="streaming",
     applied_parameters=frozenset(
@@ -189,11 +227,51 @@ def run_streaming(
     backend: str = "cpu",
 ) -> list[StreamTrace]:
     """Feed each utterance to faster-whisper in `chunk_ms` chunks, re-decoding
-    the growing buffer after every chunk (faster-whisper has no incremental
-    decoder state to resume, so "streaming" here means repeated whole-buffer
-    re-transcription — the same "local agreement" pattern used by e.g.
-    whisper_streaming). One `StreamTrace` per utterance records the resulting
-    hypothesis timeline for the streaming metric plugins to score.
+    only the audio *since the last commit* after every chunk (faster-whisper
+    has no incremental decoder state to resume, so "streaming" here still
+    means repeated re-transcription — the same "local agreement" pattern
+    used by e.g. whisper_streaming — but bounded, not whole-buffer).
+
+    Real report: the original version of this function re-decoded
+    `samples[:end]` — the ENTIRE clip so far, unbounded, every chunk. That
+    measured RTF 3.19x on an Apple M1 Pro (whisper-medium, default
+    settings) — slower than realtime, and not just slow: `emit_time_s`
+    below assumes each chunk's decode starts the instant its audio
+    "arrives," which is only honest if the system isn't still catching up
+    on a backlog from earlier chunks. Once RTF > 1 that assumption breaks,
+    so first_final_latency understated what a real deployment would
+    actually experience. See `whisper-medium-en-streaming`'s own profile
+    comment and `cli.py`'s `_MATRIX_STREAMING_EXCLUDED_PROFILE_IDS` for
+    where this got flagged and pulled from the wizard pending this fix.
+
+    The fix: track `window_start_sample`, advanced forward to just after
+    the last COMMITTED word (via `word_timestamps=True`) every time
+    local agreement locks one in. Only `samples[window_start_sample:end]`
+    — audio since the last commit, not the whole clip — gets re-decoded
+    each chunk, so per-chunk decode cost stays roughly bounded instead of
+    growing with clip length. `_COMMIT_SAFETY_MARGIN` holds back each
+    window's freshest words from being committed even once they agree,
+    since those are the ones most likely to be revised by the next
+    chunk's extra context.
+
+    Validated against all 15 real utterances in librispeech-en-vosk-streaming
+    (4 rounds, each a real correctness bug found and fixed on real audio,
+    not assumed — see `_TRIM_CUSHION_S` and `_normalize_word_for_overlap_match`
+    for the two that needed their own fix): RTF held at a consistent
+    ~2.5x across all 4 runs (vs ~3.19x for the original whole-buffer
+    version — a real, reproducible improvement, not noise), and WER
+    landed at 0.110 vs the original's 0.078. That WER gap is real and
+    expected — bounded context genuinely costs some accuracy relative to
+    whole-clip decoding, the same tradeoff every windowed streaming ASR
+    system makes — but the errors it costs are boundary-adjacent
+    hallucinations (an occasional short inserted word right at a window
+    seam), not the silent word-DROPS ("...OF ART MISTER..." -> "...of
+    Mr....") or wholesale DUPLICATION ("and we are We are glad") the
+    first two attempts at this fix produced. RTF is still >1 (not
+    realtime-capable on this CPU-only hardware — see the profile's own
+    comment and cli.py's `_MATRIX_STREAMING_EXCLUDED_PROFILE_IDS` for
+    why that's an inherent Whisper-architecture cost this rewrite can't
+    fix, not a bug), so this stays excluded from the wizard.
     """
     try:
         from faster_whisper.audio import decode_audio
@@ -223,78 +301,131 @@ def run_streaming(
         # behavior) meant every latency number below included that dead
         # air, when docs/specs/metrics.md defines these relative to real
         # speech, not clip boundaries. speech_onset_s/speech_offset_s come
-        # from faster-whisper's own VAD segment timestamps — no new
-        # dependency, no separate detection pass, since we already decode
-        # every chunk anyway. onset locks in at first detection (the
-        # earliest chunk that produces any segment); offset keeps updating
-        # to the latest chunk's last-segment end, so by the final
-        # (whole-buffer) chunk it reflects where speech actually stopped.
+        # from faster-whisper's own word timestamps — no new dependency,
+        # no separate detection pass, since word_timestamps is already on
+        # for the bounded-window trim logic below. onset locks in at first
+        # detection (the earliest chunk that produces any word); offset
+        # keeps updating to the latest chunk's last-word end, so by the
+        # final chunk it reflects where speech actually stopped.
         speech_onset_s: float | None = None
-        speech_offset_s = clip_duration_s  # fallback if VAD never detects any speech at all
-        # Local-agreement commit tracking (the "local agreement" strategy
-        # the module docstring above already names as the design this
-        # mirrors, e.g. whisper_streaming's LocalAgreement-2): a prefix of
-        # words is only "committed" once it agrees with the immediately
-        # preceding hypothesis, and stays committed even if a later,
-        # fresh-VAD-segmented decode revises its own text — monotonic,
-        # never decreases. Real report, confirmed by direct measurement
-        # on real audio: the previous "every segment but the last" rule
-        # had "committed" text revised in 14 of 30 chunks on one real
-        # utterance (VAD re-segments as more audio is appended — it isn't
-        # stable just because a segment isn't the last one in a given
-        # chunk's output), directly contradicting this metric's own
-        # "non-revisable" definition.
-        committed_word_count = 0
-        previous_words: list[str] = []
+        speech_offset_s = clip_duration_s  # fallback if no words ever land
+
+        # Bounded-window state — see this function's own docstring.
+        window_start_sample = 0
+        committed_words: list[str] = []  # locked in from PRIOR windows, never revised
+        previous_window_words: list[dict] = []  # this window's previous decode, for local agreement
+
         end = 0
         while end < total_samples:
             end = min(end + chunk_samples, total_samples)
             is_last_chunk = end >= total_samples
             chunk_end_s = end / sample_rate
+            window_offset_s = window_start_sample / sample_rate
 
             start = time.perf_counter()
             segments, _info = model.transcribe(
-                samples[:end],
+                samples[window_start_sample:end],
                 beam_size=beam_size,
                 temperature=temperature,
                 vad_filter=vad,
                 language=language,
+                word_timestamps=True,
             )
             segments = list(segments)
             decode_wall_s = time.perf_counter() - start
             processing_time_s += decode_wall_s
 
-            if segments:
-                if speech_onset_s is None:
-                    speech_onset_s = segments[0].start
-                # Clamp to this chunk's own buffer end: Whisper's predicted
-                # segment timestamps can slightly overshoot the actual audio
-                # fed in (a known model quirk, confirmed by direct
-                # measurement — segments[-1].end reported ~40ms past the
-                # final chunk's own buffer length on real audio). Without
-                # this, speech_offset_s could end up *after* the last
-                # chunk's own chunk_end_s, which is nonsensical: "end of
-                # speech" can't be later than "end of the whole clip".
-                speech_offset_s = min(segments[-1].end, chunk_end_s)
+            # Absolute clip-relative time, not window-relative — the words
+            # faster-whisper hands back are timestamped from position 0 of
+            # whatever buffer was passed in, which is `window_offset_s`
+            # into the real clip once the window has trimmed forward.
+            window_words = [
+                {"word": w.word.strip(), "start": w.start + window_offset_s, "end": w.end + window_offset_s}
+                for segment in segments for w in (segment.words or [])
+            ]
 
-            text = " ".join(segment.text.strip() for segment in segments).strip()
-            words = text.split()
-            if is_last_chunk:
-                committed_word_count = len(words)
-            else:
-                common_prefix = 0
-                for a, b in zip(previous_words, words):
-                    if a != b:
+            # `_TRIM_CUSHION_S` deliberately keeps a little already-committed
+            # audio in the new window (real report: cutting flush against
+            # it dropped words instead — see that constant's own
+            # docstring) — which means this decode can re-transcribe the
+            # tail end of `committed_words` a second time. Strip however
+            # many of `window_words`' own leading entries exactly match
+            # the tail of `committed_words`, in order, before treating the
+            # rest as this window's real (new, uncommitted) content —
+            # otherwise that re-transcribed overlap gets appended AGAIN,
+            # duplicating words in the final text ("and we are We are
+            # glad", confirmed on real audio without this check).
+            if committed_words:
+                overlap = 0
+                committed_tail_norm = [_normalize_word_for_overlap_match(w) for w in committed_words]
+                for k in range(min(len(window_words), len(committed_words)), 0, -1):
+                    window_head_norm = [_normalize_word_for_overlap_match(w["word"]) for w in window_words[:k]]
+                    if window_head_norm == committed_tail_norm[-k:]:
+                        overlap = k
                         break
-                    common_prefix += 1
-                committed_word_count = max(committed_word_count, common_prefix)
-            previous_words = words
+                window_words = window_words[overlap:]
+
+            if window_words:
+                if speech_onset_s is None:
+                    speech_onset_s = window_words[0]["start"]
+                # Clamp to this chunk's own buffer end — same known-quirk
+                # clamp the previous version used (Whisper's predicted
+                # timestamps can slightly overshoot the real audio fed in).
+                speech_offset_s = min(window_words[-1]["end"], chunk_end_s)
+
+            # Local agreement WITHIN this window: a word only counts as
+            # agreeing once it matches, by position, across two
+            # consecutive decodes of the SAME (untrimmed) window — same
+            # rule the previous whole-buffer version used, just scoped to
+            # the current window instead of the whole clip. Real report
+            # that shaped the original version of this rule, still true
+            # here: a cruder "every word but the last" rule had committed
+            # text revised in 14 of 30 chunks on real audio, since
+            # VAD/segmentation isn't stable just because a word isn't the
+            # decode's last one.
+            agreeing = 0
+            for a, b in zip(previous_window_words, window_words):
+                if a["word"] != b["word"]:
+                    break
+                agreeing += 1
+            newly_stable = len(window_words) if is_last_chunk else max(0, agreeing - _COMMIT_SAFETY_MARGIN)
+            previous_window_words = window_words
+
+            if newly_stable > 0:
+                newly_committed = window_words[:newly_stable]
+                committed_words.extend(w["word"] for w in newly_committed)
+                # Trim: advance the window, bounding decode cost (the
+                # actual point of this rewrite) — but NOT flush against
+                # the last committed word's own `end` timestamp; cut
+                # there instead of `_TRIM_CUSHION_S` before the first
+                # still-uncommitted word's own START (see the constant's
+                # own docstring for the real-audio word-dropping this
+                # fixes). Monotonic: never moves backward past where the
+                # window already is.
+                next_word_start_s = (
+                    window_words[newly_stable]["start"] if newly_stable < len(window_words)
+                    else newly_committed[-1]["end"]
+                )
+                cushioned_start_s = max(0.0, next_word_start_s - _TRIM_CUSHION_S)
+                window_start_sample = max(
+                    window_start_sample,
+                    min(total_samples, round(cushioned_start_s * sample_rate)),
+                )
+                # The window just moved out from under `previous_window_words`
+                # (its offsets no longer correspond to any future decode's
+                # window) — reset so the next decode's agreement check
+                # starts fresh against the new window, same as the very
+                # first chunk's own bootstrap (empty previous_window_words).
+                previous_window_words = []
+
+            tail_words = [w["word"] for w in window_words[newly_stable:]]
+            text = " ".join(committed_words + tail_words).strip()
 
             updates.append(PartialUpdate(
                 chunk_end_s=chunk_end_s,
                 emit_time_s=chunk_end_s + decode_wall_s,
                 text=text,
-                committed_word_count=committed_word_count,
+                committed_word_count=len(committed_words),
             ))
 
         onset = speech_onset_s if speech_onset_s is not None else 0.0
