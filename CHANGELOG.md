@@ -5,6 +5,19 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.19] - 2026-08-03
+### Added
+- **Streaming now covers the same 6 languages x 12 engine/size combos
+  batch does** (en/de/es/fr/nl/pt x faster-whisper/whisper-cpp at 5
+  sizes + vosk at small/medium — 72 profiles total, up from 4).
+  Streaming scores WER same as batch (unlike concurrency, which is
+  language-agnostic), so accuracy is genuinely language-dependent and
+  streaming shouldn't stay English-only. New
+  `scripts/generate_bulk_streaming_assets.py` mirrors the existing
+  batch generator. One shared streaming pack per new language, not one
+  per engine — confirmed against the real batch packs that non-English
+  languages already share a single pack across all 12 combos.
+
 ## [0.9.18] - 2026-08-03
 ### Added
 - **whisper.cpp streaming**, third streaming engine, real Metal GPU
