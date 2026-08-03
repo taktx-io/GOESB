@@ -3882,6 +3882,11 @@ def test_whisper_cpp_cuda_build_ready_false_when_not_importable(monkeypatch):
 
 
 def test_whisper_cpp_cuda_build_ready_delegates_to_adapters_cuda_available(monkeypatch):
+    """Needs the real `pywhispercpp` import to succeed (the function under
+    test only reaches the patched `cuda_available` call after that import
+    lands) -- CI's `[dev]`-only install never has it, same as every other
+    whisper-cpp-extra test in this repo."""
+    pytest.importorskip("pywhispercpp", reason="requires `pip install goesb-runner[whisper-cpp]`")
     from oesb_runner import cli as cli_module
     from oesb_runner.adapters import whisper_cpp as whisper_cpp_adapter
 
