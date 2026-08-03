@@ -43,8 +43,22 @@ from . import Transcription, log_progress, register
 # ctranslate2's separate cuBLAS dlopen dependency — see
 # faster_whisper._looks_like_cuda_runtime_error), so no equivalent
 # preload/retry dance is needed here: `torch.cuda.is_available()` is a
-# reliable, direct answer.
-_DEVICE_BY_BACKEND = {"cpu": "cpu", "cuda": "cuda"}
+# reliable, direct answer. "metal" -> torch's own "mps" device string
+# (Apple Silicon GPU): unlike whisper.cpp's ggml backend, this isn't a
+# separate compile-time flag some builds simply lack — plain `pip install
+# torch` already ships MPS support, `torch.backends.mps.is_available()`
+# alone is the real, sufficient readiness check. Confirmed genuinely
+# faster on a real Apple M1 Pro (full 15-clip fleurs-nl batch pack: RTF
+# 0.0395x on metal vs 0.155x on cpu, same 6.2% WER on both — device
+# choice didn't change the output) — but only after the JIT/
+# first-kernel-compile cost is paid once (measured ~3.4s), which is why
+# `_warm_up` exists below.
+_DEVICE_BY_BACKEND = {"cpu": "cpu", "cuda": "cuda", "metal": "mps"}
+
+_BACKEND_AVAILABLE_CHECK = {
+    "cuda": lambda torch_mod: torch_mod.cuda.is_available(),
+    "metal": lambda torch_mod: torch_mod.backends.mps.is_available(),
+}
 
 
 def _resolve_model_id(model_name: str) -> str:
@@ -53,6 +67,32 @@ def _resolve_model_id(model_name: str) -> str:
     expect ('nvidia/parakeet-tdt-0.6b-v3') — same translation role as
     faster_whisper._resolve_model_id / whisper_cpp._resolve_model_id."""
     return f"nvidia/{model_name}"
+
+
+def _warm_up(processor, model, device: str) -> None:
+    """One throwaway `generate()` call, on real (silent) audio shaped like
+    any other utterance, before the timed loop starts. Real, measured
+    cost on Apple Silicon MPS: ~3.4s for the first call vs ~0.5-0.9s
+    steady-state on real audio right after — a JIT/kernel-compile cost,
+    not decode work — confirmed by direct measurement (5 real Dutch
+    FLEURS clips run back to back after this warm-up: RTF 0.05-0.09x
+    throughout, no first-clip spike). Letting that land inside
+    utterance #1's own `processing_time_s` would silently overstate RTF
+    for that one utterance and skew the whole run's aggregate — the same
+    "one-off cost, not part of what RTF measures" category model load
+    already gets excluded from, just extended to cover the first real
+    accelerator kernel launch too. Run unconditionally (not just for
+    cuda/metal): no measured warm-up effect on cpu, but a fixed, cheap,
+    single code path here is simpler than special-casing by backend."""
+    import numpy as np
+    import torch
+
+    sample_rate = processor.feature_extractor.sampling_rate
+    silence = np.zeros(int(0.5 * sample_rate), dtype="float32")
+    inputs = processor(silence, sampling_rate=sample_rate, return_tensors="pt")
+    inputs.to(device, dtype=model.dtype)
+    with torch.no_grad():
+        model.generate(**inputs, return_dict_in_generate=True)
 
 
 def _load(model_name: str, backend: str, threads: int, download_root: str | Path | None):
@@ -65,12 +105,18 @@ def _load(model_name: str, backend: str, threads: int, download_root: str | Path
             "`pip install goesb-runner[parakeet]`"
         ) from exc
 
-    if backend == "cuda" and not torch.cuda.is_available():
+    check = _BACKEND_AVAILABLE_CHECK.get(backend)
+    if check is not None and not check(torch):
+        reason = (
+            "torch.cuda.is_available() is False (no NVIDIA GPU visible, or a "
+            "non-CUDA torch build is installed)"
+            if backend == "cuda"
+            else "torch.backends.mps.is_available() is False (not Apple Silicon, "
+            "or this torch build has no MPS support)"
+        )
         raise RuntimeError(
-            "--backend cuda failed: torch.cuda.is_available() is False on this "
-            "machine (no NVIDIA GPU visible, or a non-CUDA torch build is "
-            "installed). Run `goesb doctor` to check what's available, or use "
-            "--backend cpu."
+            f"--backend {backend} failed: {reason}. Run `goesb doctor` to check "
+            "what's available, or use --backend cpu."
         )
     if backend == "cpu":
         torch.set_num_threads(threads)
@@ -79,8 +125,10 @@ def _load(model_name: str, backend: str, threads: int, download_root: str | Path
     cache_dir = str(download_root) if download_root is not None else None
     processor = AutoProcessor.from_pretrained(model_id, cache_dir=cache_dir)
     model = AutoModelForTDT.from_pretrained(model_id, cache_dir=cache_dir)
-    model.to(_DEVICE_BY_BACKEND[backend])
+    device = _DEVICE_BY_BACKEND[backend]
+    model.to(device)
     model.eval()
+    _warm_up(processor, model, device)
     return processor, model
 
 
@@ -116,11 +164,14 @@ def run_batch(
     torch dtype (float32/float16/bf16), a real future knob, not yet wired.
 
     Model load time is deliberately excluded from per-utterance timing,
-    matching every other batch adapter's convention.
+    matching every other batch adapter's convention — as is the
+    accelerator warm-up cost `_load`'s own `_warm_up` call absorbs before
+    returning here (real, measured ~3.4s one-off on Apple Silicon MPS).
 
-    `backend` (ADR-0008) is validated (real `torch.cuda.is_available()`
-    check, not trusted from a profile/CLI flag alone) and passed straight
-    through as the device to load the model onto.
+    `backend` (ADR-0008) is validated (`torch.cuda.is_available()` /
+    `torch.backends.mps.is_available()`, not trusted from a profile/CLI
+    flag alone) and passed straight through as the device to load the
+    model onto.
     """
     processor, model = _load(model_name, backend, threads, download_root)
 
@@ -211,21 +262,25 @@ def run_streaming(
     checkpoints and NeMo-side buffer/context-size plumbing this
     `transformers` port doesn't carry. Bounded re-decode is the same
     honest fallback the other two Whisper-family engines already use here
-    — and, unlike them, it actually lands inside realtime: measured RTF
-    0.79x on an Apple M1 Pro CPU (real Dutch FLEURS audio, chunk_ms=1000),
-    vs faster-whisper's non-realtime 2.5-3.19x on the same class of
-    hardware — because Parakeet's batch RTF is so much faster to begin
-    with (~0.15x) that repeated bounded-window re-decode still has real
-    headroom left. WER on that same run: 4.2%, with a couple of spurious
-    extra words at window-boundary cut points (e.g. "instemmen" ->
-    "instemmen Stemmen") — a genuinely different failure mode than
-    faster-whisper's original same-word duplication bugs (those were the
-    same committed word reappearing, catchable by dedup;
-    this is the model producing a new, wrong word once its context is
-    truncated mid-word at the window edge, which no post-hoc word-level
-    dedup can catch since it never matches anything already committed).
-    Consistent with the established "honest cost of bounded context, not
-    corruption" framing, not a bug in this adapter's own merge logic.
+    — and, unlike them, it actually lands inside realtime, on both
+    backends measured: real Dutch FLEURS audio, full 15-clip fleurs-nl
+    pack, chunk_ms=1000 — `--backend cpu` RTF 0.876x, `--backend metal`
+    (real Apple Silicon MPS) RTF 0.315x, ~2.8x faster — vs faster-
+    whisper's non-realtime 2.5-3.19x on the same class of hardware,
+    because Parakeet's batch RTF is so much faster to begin with (~0.15x
+    cpu / ~0.04x metal) that repeated bounded-window re-decode still has
+    real headroom left. WER: 6.57%, byte-identical between cpu and metal
+    (same weights, same greedy decode, same windowing — device choice
+    doesn't change the output here) — with a couple of spurious extra
+    words at window-boundary cut points (e.g. "instemmen" -> "instemmen
+    Stemmen") — a genuinely different failure mode than faster-whisper's
+    original same-word duplication bugs (those were the same committed
+    word reappearing, catchable by dedup; this is the model producing a
+    new, wrong word once its context is truncated mid-word at the window
+    edge, which no post-hoc word-level dedup can catch since it never
+    matches anything already committed). Consistent with the established
+    "honest cost of bounded context, not corruption" framing, not a bug
+    in this adapter's own merge logic.
 
     `quantization`/`beam_size`/`temperature`/`vad`/`language` unused — see
     `run_batch`'s own docstring for why.

@@ -602,6 +602,95 @@ def test_ready_backends_faster_whisper_zero_cuda_devices_is_cpu_only(monkeypatch
     assert cli_module._ready_backends("faster-whisper", "batch", fake_gpu) == frozenset({"cpu"})
 
 
+def test_ready_backends_parakeet_reports_cuda_and_metal_independently(monkeypatch):
+    """Unlike whisper-cpp/faster-whisper, parakeet's cuda readiness never
+    needs the NVIDIA-only `gpu` probe -- torch.cuda.is_available() is
+    already the real answer -- and metal is a wholly separate axis."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: True)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: True)
+
+    assert cli_module._ready_backends("parakeet", "batch", None) == frozenset({"cpu", "cuda", "metal"})
+
+
+def test_ready_backends_parakeet_cpu_only_when_neither_backend_available(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: False)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: False)
+
+    assert cli_module._ready_backends("parakeet", "batch", None) == frozenset({"cpu"})
+
+
+def test_ready_backends_parakeet_metal_only(monkeypatch):
+    """The real shape on a Mac with no NVIDIA GPU at all."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: False)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: True)
+
+    assert cli_module._ready_backends("parakeet", "batch", None) == frozenset({"cpu", "metal"})
+
+
+def test_doctor_engine_line_parakeet_reports_metal_even_with_no_nvidia_gpu(monkeypatch):
+    """Regression test: this branch used to sit after a generic `if gpu is
+    None: return ...cuda unavailable...` early-exit shared with
+    faster-whisper -- correct for faster-whisper (cuda-only), but it
+    silently swallowed parakeet's own metal readiness on every Mac (no
+    NVIDIA GPU there at all). Moved above that early-exit; this is the
+    exact case it was hiding."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: False)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: True)
+
+    line = cli_module._doctor_engine_line("parakeet", "batch", None)
+
+    assert "cuda unavailable (no NVIDIA GPU detected)" in line
+    assert "metal ready (torch.backends.mps.is_available() is True)" in line
+
+
+def test_doctor_engine_line_parakeet_reports_real_cuda_with_gpu_detected(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: True)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: False)
+
+    fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
+    line = cli_module._doctor_engine_line("parakeet", "batch", fake_gpu)
+
+    assert "cuda ready (torch.cuda.is_available() is True, NVIDIA RTX 4090 detected)" in line
+    assert "metal unavailable" in line
+
+
+def test_doctor_engine_line_parakeet_gpu_present_but_torch_reports_cpu_only(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: False)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: False)
+
+    fake_gpu = {"model": "NVIDIA RTX 4090", "driver": "550.54.14", "vram": "24576 MiB"}
+    line = cli_module._doctor_engine_line("parakeet", "batch", fake_gpu)
+
+    assert "NVIDIA RTX 4090 detected but torch.cuda.is_available() is False" in line
+    assert "CPU-only torch build" in line
+
+
+def test_torch_mps_available_none_when_torch_not_installed(monkeypatch):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setitem(sys.modules, "torch", None)
+
+    assert cli_module._torch_mps_available() is None
+
+
 # --- _wizard_pick_backends ---
 
 

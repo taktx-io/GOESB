@@ -1915,6 +1915,22 @@ def _torch_cuda_available() -> bool | None:
         return None
 
 
+def _torch_mps_available() -> bool | None:
+    """Same "can't check" vs "checked, and it's false" contract as
+    `_torch_cuda_available`, for Apple Silicon's MPS backend — unlike
+    whisper.cpp's ggml Metal (a compile-time flag some builds simply
+    lack), plain `pip install torch` already ships MPS support, so this
+    alone is the real, sufficient readiness check."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    try:
+        return bool(torch.backends.mps.is_available())
+    except Exception:  # noqa: BLE001 - a probe must never itself crash `doctor`
+        return None
+
+
 def _ready_backends(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] | None) -> frozenset[str]:
     """Backends actually usable on this machine right now for this engine
     — `get_supported_backends` alone is declared-only (what the adapter
@@ -1953,9 +1969,12 @@ def _ready_backends(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] 
         return frozenset({"cpu"})
 
     if runtime_name == "parakeet":
+        ready = {"cpu"}
         if _torch_cuda_available():
-            return frozenset({"cpu", "cuda"})
-        return frozenset({"cpu"})
+            ready.add("cuda")
+        if _torch_mps_available():
+            ready.add("metal")
+        return frozenset(ready)
 
     return backends  # unknown engine shape — trust declared support
 
@@ -2055,6 +2074,40 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
                 parts.append(f"{gpu_backend} ready")
         return f"{label}: cpu ready; " + "; ".join(parts)
 
+    if runtime_name == "parakeet":
+        # Reported before the generic `gpu is None` early-exit below
+        # (unlike faster-whisper, cuda-only): parakeet also supports
+        # `metal`, which has nothing to do with the NVIDIA-only `gpu`
+        # probe — a real Mac with no NVIDIA GPU can still have real Metal
+        # readiness to report, and falling through to that generic
+        # NVIDIA-only message would silently hide it (confirmed: this is
+        # exactly what happened before this branch was moved up here).
+        parts = []
+        if "cuda" in backends:
+            cuda_ok = _torch_cuda_available()
+            if cuda_ok is None:
+                parts.append("cuda readiness unknown (torch not installed or probe failed)")
+            elif cuda_ok:
+                gpu_note = f", {gpu['model']} detected" if gpu is not None else ""
+                parts.append(f"cuda ready (torch.cuda.is_available() is True{gpu_note})")
+            elif gpu is not None:
+                parts.append(
+                    f"cuda unavailable ({gpu['model']} detected but torch.cuda.is_available() "
+                    "is False — likely a CPU-only torch build; install a CUDA-enabled torch "
+                    "matching your driver: https://pytorch.org/get-started/locally/)"
+                )
+            else:
+                parts.append("cuda unavailable (no NVIDIA GPU detected)")
+        if "metal" in backends:
+            mps_ok = _torch_mps_available()
+            if mps_ok is None:
+                parts.append("metal readiness unknown (torch not installed or probe failed)")
+            elif mps_ok:
+                parts.append("metal ready (torch.backends.mps.is_available() is True)")
+            else:
+                parts.append("metal unavailable (not Apple Silicon, or this torch build has no MPS support)")
+        return f"{label}: cpu ready; " + "; ".join(parts)
+
     if gpu is None:
         return f"{label}: cpu ready; cuda unavailable (no NVIDIA GPU detected)."
 
@@ -2079,20 +2132,6 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
             "Install the CUDA Toolkit + cuDNN matching your driver version "
             "(https://developer.nvidia.com/cudnn) to unlock --backend cuda, or continue "
             "on --backend cpu."
-        )
-
-    if runtime_name == "parakeet":
-        cuda_ok = _torch_cuda_available()
-        if cuda_ok is None:
-            return f"{label}: cpu ready; cuda readiness unknown (torch not installed or probe failed)."
-        if cuda_ok:
-            return f"{label}: cpu ready; cuda ready (torch.cuda.is_available() is True, {gpu['model']} detected)."
-        return (
-            f"{label}: cpu ready; {gpu['model']} detected (driver {gpu['driver']}) but "
-            "torch.cuda.is_available() is False — likely a CPU-only torch build. "
-            "Install a CUDA-enabled torch matching your driver "
-            "(https://pytorch.org/get-started/locally/) to unlock --backend cuda, or "
-            "continue on --backend cpu."
         )
 
     return f"{label}: installed, supports {sorted(backends)}."

@@ -5,6 +5,45 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.21] - 2026-08-03
+### Added
+- **NVIDIA Parakeet-TDT engine** (`parakeet` runtime), batch + streaming.
+  Fully open (CC-BY-4.0 weights, Apache-2.0 toolkit), multilingual —
+  parakeet-tdt-0.6b-v3 is trained on Granary (25 European languages
+  including Dutch), one checkpoint instead of a per-language model swap.
+  Via `transformers`' native `AutoModelForTDT`/`AutoProcessor`, not
+  `nemo_toolkit` (much heavier: pytorch-lightning, hydra-core, onnx, ...
+  none of it needed here). New `parakeet-tdt-v3-nl-batch`/`-streaming`
+  profiles. Real Dutch FLEURS results (full 15-clip fleurs-nl pack, Apple
+  M1 Pro): batch WER 6.2%, streaming WER 6.57% (bounded-window re-decode,
+  same shared `run_windowed_local_agreement_streaming` faster-whisper/
+  whisper.cpp already use — Parakeet has no genuine incremental encoder
+  path through `transformers`, just like them).
+- **`--backend metal` for Parakeet** (real Apple Silicon MPS via plain
+  torch — not gated by a compile-time flag the way whisper.cpp's ggml
+  Metal is). Real, measured: batch RTF 0.0395x (~4x faster than cpu's
+  0.155x), streaming RTF 0.315x (~2.8x faster than cpu's 0.876x), WER
+  byte-identical to cpu on both. A one-off ~3.4s MPS JIT/kernel-compile
+  cost on first inference is absorbed by a warm-up call before the timed
+  loop starts (same "one-off cost excluded from RTF" category model load
+  already gets), so it never inflates utterance #1's own timing.
+- **whisper.cpp CUDA auto-build.** `pywhispercpp` ships no prebuilt CUDA
+  wheel anywhere — `pip install pywhispercpp` is always cpu-only. `goesb
+  run --backend cuda` and the interactive wizard now detect a real
+  NVIDIA GPU + CUDA Toolkit (`nvcc`) and offer to rebuild it from source
+  with `GGML_CUDA=1` automatically, instead of a manual fix repeated on
+  every fresh GPU box. Always ends the process after a successful
+  rebuild and asks for a re-run — a freshly-built extension can't take
+  effect in a process that already imported the old one.
+### Fixed
+- **`goesb doctor`'s parakeet line silently hid real Metal readiness on
+  every Mac.** It sat behind a `gpu is None` early-return shared with
+  faster-whisper — correct for faster-whisper (cuda-only, no Metal
+  support in ctranslate2 at all) but wrong for parakeet once `metal`
+  became a real backend, since Metal readiness has nothing to do with
+  the NVIDIA-only `gpu` probe. Moved parakeet's own reporting above that
+  early-return; confirmed live before/after on an Apple M1 Pro.
+
 ## [0.9.20] - 2026-08-03
 ### Fixed
 - **Removed 5 redundant streaming packs** (`fleurs-{de,es,fr,nl,pt}-streaming`)
