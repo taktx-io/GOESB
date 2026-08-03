@@ -5,6 +5,16 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.20] - 2026-08-03
+### Fixed
+- **Removed 5 redundant streaming packs** (`fleurs-{de,es,fr,nl,pt}-streaming`)
+  added in 0.9.19 — they duplicated exactly the sibling-pack pattern
+  ADR-0011 already retired: a pack is eligible for any profile whose
+  `language` matches, regardless of `benchmark_type`. The existing
+  `fleurs-<lang>` packs already covered every new streaming profile with
+  zero changes. Caught by a real oesb-platform test before anything
+  deployed — no user-facing impact.
+
 ## [0.9.19] - 2026-08-03
 ### Added
 - **Streaming now covers the same 6 languages x 12 engine/size combos
