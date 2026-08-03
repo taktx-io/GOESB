@@ -5,6 +5,23 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.17] - 2026-08-03
+### Fixed
+- **faster-whisper streaming's re-decode window is now bounded, not the
+  whole clip.** The previous version re-decoded the entire clip so far
+  every chunk (unbounded), measuring RTF 3.19x on Apple M1 Pro and
+  understating its own latency numbers once behind realtime. Now only
+  audio since the last committed word gets re-decoded. Three real
+  correctness bugs (word-dropping at the trim seam, then duplication
+  from the fix for that, then a case-sensitivity gap in the fix for
+  that) were found and fixed via real-audio validation before landing —
+  see `run_streaming`'s own docstring for the full trail. Net: RTF ~2.5x
+  (consistent, real improvement) and WER 0.110 vs the original's 0.078
+  (an honest, expected cost of bounded context, not corruption). Still
+  not realtime-capable on CPU — an inherent Whisper architecture cost,
+  not a bug — so `whisper-medium-en-streaming` stays excluded from the
+  wizard's streaming matrix.
+
 ## [0.9.16] - 2026-08-01
 ### Added
 - **Streaming matrix in the interactive wizard.** "Run benchmark(s)"
