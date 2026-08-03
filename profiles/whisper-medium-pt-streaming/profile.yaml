@@ -1,0 +1,65 @@
+id: whisper-medium-pt-streaming
+version: 1.0.0
+title: Whisper Medium PT (Streaming)
+benchmark_type: streaming
+language: pt-BR
+runtime:
+  name: faster-whisper
+  min_version: 1.0.0
+model:
+  name: whisper-medium
+  beam_size: 5
+  temperature: 0.0
+  quantization: int8
+  vad: true
+configuration:
+  threads: 4
+  chunk_ms: 1000
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: goesb-pt-v1
+scoring:
+  primary_metric: first_partial_latency
+  tie_breakers:
+  - streaming_responsiveness
+  - real_time_factor
+metrics:
+- wer
+- real_time_factor
+- cpu_pct
+- ram_mb
+- first_partial_latency
+- first_final_latency
+- end_of_speech_latency
+- update_frequency
+- partial_stability
+- streaming_responsiveness
+overridable:
+  beam_size:
+    allowed:
+    - 1
+    - 2
+    - 4
+    - 5
+    - 8
+  vad: {}
+  quantization:
+    allowed:
+    - int8
+    - float32
+  threads:
+    range:
+      min: 1
+      max: 16
+  chunk_ms:
+    allowed:
+    - 250
+    - 500
+    - 1000
+    - 2000
+changelog:
+- version: 1.0.0
+  notes: Initial profile (bulk-generated streaming set, matching batch's language/engine/size
+    coverage).

@@ -3155,6 +3155,29 @@ def test_build_matrix_streaming_picks_up_every_streaming_profile():
     }
 
 
+def test_streaming_matches_batchs_real_language_and_engine_coverage():
+    """Regression lock, not synthetic data: streaming should cover the
+    same languages/engine-size combos batch does (both score WER, so
+    language is a real accuracy axis for streaming the same way it is
+    for batch -- unlike concurrency, which is language-agnostic since it
+    only measures throughput physics). Reads the actual profiles/
+    directory, not a fixture -- fails the moment someone adds a new batch
+    combo without its streaming counterpart, or vice versa."""
+    from oesb_runner import cli as cli_module
+
+    profiles = [
+        yaml.safe_load(p.read_text())
+        for p in (REPO_ROOT / "profiles").glob("*/profile.yaml")
+    ]
+
+    batch = cli_module._build_matrix(profiles, "batch")
+    streaming = cli_module._build_matrix(profiles, "streaming")
+
+    assert streaming.languages == batch.languages
+    assert set(streaming.columns) == set(batch.columns)
+    assert set(streaming.cells) == set(batch.cells)  # same (language, column) keys covered
+
+
 def test_toggle_selection_column_header_selects_and_clears_the_whole_column():
     from oesb_runner import cli as cli_module
 

@@ -1,0 +1,51 @@
+id: whispercpp-tiny-es-streaming
+version: 1.0.0
+title: Whisper.cpp Tiny ES (Streaming)
+benchmark_type: streaming
+language: es-419
+runtime:
+  name: whisper-cpp
+  min_version: 1.5.0
+model:
+  name: whisper-tiny
+  beam_size: 5
+  temperature: 0.0
+configuration:
+  threads: 4
+  chunk_ms: 1000
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: goesb-es-v1
+scoring:
+  primary_metric: first_partial_latency
+  tie_breakers:
+  - streaming_responsiveness
+  - real_time_factor
+metrics:
+- wer
+- real_time_factor
+- cpu_pct
+- ram_mb
+- first_partial_latency
+- first_final_latency
+- end_of_speech_latency
+- update_frequency
+- partial_stability
+- streaming_responsiveness
+overridable:
+  threads:
+    range:
+      min: 1
+      max: 16
+  chunk_ms:
+    allowed:
+    - 250
+    - 500
+    - 1000
+    - 2000
+changelog:
+- version: 1.0.0
+  notes: Initial profile (bulk-generated streaming set, matching batch's language/engine/size
+    coverage).
