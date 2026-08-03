@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Bulk-generate streaming profiles (+ one shared pack per new language) to
-match batch's existing language/engine/size coverage.
+"""Bulk-generate streaming profiles to match batch's existing
+language/engine/size coverage.
 
 Why: GOESB is hardware-generic (docs/00-vision.md) -- a profile scoring
 badly on one CPU isn't a universal property, so faster-whisper streaming
@@ -17,22 +17,25 @@ batch already has. Reuses generate_bulk_assets.py's own
 LANGUAGES/SIZES/ID_PREFIX/MIN_VERSIONS/TITLE_ENGINE/model_name_for
 directly rather than duplicating that config.
 
-Packs: ONE streaming pack per NEW language (fleurs-<lang>-streaming), not
-one per engine/size -- confirmed against the real batch packs (fleurs-de
-etc.) that all 12 batch combos for a non-English language already share
-a single pack, so the earlier per-engine convention
-(librispeech-en-streaming / -vosk-streaming / -whispercpp-streaming) was
-never actually load-bearing, just how English happened to be built
-first (by hand, one engine at a time, across separate sessions). Those
-3 existing English packs are reused as-is for its 8 missing combos -- no
-new English pack.
+No new packs, deliberately: per ADR-0011 (docs/adr/0011-decouple-packs-
+from-profiles.md), a pack is eligible for ANY profile whose `language`
+exactly matches the pack's `metadata.language` -- benchmark_type plays
+no part (cli.py's own eligibility check only special-cases
+`concurrency`; streaming gets the same language-match rule batch does).
+The existing `fleurs-<lang>` / `common-voice-<lang>` packs already cover
+every new streaming profile this script writes, with zero pack changes.
+An earlier version of this script cloned a "-streaming"-suffixed pack
+per language, unaware of ADR-0011 -- confirmed wrong the hard way (a
+real oesb-platform test, test_list_packs_filters_by_language, asserts
+the exact pack set per language and caught the duplicate) -- those 5
+packs were deleted, not adjusted.
 
 Vosk's medium-tier models aren't in generate_bulk_assets.py's LANGUAGES
 dict (that script predates the vosk-medium tier, added later) -- listed
 here directly instead, confirmed against each language's own real
 vosk-medium-<lang>-batch profile.yaml.
 
-Idempotent: skips any profile/pack that already exists.
+Idempotent: skips any profile that already exists.
 
 Usage:
     python scripts/generate_bulk_streaming_assets.py
@@ -41,7 +44,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -60,8 +62,6 @@ from generate_bulk_assets import (
     model_name_for,
 )
 
-from oesb_runner.hashing import canonical_asset_sha256
-
 # Confirmed against each language's own real vosk-medium-<lang>-batch
 # profile.yaml -- not derivable from generate_bulk_assets.py's LANGUAGES
 # dict, which only ever recorded the small-tier model name.
@@ -74,11 +74,6 @@ VOSK_MEDIUM_MODEL = {
     "pt": "vosk-model-pt-fb-v0.1.1-20220516_2113",
 }
 
-# English already has 3 hand-authored streaming packs, one per engine
-# (built incrementally, earlier sessions) -- reused as-is rather than
-# consolidated (write_streaming_pack is simply never called for "en"),
-# so already-live profiles referencing them are untouched.
-
 STREAMING_METRICS = [
     "wer", "real_time_factor", "cpu_pct", "ram_mb",
     "first_partial_latency", "first_final_latency", "end_of_speech_latency",
@@ -88,10 +83,6 @@ STREAMING_METRICS = [
 
 def profile_id_for(engine: str, size: str, lang_code: str) -> str:
     return f"{ID_PREFIX[engine]}-{size}-{lang_code}-streaming"
-
-
-def streaming_pack_id_for(lang: dict) -> str:
-    return f"{lang['primary_pack_id']}-streaming"
 
 
 def overridable_block_for(engine: str) -> dict[str, Any]:
@@ -161,60 +152,7 @@ def write_profile(profile_id: str, engine: str, size: str, model_name: str, lang
     print(f"wrote {path}", file=sys.stderr)
 
 
-def write_streaming_pack(lang: dict) -> None:
-    """One shared streaming pack per (new) language, cloning the existing
-    batch primary pack's audio -- same audio, different id/profile_id/
-    tags, matching the librispeech-en-vosk-streaming precedent."""
-    primary_pack_dir = ROOT / "packs" / lang["primary_pack_id"]
-    pack_id = streaming_pack_id_for(lang)
-    pack_dir = ROOT / "packs" / pack_id
-    if (pack_dir / "pack.yaml").exists():
-        print(f"skip (exists): {pack_dir}", file=sys.stderr)
-        return
-
-    primary_pack = yaml.safe_load((primary_pack_dir / "pack.yaml").read_text())
-    pack_dir.mkdir(parents=True, exist_ok=True)
-    (pack_dir / "manifest.jsonl").write_text((primary_pack_dir / "manifest.jsonl").read_text())
-    shutil.copytree(primary_pack_dir / "audio", pack_dir / "audio", dirs_exist_ok=True)
-
-    fetch_cmd = primary_pack["audio"]["source"]["fetch_instructions"]
-    source = dict(primary_pack["audio"]["source"])
-    source["fetch_instructions"] = (
-        f"Identical audio to {lang['primary_pack_id']} — auto-fetched the same way. "
-        f"Manual fallback: run `{fetch_cmd}`, then pass "
-        f"`--audio-dir packs/{lang['primary_pack_id']}/audio` to `goesb run`, "
-        "or symlink/copy that pack's audio/ directory here."
-    )
-
-    metadata = dict(primary_pack.get("metadata", {}))
-    tags = [*metadata.pop("tags", []), "streaming"]
-
-    doc = {
-        "id": pack_id,
-        "version": "1.0.0",
-        "sha256": "0" * 64,  # placeholder, overwritten below in place to keep its conventional early position
-        "profile_id": profile_id_for("faster-whisper", "medium", lang["code"]),
-        "visibility": "open",
-        "license": primary_pack.get("license", "CC-BY-4.0"),
-        "audio": {
-            "count": primary_pack["audio"]["count"],
-            "total_duration_s": primary_pack["audio"]["total_duration_s"],
-            "sample_rate_hz": primary_pack["audio"]["sample_rate_hz"],
-            "manifest_sha256": primary_pack["audio"]["manifest_sha256"],
-            "source": source,
-        },
-        "metadata": {**metadata, "tags": tags},
-    }
-    doc["sha256"] = canonical_asset_sha256(doc)
-    (pack_dir / "pack.yaml").write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True))
-    print(f"wrote {pack_dir / 'pack.yaml'}", file=sys.stderr)
-
-
 def generate_language(lang: dict) -> None:
-    is_en = lang["code"] == "en"
-    if not is_en:
-        write_streaming_pack(lang)
-
     for engine in ("faster-whisper", "whisper-cpp"):
         for size in SIZES:
             model_name = model_name_for(engine, size, lang["code"], lang["vosk_model"])
