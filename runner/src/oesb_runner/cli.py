@@ -156,21 +156,6 @@ _MATRIX_COLUMNS = (
     + [("vosk", "small"), ("vosk", "medium")]
 )
 
-# faster-whisper's streaming adapter re-decodes the *entire growing*
-# buffer every chunk (no bounded window) — unlike vosk's genuinely
-# incremental decode, this both runs slower than realtime on modest
-# hardware (measured RTF 3.19x on an Apple M1 Pro) and, worse, makes its
-# own reported latency numbers dishonest once RTF > 1: `emit_time_s`
-# (faster_whisper.py's run_streaming) assumes each chunk starts decoding
-# the instant its audio "arrives," ignoring backlog from earlier chunks
-# still catching up — so first_final_latency understates what a real
-# deployment would experience. Excluded from the wizard's matrix (not
-# deleted — still directly runnable via `goesb run` for testing the
-# bounded-sliding-window rewrite meant to replace this) until that
-# rewrite lands and the numbers are trustworthy again.
-_MATRIX_STREAMING_EXCLUDED_PROFILE_IDS = frozenset({"whisper-medium-en-streaming"})
-
-
 @dataclass
 class _Matrix:
     languages: list[str]  # sorted BCP-47 tags, the grid's rows
@@ -183,13 +168,23 @@ def _build_matrix(profiles: list[dict], benchmark_type: str = "batch") -> _Matri
     streaming — see `_MATRIX_BENCHMARK_TYPES`) into the wizard's language x
     engine/size grid. A language missing most columns (e.g. the single
     Dutch example profile) just has fewer entries in `cells` — the grid
-    renders whatever exists, no "unavailable" placeholders."""
+    renders whatever exists, no "unavailable" placeholders.
+
+    Every registered profile gets a cell here, including ones that
+    measure badly on any *particular* machine (e.g.
+    `whisper-medium-en-streaming` was briefly excluded after measuring
+    RTF 3.19x on an Apple M1 Pro CPU) — GOESB is explicitly hardware-
+    generic (docs/00-vision.md): a profile running slow on one CPU says
+    nothing about how it does on a different CPU, or on `--backend
+    cuda`. Hiding it from the wizard would bake in "bad on this one
+    machine" as if it were a universal property. The one real reason to
+    exclude a profile here would be if its own numbers were provably
+    dishonest (wrong, not just bad) — see faster_whisper.run_streaming's
+    docstring for the real correctness bugs that were found and fixed
+    before it was honest enough to report on at all."""
     id_re = _MATRIX_ID_RE[benchmark_type]
-    excluded = _MATRIX_STREAMING_EXCLUDED_PROFILE_IDS if benchmark_type == "streaming" else frozenset()
     by_lang: dict[str, dict[str, str]] = {}
     for p in profiles:
-        if p["id"] in excluded:
-            continue
         match = id_re.match(p["id"])
         if match is None:
             continue

@@ -207,12 +207,17 @@ def run_streaming(
     function's docstring for why). The bounded-window fix measured RTF
     ~2.5x (a real, reproducible improvement) and WER 0.110 vs the
     original's 0.078 — an honest, expected cost of bounded context, not
-    corruption. Still not realtime-capable on this CPU-only hardware — an
-    inherent Whisper-architecture cost (fixed ~30s encoder window
-    regardless of real audio length), not something this adapter can fix
-    — see `whisper-medium-en-streaming`'s own profile comment and
-    `cli.py`'s `_MATRIX_STREAMING_EXCLUDED_PROFILE_IDS` for why it stays
-    excluded from the wizard.
+    corruption. Still not realtime-capable on that one Apple M1 Pro CPU —
+    an inherent Whisper-architecture cost on that backend (fixed ~30s
+    encoder window regardless of real audio length), not something this
+    adapter can fix in software — but that's a property of one machine's
+    CPU path, not of this profile: GOESB is hardware-generic
+    (docs/00-vision.md), so `whisper-medium-en-streaming` stays a full
+    wizard citizen (see `_build_matrix`'s own docstring — an earlier
+    version of this code hid it from the wizard for exactly this reason,
+    and that was the wrong call). `--backend cuda` on real NVIDIA
+    hardware, or a different CPU, may well change the answer, and
+    that's exactly what the benchmark should measure and show.
     """
     try:
         from faster_whisper.audio import decode_audio
