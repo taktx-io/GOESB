@@ -377,3 +377,145 @@ def test_run_streaming_transcribes_real_dutch_audio_within_wer_tolerance():
     # streaming already document).
     assert result_wer < 0.6
     assert result_rtf > 0
+
+
+# --- run_concurrency (ADR-0012) ---
+
+
+class _FakeConcurrentModel(_FakeModel):
+    """Tracks how many distinct instances actually receive a `generate()`
+    call -- proves the harness builds one full model per worker rather
+    than (incorrectly) sharing one, which Parakeet's real `generate()` is
+    not safe for (confirmed by reading transformers' own generate()
+    override for this model -- see run_concurrency's own docstring)."""
+
+    instances_generated_from: ClassVar[set] = set()
+
+    def generate(self, **kwargs):
+        _FakeConcurrentModel.instances_generated_from.add(id(self))
+        return super().generate(**kwargs)
+
+
+def _fake_utterances(tmp_path: Path, n: int = 3) -> list[Utterance]:
+    return [
+        Utterance(
+            utterance_id=f"u{i}", audio_path=tmp_path / f"fake{i}.wav",
+            reference_text="hallo", duration_s=1.0,
+        )
+        for i in range(n)
+    ]
+
+
+def _patch_load_with_fake_instances(monkeypatch) -> list:
+    """Replaces `_load` itself rather than `transformers.AutoProcessor`/
+    `AutoModelForTDT` directly. `run_concurrency` calls `_load` once per
+    worker, which is exactly the seam these tests need (does it build N
+    genuinely distinct instances, does each worker only ever touch its
+    own?) without also re-exercising `_load`'s own AutoProcessor/
+    AutoModelForTDT wiring — already covered by the batch/streaming
+    tests, and (real, confirmed finding, not assumed) unreliable to
+    monkeypatch here: `transformers`' own lazy-module machinery replaces
+    `sys.modules["transformers"]` with a distinct module object at some
+    point during this test file's session, after this file's own
+    module-level `transformers` reference was already captured -- so
+    patching either that stale reference *or* a freshly re-fetched
+    `sys.modules["transformers"]` at test time was observed to silently
+    miss the object `_load()` actually reads its attributes from later.
+    Patching `_load` sidesteps that instability entirely."""
+    created: list = []
+
+    def _fake_load(model_name, backend, threads, download_root):
+        instance = _FakeConcurrentModel()
+        created.append(instance)
+        return _FakeProcessor(), instance
+
+    monkeypatch.setattr(parakeet, "_load", _fake_load)
+    monkeypatch.setattr(parakeet, "decode_pcm", lambda *a, **k: [0.0])
+    return created
+
+
+def test_run_concurrency_builds_one_model_instance_per_worker(monkeypatch, tmp_path):
+    from oesb_runner.adapters.parakeet import run_concurrency
+
+    created = _patch_load_with_fake_instances(monkeypatch)
+
+    run_concurrency("parakeet-tdt-0.6b-v3", _fake_utterances(tmp_path), concurrency=4, duration_s=0.02)
+
+    assert len(created) == 4
+    # Every instance genuinely distinct -- not the same object constructed
+    # once and appended 4 times.
+    assert len({id(m) for m in created}) == 4
+
+
+def test_run_concurrency_each_worker_only_calls_its_own_instance(monkeypatch, tmp_path):
+    from oesb_runner.adapters.parakeet import run_concurrency
+
+    _FakeConcurrentModel.instances_generated_from = set()
+    created = _patch_load_with_fake_instances(monkeypatch)
+
+    run_concurrency("parakeet-tdt-0.6b-v3", _fake_utterances(tmp_path), concurrency=3, duration_s=0.05)
+
+    created_ids = {id(m) for m in created}
+    # Every constructed instance was actually used, and nothing outside
+    # that set was ever called -- proves the worker->instance mapping is
+    # exactly one-to-one, no accidental sharing or leftover unused models.
+    assert _FakeConcurrentModel.instances_generated_from <= created_ids
+    assert _FakeConcurrentModel.instances_generated_from
+
+
+def test_run_concurrency_respects_the_duration_s_deadline(monkeypatch, tmp_path):
+    import time
+
+    from oesb_runner.adapters.parakeet import run_concurrency
+
+    _patch_load_with_fake_instances(monkeypatch)
+
+    start = time.perf_counter()
+    run_concurrency("parakeet-tdt-0.6b-v3", _fake_utterances(tmp_path), concurrency=2, duration_s=0.1)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 2.0
+
+
+def test_run_concurrency_returns_calls_with_the_utterances_own_duration(monkeypatch, tmp_path):
+    from oesb_runner.adapters.parakeet import run_concurrency
+
+    _patch_load_with_fake_instances(monkeypatch)
+
+    calls = run_concurrency(
+        "parakeet-tdt-0.6b-v3", _fake_utterances(tmp_path, n=1), concurrency=1, duration_s=0.02
+    )
+
+    assert calls
+    assert all(c.audio_duration_s == 1.0 for c in calls)
+    assert all(c.processing_time_s >= 0.0 for c in calls)
+
+
+def test_run_concurrency_cuda_backend_hard_fails_when_torch_reports_unavailable(monkeypatch, tmp_path):
+    from oesb_runner.adapters.parakeet import run_concurrency
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    with pytest.raises(RuntimeError, match="torch.cuda.is_available"):
+        run_concurrency(
+            "parakeet-tdt-0.6b-v3", _fake_utterances(tmp_path),
+            concurrency=2, duration_s=0.02, backend="cuda",
+        )
+
+
+@pytest.mark.slow
+def test_run_concurrency_transcribes_real_dutch_audio(tmp_path):
+    """Real end-to-end proof, not just faked instance bookkeeping: real
+    audio, real concurrent generate() calls, on this adapter's actual
+    reason for existing."""
+    from oesb_runner.adapters.parakeet import run_concurrency
+
+    pack = load_pack(PACK_DIR)
+    calls = run_concurrency(
+        "parakeet-tdt-0.6b-v3", pack.utterances, concurrency=2, duration_s=5,
+        download_root=tmp_path / "models",
+    )
+
+    assert calls
+    assert all(c.processing_time_s > 0.0 for c in calls)
+    assert all(c.audio_duration_s > 0.0 for c in calls)

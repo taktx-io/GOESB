@@ -23,12 +23,14 @@ adapter's profiles declare, so there's no per-language model swap the way
 from __future__ import annotations
 
 import time
+import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ..audio import decode_pcm
 from ..pack import Utterance
 from ..streaming import StreamTrace, run_windowed_local_agreement_streaming
-from . import Transcription, log_progress, register
+from . import ConcurrentCall, Transcription, log_progress, register
 
 # The Whisper-family adapters resample internally (faster-whisper) or
 # require exactly 16kHz (whisper.cpp, vosk) — Parakeet's own feature
@@ -69,6 +71,27 @@ def _resolve_model_id(model_name: str) -> str:
     return f"nvidia/{model_name}"
 
 
+def _generate(model, inputs):
+    """`model.generate(**inputs)` without an explicit `max_new_tokens`
+    always emits `UserWarning: Using the model-agnostic default
+    max_length=...` — but that's cosmetic noise here, not a real risk:
+    confirmed by reading transformers' actual source
+    (transformers/models/parakeet/generation_parakeet.py,
+    `ParakeetRNNTGenerationMixin._prepare_generated_length`), Parakeet's
+    own `generate()` override already computes this `max_length` as
+    `max_symbols_per_step * encoder_output_length` — a generous
+    output-buffer size, not the real stop condition (that's encoder
+    exhaustion). Confirmed empirically too: a real 12.36s Dutch utterance
+    got `max_length=1550` and only actually emitted 79 tokens — nowhere
+    close to truncating. Suppressed by exact message match, not a
+    blanket `UserWarning` filter, so an unrelated future warning still
+    surfaces normally; otherwise this would clutter every single
+    utterance's log line, every run."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Using the model-agnostic default", category=UserWarning)
+        return model.generate(**inputs, return_dict_in_generate=True)
+
+
 def _warm_up(processor, model, device: str) -> None:
     """One throwaway `generate()` call, on real (silent) audio shaped like
     any other utterance, before the timed loop starts. Real, measured
@@ -92,7 +115,7 @@ def _warm_up(processor, model, device: str) -> None:
     inputs = processor(silence, sampling_rate=sample_rate, return_tensors="pt")
     inputs.to(device, dtype=model.dtype)
     with torch.no_grad():
-        model.generate(**inputs, return_dict_in_generate=True)
+        _generate(model, inputs)
 
 
 def _load(model_name: str, backend: str, threads: int, download_root: str | Path | None):
@@ -187,7 +210,7 @@ def run_batch(
         inputs = processor(samples, sampling_rate=sample_rate, return_tensors="pt")
         inputs.to(device, dtype=model.dtype)
         with torch.no_grad():
-            output = model.generate(**inputs, return_dict_in_generate=True)
+            output = _generate(model, inputs)
         hypothesis_text = processor.decode(output.sequences, skip_special_tokens=True)[0].strip()
         elapsed = time.perf_counter() - start
         log_progress(i, len(utterances), utterance.utterance_id, elapsed)
@@ -296,7 +319,7 @@ def run_streaming(
         inputs = processor(samples_slice, sampling_rate=sample_rate, return_tensors="pt")
         inputs.to(device, dtype=model.dtype)
         with torch.no_grad():
-            output = model.generate(**inputs, return_dict_in_generate=True)
+            output = _generate(model, inputs)
         _text, token_timestamps = processor.decode(
             output.sequences, durations=output.durations, skip_special_tokens=True,
         )
@@ -311,3 +334,100 @@ def run_streaming(
         log_progress(i, len(utterances), utterance.utterance_id, trace.processing_time_s)
         traces.append(trace)
     return traces
+
+
+@register(
+    "parakeet", benchmark_type="concurrency",
+    applied_parameters=frozenset({"threads", "concurrency"}),
+    backends=frozenset(_DEVICE_BY_BACKEND),
+)
+def run_concurrency(
+    model_name: str,
+    utterances: list[Utterance],
+    *,
+    concurrency: int = 1,
+    duration_s: int = 30,
+    quantization: str = "int8",
+    beam_size: int = 5,
+    temperature: float = 0.0,
+    vad: bool = True,
+    threads: int = 4,
+    download_root: str | Path | None = None,
+    language: str | None = None,
+    backend: str = "cpu",
+) -> list[ConcurrentCall]:
+    """Does this hardware stay fast under N simultaneous requests, not just
+    one at a time? Same fixed-`duration_s`-window, round-robin-through-
+    utterances harness `faster_whisper.run_concurrency` established
+    (ADR-0012).
+
+    Parakeet is NOT safe to share one model instance across concurrent
+    threads — confirmed by reading transformers' actual `generate()`
+    override for this model
+    (`transformers/models/parakeet/generation_parakeet.py`,
+    `ParakeetRNNTGenerationMixin.generate()`): it sets
+    `self._encoder_finished`, `self._symbols_at_frame`,
+    `self._step_durations` as plain instance attributes and mutates them
+    throughout the generation loop (the RNN-T/TDT greedy decode's own
+    running state). Two concurrent `generate()` calls on the same
+    instance would race on that shared state. Same real constraint
+    `whisper_cpp.run_concurrency` already documents for pywhispercpp
+    (different underlying reason — a C binding with no per-thread state
+    split — same shape of bug), same fix: `concurrency` full, independent
+    model instances, one per worker, not one shared model with a
+    worker-count knob the way `faster_whisper.run_concurrency`'s
+    `num_workers=concurrency` genuinely is (ctranslate2's `Translator` is
+    actually thread-safe that way; this isn't). A real N-way memory cost
+    — this engine's `*-concurrency` profile caps `concurrency` at 16,
+    matching whisper.cpp's own tighter ceiling (ADR-0012 addendum), not
+    faster-whisper's 64.
+
+    Model construction — including each instance's own `_warm_up` — is
+    sequential and happens before the timed window starts, same as every
+    other adapter's "model load time excluded from RTF" convention; N
+    loads (and N warm-ups) here is just N times that already-excluded
+    cost.
+
+    Audio is decoded once per utterance up front and shared read-only
+    across every worker; feature extraction (`processor(...)`) and
+    `generate()` are both inside the timed region per call, matching
+    `run_batch`/`run_streaming`'s own convention of timing the full
+    decode-to-tokens pipeline, not just the model forward pass.
+
+    No WER/CER: this benchmark type doesn't score accuracy, so
+    `reference_text` is never touched.
+    """
+    loaded = [_load(model_name, backend, threads, download_root) for _ in range(concurrency)]
+
+    import torch
+
+    device = _DEVICE_BY_BACKEND[backend]
+    sample_rate = loaded[0][0].feature_extractor.sampling_rate
+
+    decoded = [
+        (utterance, decode_pcm(utterance.audio_path, sample_rate, dtype="float32"))
+        for utterance in utterances
+    ]
+
+    deadline = time.perf_counter() + duration_s
+
+    def _worker(worker_id: int) -> list[ConcurrentCall]:
+        processor, model = loaded[worker_id]
+        calls: list[ConcurrentCall] = []
+        i = worker_id
+        while time.perf_counter() < deadline:
+            utterance, samples = decoded[i % len(decoded)]
+            start = time.perf_counter()
+            inputs = processor(samples, sampling_rate=sample_rate, return_tensors="pt")
+            inputs.to(device, dtype=model.dtype)
+            with torch.no_grad():
+                _generate(model, inputs)
+            elapsed = time.perf_counter() - start
+            calls.append(ConcurrentCall(processing_time_s=elapsed, audio_duration_s=utterance.duration_s))
+            i += concurrency
+        return calls
+
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = [pool.submit(_worker, w) for w in range(concurrency)]
+        calls = [c for future in futures for c in future.result()]
+    return calls

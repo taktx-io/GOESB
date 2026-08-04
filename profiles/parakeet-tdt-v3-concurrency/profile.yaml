@@ -1,0 +1,52 @@
+# Concurrency/load profile (ADR-0012): does this hardware stay fast under N
+# simultaneous requests, not just one at a time? No `language`, no
+# `normalization`, no wer/cer -- this doesn't score transcription accuracy,
+# only performance under concurrent load, so any open pack's audio works as
+# filler content. `--param concurrency=1,4,8,16` sweeps the levels; each is
+# its own signed result, same ADR-0009 sweep mechanism batch profiles use.
+#
+# `concurrency`'s ceiling here is 16, not 64: confirmed by reading
+# transformers' own generate() override for this model
+# (ParakeetRNNTGenerationMixin.generate() mutates plain instance attributes
+# during decode), Parakeet needs one full model instance PER worker, not one
+# shared model -- same real constraint whisper.cpp has, same tighter ceiling
+# (ADR-0012 addendum), unlike faster-whisper's genuinely thread-safe shared
+# ctranslate2 Translator.
+id: parakeet-tdt-v3-concurrency
+version: 1.0.0
+title: Parakeet TDT 0.6b v3 (Concurrency)
+benchmark_type: concurrency
+runtime:
+  name: parakeet
+  min_version: 5.9.0
+model:
+  name: parakeet-tdt-0.6b-v3
+configuration:
+  threads: 4
+  concurrency: 1
+  duration_s: 30
+scoring:
+  primary_metric: real_time_factor
+  tie_breakers:
+  - throughput
+  - gpu_pct
+metrics:
+- real_time_factor
+- throughput
+- cpu_pct
+- ram_mb
+- gpu_pct
+- energy_wh
+- temperature_c
+overridable:
+  concurrency:
+    range:
+      min: 1
+      max: 16
+  threads:
+    range:
+      min: 1
+      max: 16
+changelog:
+- version: 1.0.0
+  notes: Initial profile (ADR-0012).
