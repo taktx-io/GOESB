@@ -1078,7 +1078,16 @@ def _wizard_submit() -> None:
     one token per file — see that function's docstring for why); one
     rejected result must not block the rest. Deletion is offered only for
     files that actually made it, and defaults to "no" — deleting a local
-    result file isn't undoable."""
+    result file isn't undoable.
+
+    Comment and callsign credit — previously only reachable via `goesb
+    submit --comment`/`--callsign` — are offered here too, right before
+    submitting, so the wizard path isn't a second-class way to submit.
+    `resolve_identity(None, anonymous=False)` is the same function
+    `submit` itself calls; since the wizard is always interactive, this
+    always takes that function's own case 5 (prompt every time,
+    pre-filled with whatever callsign is already saved) — no separate
+    prompting logic duplicated here."""
     results_dir = Path("runs/results")
     result_files = sorted(results_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not result_files:
@@ -1091,8 +1100,20 @@ def _wizard_submit() -> None:
     if not chosen:
         return
 
+    comment = questionary.text(
+        "Add a comment to this submission? (optional, max 500 chars, applies to all "
+        "selected files):",
+    ).ask()
+    if comment is None:
+        return
+    comment = comment.strip() or None
+
+    identity = resolve_identity(None, anonymous=False)
+
     submitted: list[str] = []
-    for result_path, accepted, message in _submit_paths(chosen, DEFAULT_API_URL):
+    for result_path, accepted, message in _submit_paths(
+        chosen, DEFAULT_API_URL, comment=comment, identity=identity
+    ):
         typer.echo(message, err=True)
         if accepted:
             submitted.append(result_path)
@@ -3196,10 +3217,27 @@ def _prompt_new_identity(callsign: str) -> Identity:
     returns the Identity — the one path both an explicit `--callsign
     <new-name>` and a freshly-typed callsign at the interactive prompt
     funnel through. `.ask()` returning None is the Ctrl-C/abort convention
-    used throughout this module (see e.g. line ~417)."""
+    used throughout this module (see e.g. line ~417).
+
+    The context line + prompt wording spell out the actual mechanism
+    (see identity.py's own module docstring) rather than a bare "not
+    stored" claim: what the secret is for (letting two different people
+    who pick the same callsign show up as distinct leaderboard entries,
+    with no real account system), and precisely what happens to it (used
+    once in memory to derive a discriminator via PBKDF2-HMAC-SHA256, then
+    discarded — never written to disk, never sent over the network; only
+    the callsign + derived discriminator are saved/submitted)."""
+    typer.echo(
+        f"'{callsign}' needs a secret passphrase — this is what lets two different "
+        "people who pick the same callsign show up as distinct entries on the public "
+        "leaderboard, with no real account system behind it.",
+        err=True,
+    )
     secret = questionary.password(
-        f"Secret passphrase for '{callsign}' (not stored, used only to distinguish "
-        "identical callsigns from different people):"
+        f"Secret passphrase for '{callsign}' (used once, in memory, to derive a "
+        "discriminator via PBKDF2-SHA256, then discarded — never written to disk, "
+        "never sent over the network; only the callsign + derived discriminator are "
+        "saved):"
     ).ask()
     if secret is None:
         raise typer.Exit(code=1)

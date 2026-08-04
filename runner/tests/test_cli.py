@@ -2681,6 +2681,21 @@ def test_preflight_engines_drops_only_combos_needing_a_declined_engine(monkeypat
     assert kept == [("whisper-tiny-en-batch", "pack-a")]
 
 
+def _stub_wizard_submit_prompts(monkeypatch, comment="", identity=None):
+    """Common stub for the comment/callsign prompts `_wizard_submit` now
+    asks between picking files and actually submitting -- covers every
+    test below that doesn't care about those prompts specifically.
+    `resolve_identity` is stubbed directly rather than faking
+    `load_identity`/a second `questionary.text` call underneath it: it's
+    already covered by its own dedicated tests (see `resolve_identity`'s
+    own test block), so re-exercising its internals here would just be
+    redundant coverage of a different function."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(comment))
+    monkeypatch.setattr(cli_module, "resolve_identity", lambda callsign, anonymous: identity)
+
+
 def test_wizard_submit_no_results_prints_message(monkeypatch, tmp_path, capsys):
     from oesb_runner import cli as cli_module
 
@@ -2705,10 +2720,11 @@ def test_wizard_submit_multiple_and_deletes_confirmed(monkeypatch, tmp_path):
         cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a), str(file_b)])
     )
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    _stub_wizard_submit_prompts(monkeypatch)
     submit_calls = []
 
-    def fake_submit_paths(paths, api_url):
-        submit_calls.append((paths, api_url))
+    def fake_submit_paths(paths, api_url, *, comment=None, identity=None):
+        submit_calls.append((paths, api_url, comment, identity))
         return [(p, True, f"Submitted: {p}") for p in paths]
 
     monkeypatch.setattr(cli_module, "_submit_paths", fake_submit_paths)
@@ -2716,7 +2732,7 @@ def test_wizard_submit_multiple_and_deletes_confirmed(monkeypatch, tmp_path):
     cli_module._wizard_submit()
 
     # one shared batch call for every chosen file, not one call per file
-    assert submit_calls == [([str(file_a), str(file_b)], cli_module.DEFAULT_API_URL)]
+    assert submit_calls == [([str(file_a), str(file_b)], cli_module.DEFAULT_API_URL, None, None)]
     assert not file_a.exists()
     assert not file_b.exists()
 
@@ -2732,8 +2748,10 @@ def test_wizard_submit_declined_delete_keeps_files(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a)]))
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+    _stub_wizard_submit_prompts(monkeypatch)
     monkeypatch.setattr(
-        cli_module, "_submit_paths", lambda paths, api_url: [(p, True, "ok") for p in paths]
+        cli_module, "_submit_paths",
+        lambda paths, api_url, **kw: [(p, True, "ok") for p in paths],
     )
 
     cli_module._wizard_submit()
@@ -2755,8 +2773,9 @@ def test_wizard_submit_only_deletes_successfully_submitted_files(monkeypatch, tm
         cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a), str(file_b)])
     )
     monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(True))
+    _stub_wizard_submit_prompts(monkeypatch)
 
-    def fake_submit_paths(paths, api_url):
+    def fake_submit_paths(paths, api_url, **kw):
         return [
             (p, False, "submission rejected: ...") if p == str(file_b) else (p, True, "Submitted: ...")
             for p in paths
@@ -2780,11 +2799,93 @@ def test_wizard_submit_no_selection_does_nothing(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([]))
     calls = []
-    monkeypatch.setattr(cli_module, "_submit_paths", lambda paths, api_url: calls.append(paths))
+    monkeypatch.setattr(cli_module, "_submit_paths", lambda paths, api_url, **kw: calls.append(paths))
 
     cli_module._wizard_submit()
 
     assert calls == []
+
+
+def test_wizard_submit_passes_comment_and_identity_through(monkeypatch, tmp_path):
+    from oesb_runner import cli as cli_module
+    from oesb_runner.identity import Identity
+
+    monkeypatch.chdir(tmp_path)
+    results_dir = tmp_path / "runs" / "results"
+    results_dir.mkdir(parents=True)
+    file_a = results_dir / "a.json"
+    file_a.write_text("{}")
+
+    fake_identity = Identity("scout", "deadbeef")
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a)]))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+    _stub_wizard_submit_prompts(monkeypatch, comment="  a real note  ", identity=fake_identity)
+
+    captured = {}
+
+    def fake_submit_paths(paths, api_url, *, comment=None, identity=None):
+        captured["comment"] = comment
+        captured["identity"] = identity
+        return [(p, True, "ok") for p in paths]
+
+    monkeypatch.setattr(cli_module, "_submit_paths", fake_submit_paths)
+
+    cli_module._wizard_submit()
+
+    # Stripped, not the raw whitespace-padded entry.
+    assert captured["comment"] == "a real note"
+    assert captured["identity"] is fake_identity
+
+
+def test_wizard_submit_blank_comment_becomes_none(monkeypatch, tmp_path):
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    results_dir = tmp_path / "runs" / "results"
+    results_dir.mkdir(parents=True)
+    file_a = results_dir / "a.json"
+    file_a.write_text("{}")
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a)]))
+    monkeypatch.setattr(cli_module.questionary, "confirm", lambda *a, **k: _FakeAsk(False))
+    _stub_wizard_submit_prompts(monkeypatch, comment="   ")
+
+    captured = {}
+    monkeypatch.setattr(
+        cli_module, "_submit_paths",
+        lambda paths, api_url, *, comment=None, identity=None: (
+            captured.__setitem__("comment", comment) or [(p, True, "ok") for p in paths]
+        ),
+    )
+
+    cli_module._wizard_submit()
+
+    assert captured["comment"] is None
+
+
+def test_wizard_submit_aborts_on_cancelled_comment_prompt(monkeypatch, tmp_path):
+    """`.ask()` returning None is the Ctrl-C/abort convention used
+    throughout this module -- must not proceed to submit anything."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.chdir(tmp_path)
+    results_dir = tmp_path / "runs" / "results"
+    results_dir.mkdir(parents=True)
+    file_a = results_dir / "a.json"
+    file_a.write_text("{}")
+
+    monkeypatch.setattr(cli_module.questionary, "checkbox", lambda *a, **k: _FakeAsk([str(file_a)]))
+    monkeypatch.setattr(cli_module.questionary, "text", lambda *a, **k: _FakeAsk(None))
+
+    def _unexpected(*a, **k):
+        raise AssertionError("must not submit after the comment prompt was cancelled")
+
+    monkeypatch.setattr(cli_module, "_submit_paths", _unexpected)
+    monkeypatch.setattr(cli_module, "resolve_identity", _unexpected)
+
+    cli_module._wizard_submit()
+
+    assert file_a.exists()
 
 
 def _write_fake_result(path, **overrides):

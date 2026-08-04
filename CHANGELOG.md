@@ -5,6 +5,26 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.23] - 2026-08-04
+### Added
+- **`goesb submit`'s comment/callsign credit is now reachable from the
+  interactive wizard**, not just `goesb submit --comment`/`--callsign`
+  directly — `_wizard_submit` now prompts for both (comment optional;
+  callsign reuses the same 5-case `resolve_identity` flow the standalone
+  command already used) right before submitting, rather than being a
+  second-class path to submit results.
+### Changed
+- **Clearer secret-passphrase prompt.** The wizard/`submit --callsign
+  <new>`/`set-identity` prompt for a new callsign's secret used to say
+  only "(not stored, used only to distinguish identical callsigns from
+  different people)". Now spells out the actual mechanism up front: what
+  it's for (no real account system — this is what lets two people who
+  pick the same callsign show up as distinct leaderboard entries) and
+  precisely what happens to the secret (used once in memory to derive a
+  discriminator via PBKDF2-SHA256, then discarded — never written to
+  disk, never sent over the network; only the callsign + derived
+  discriminator are saved).
+
 ## [0.9.22] - 2026-08-04
 ### Added
 - **Parakeet `concurrency` benchmark type** (ADR-0012): N independent
