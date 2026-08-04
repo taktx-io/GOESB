@@ -1,0 +1,43 @@
+# NVIDIA Parakeet-TDT-0.6b-v3 (via transformers, no nemo_toolkit) --
+# PT batch. One multilingual checkpoint
+# (Granary-trained, 25 European languages) rather than a per-language
+# model swap -- same shape as parakeet-tdt-v3-nl-batch. Validated
+# against schemas/benchmark-profile.schema.json.
+id: parakeet-tdt-v3-pt-batch
+version: 1.0.0
+title: Parakeet TDT 0.6b v3 PT (Batch)
+benchmark_type: batch
+language: pt-BR
+runtime:
+  name: parakeet
+  min_version: 5.9.0
+model:
+  name: parakeet-tdt-0.6b-v3
+configuration:
+  threads: 4
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: goesb-pt-v1
+scoring:
+  primary_metric: wer
+  tie_breakers:
+  - real_time_factor
+  - energy_wh
+metrics:
+- wer
+- cer
+- real_time_factor
+- cpu_pct
+- ram_mb
+- energy_wh
+- temperature_c
+overridable:
+  threads:
+    range:
+      min: 1
+      max: 16
+changelog:
+- version: 1.0.0
+  notes: Initial profile.

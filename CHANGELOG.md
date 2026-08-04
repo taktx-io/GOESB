@@ -5,6 +5,33 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.22] - 2026-08-04
+### Added
+- **Parakeet `concurrency` benchmark type** (ADR-0012): N independent
+  model instances, one per worker, not a shared model — confirmed by
+  reading transformers' actual `generate()` override for this model
+  (`generation_parakeet.py`): `ParakeetRNNTGenerationMixin.generate()`
+  mutates plain instance attributes during decode, unsafe to share
+  across threads. Same real constraint whisper.cpp has, same tighter
+  `concurrency` ceiling (16, not faster-whisper's 64). New
+  `parakeet-tdt-v3-concurrency` profile. Real audio: throughput scales
+  10.5x/13.7x/21.1x realtime at concurrency 1/2/4 on an Apple M1 Pro CPU.
+- **Parakeet now covers all 6 languages** batch/streaming already have
+  for the Whisper-family engines (en/de/es/fr/nl/pt — nl already
+  existed). New `scripts/generate_bulk_parakeet_assets.py`, reusing
+  already-fetched packs (no new audio fetches). Real per-language batch
+  results (Apple M1 Pro CPU): en WER 3.3%/RTF 0.077x, de WER 3.5%/RTF
+  0.090x, es WER 0.8%/RTF 0.075x, fr WER 8.7%/RTF 0.105x, pt WER
+  1.6%/RTF 0.075x — all genuinely realtime.
+### Fixed
+- **Silenced Parakeet's cosmetic `max_length` warning.** `model.generate()`
+  without an explicit `max_new_tokens` always emitted `UserWarning: Using
+  the model-agnostic default max_length=...` on every single utterance —
+  confirmed harmless by reading Parakeet's own `generate()` override:
+  `max_length` is already a generous, input-proportional output-buffer
+  size (`max_symbols_per_step * encoder_output_length`), not the real
+  stop condition (encoder exhaustion). Was pure log-line noise.
+
 ## [0.9.21] - 2026-08-03
 ### Added
 - **NVIDIA Parakeet-TDT engine** (`parakeet` runtime), batch + streaming.
