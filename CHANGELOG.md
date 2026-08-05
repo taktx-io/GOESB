@@ -5,6 +5,18 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.25] - 2026-08-05
+### Fixed
+- **`goesb` wizard crashed with `KeyError: 'large-v3-turbo'` the instant
+  you opened the batch/streaming matrix** — a real user-reported crash on
+  0.9.24. `_MATRIX_SIZE_SHORT` (the column-header abbreviation table
+  render() indexes by size string) wasn't updated alongside
+  `_MATRIX_SIZES`/`_MATRIX_ID_RE` when large-v3-turbo profiles were
+  added; the wizard-matrix test added for that same change only checked
+  `_build_matrix`'s output shape, not the separate dict render() actually
+  looks up. Added `"large-v3-turbo": "LT"`, and a direct test asserting
+  every `_MATRIX_COLUMNS` entry resolves in both short-label dicts.
+
 ## [0.9.24] - 2026-08-05
 ### Changed
 - **`wer`/`cer` `spread` now pools per-recording ratios, not per-repeat

@@ -257,13 +257,14 @@ def _selection_to_profile_ids(selected: set[tuple[int, int]], matrix: _Matrix) -
 
 _MATRIX_ENGINE_SHORT = {"whisper": "fw", "whispercpp": "wc", "vosk": "vk", "parakeet": "pk"}
 _MATRIX_SIZE_SHORT = {
-    "tiny": "T", "base": "B", "small": "S", "medium": "M", "large-v3": "L", "tdt-v3": "V3",
+    "tiny": "T", "base": "B", "small": "S", "medium": "M", "large-v3": "L",
+    "large-v3-turbo": "LT", "tdt-v3": "V3",
 }
 _MATRIX_COLUMN_WIDTH = 7
 _MATRIX_ROW_HEADER_WIDTH = 8
 _MATRIX_LEGEND = (
     "fw=faster-whisper  wc=whisper-cpp  vk=vosk  pk=parakeet    "
-    "T=tiny B=base S=small M=medium L=large-v3 V3=tdt-v3\n"
+    "T=tiny B=base S=small M=medium L=large-v3 LT=large-v3-turbo V3=tdt-v3\n"
     "Arrows to move, space to toggle a cell/row/column, enter to confirm, escape to go back."
 )
 

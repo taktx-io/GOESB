@@ -3365,6 +3365,22 @@ def test_build_matrix_shapes_languages_columns_and_cells():
     }
 
 
+def test_matrix_columns_all_resolve_in_both_short_label_dicts():
+    # Real production crash (KeyError: 'large-v3-turbo'): _MATRIX_COLUMNS
+    # got a new size added without also adding it to _MATRIX_SIZE_SHORT,
+    # the separate dict the wizard's render() indexes by the same size
+    # string to build column headers ("wc-LT" etc). _build_matrix's own
+    # cells/columns tests don't exercise render() at all, so this gap
+    # shipped a wizard that crashed the instant a user opened the batch
+    # matrix -- assert the invariant render() actually relies on directly,
+    # rather than only the shape _build_matrix produces.
+    from oesb_runner import cli as cli_module
+
+    for engine, size in cli_module._MATRIX_COLUMNS:
+        assert engine in cli_module._MATRIX_ENGINE_SHORT, f"{engine!r} missing from _MATRIX_ENGINE_SHORT"
+        assert size in cli_module._MATRIX_SIZE_SHORT, f"{size!r} missing from _MATRIX_SIZE_SHORT"
+
+
 def test_build_matrix_picks_up_large_v3_turbo():
     # Real regression: _MATRIX_SIZES/_MATRIX_ID_RE is a fixed size list, not
     # derived from what profiles actually exist -- adding whisper*-large-v3-
