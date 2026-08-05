@@ -89,6 +89,36 @@ def validate_ruleset_ids() -> list[str]:
     return errors
 
 
+def validate_decode_context_declared() -> list[str]:
+    """Every batch/streaming profile must declare `model.vad` and
+    `model.context_reset` explicitly, even when the adapter doesn't apply
+    VAD at all or the value is `false`/`per_utterance`.
+
+    Real motivation, not a hypothetical: a downstream reimplementation of
+    a whisper.cpp-based benchmark carried decoder context across a
+    corpus loop by accident and moved one recording's WER by up to 57
+    points — perfectly reproducible, signed, and indistinguishable from a
+    correct run by anything a GOESB profile could express at the time.
+    Schema validation alone can't enforce "present for batch/streaming,
+    optional for concurrency" (concurrency profiles never score WER, so
+    this doesn't apply to them) — hence a custom check here, same
+    pattern as validate_ruleset_ids/validate_pack_profile_refs."""
+    errors: list[str] = []
+    for path in (ROOT / "profiles").glob("*/profile.yaml"):
+        data = yaml.safe_load(path.read_text())
+        if data.get("benchmark_type") not in ("batch", "streaming"):
+            continue
+        model = data.get("model", {})
+        if "vad" not in model:
+            errors.append(f"{path}: model.vad must be declared explicitly (true/false), not omitted")
+        if "context_reset" not in model:
+            errors.append(
+                f"{path}: model.context_reset must be declared explicitly "
+                "('per_utterance' or 'carried'), not omitted"
+            )
+    return errors
+
+
 def validate_pack_profile_refs() -> list[str]:
     """Every pack's profile_id must resolve to an actual committed profile."""
     profile_ids = {p.parent.name for p in (ROOT / "profiles").glob("*/profile.yaml")}
@@ -113,6 +143,7 @@ def main() -> int:
     )
     errors += validate_pack_hashes()
     errors += validate_ruleset_ids()
+    errors += validate_decode_context_declared()
     errors += validate_pack_profile_refs()
     if errors:
         print("INVALID assets:")

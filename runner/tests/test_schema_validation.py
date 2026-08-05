@@ -50,15 +50,21 @@ def test_whispercpp_profile_only_declares_threads():
     (pywhispercpp's flat params don't wire beam_size; there's no VAD;
     quantization is a ggml model-file choice) — "no silent knobs" (ADR-0009
     §2) means declaring them overridable there is exactly the mistake
-    generate_bulk_assets.py's overridable_block_for() exists to prevent."""
+    generate_bulk_assets.py's overridable_block_for() exists to prevent.
+
+    `vad`/`context_reset` are still declared in `model` (real, fixed
+    values a reader can see), just never in `overridable` — a fixed
+    declared value and an override-eligible knob are different claims;
+    the adapter genuinely ignoring `vad` only rules out the second one."""
     data = yaml.safe_load(
         (REPO_ROOT / "profiles" / "whispercpp-base-en-batch" / "profile.yaml").read_text()
     )
     assert set(data["overridable"]) == {"threads"}
     assert "beam_size" in data["model"]  # set, but not overridable — adapter ignores it
-    assert "vad" not in data["model"]  # only faster-whisper's model block sets vad at all
+    assert data["model"]["vad"] is False  # explicit, not silently absent (real feedback fix)
+    assert data["model"]["context_reset"] == "per_utterance"
     assert "vad" not in data["overridable"]
-    assert "vad" not in data["model"]
+    assert "context_reset" not in data["overridable"]
 
 
 def test_overridable_rejects_unknown_domain_shape():

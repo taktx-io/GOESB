@@ -2,7 +2,7 @@
 # adapter interface (M2 exit criterion: adapters swap without core changes).
 # Validated against schemas/benchmark-profile.schema.json.
 id: vosk-small-en-batch
-version: 1.0.0
+version: 1.0.2
 title: Vosk Small English (Batch)
 benchmark_type: batch
 language: en-US
@@ -11,6 +11,8 @@ runtime:
   min_version: "0.3.44"
 model:
   name: vosk-model-small-en-us-0.15
+  vad: false
+  context_reset: per_utterance
 configuration:
   threads: 4
 normalization:
@@ -21,7 +23,11 @@ normalization:
 scoring:
   primary_metric: wer
   tie_breakers: [real_time_factor, energy_wh]
-metrics: [wer, cer, real_time_factor, cpu_pct, ram_mb, energy_wh, temperature_c]
+metrics: [wer, wer_substitutions, wer_deletions, wer_insertions, cer, cer_substitutions, cer_deletions, cer_insertions, real_time_factor, cpu_pct, ram_mb, energy_wh, temperature_c]
 changelog:
   - version: 1.0.0
     notes: Initial profile (M2) — second runtime adapter proving the plugin interface.
+  - version: 1.0.1
+    notes: Declare wer/cer substitution/deletion/insertion breakdown metrics, now that the runner computes them.
+  - version: 1.0.2
+    notes: Declare model.vad (false -- this adapter never applies it) and model.context_reset (per_utterance -- the adapter constructs a fresh KaldiRecognizer per utterance, no shared decode state to carry across calls in the first place) so a reader never has to infer these from adapter code.

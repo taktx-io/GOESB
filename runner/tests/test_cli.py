@@ -3365,6 +3365,27 @@ def test_build_matrix_shapes_languages_columns_and_cells():
     }
 
 
+def test_build_matrix_picks_up_large_v3_turbo():
+    # Real regression: _MATRIX_SIZES/_MATRIX_ID_RE is a fixed size list, not
+    # derived from what profiles actually exist -- adding whisper*-large-v3-
+    # turbo-*-batch profiles without also adding "large-v3-turbo" here made
+    # _build_matrix silently drop every one of them (id_re.match() returns
+    # None, `continue`s past them), with no error anywhere. The size
+    # alternation must list "large-v3-turbo" for this to pass.
+    from oesb_runner import cli as cli_module
+
+    profiles = _sample_matrix_profiles() + [
+        {"id": "whisper-large-v3-turbo-en-batch", "language": "en-US", "benchmark_type": "batch"},
+        {"id": "whispercpp-large-v3-turbo-en-batch", "language": "en-US", "benchmark_type": "batch"},
+    ]
+    matrix = cli_module._build_matrix(profiles)
+
+    assert ("whisper", "large-v3-turbo") in matrix.columns
+    assert ("whispercpp", "large-v3-turbo") in matrix.columns
+    assert matrix.cells[("en-US", "whisper-large-v3-turbo")] == "whisper-large-v3-turbo-en-batch"
+    assert matrix.cells[("en-US", "whispercpp-large-v3-turbo")] == "whispercpp-large-v3-turbo-en-batch"
+
+
 def test_build_matrix_streaming_picks_up_every_streaming_profile():
     """No profile gets singled out and hidden here, even one that measures
     badly on the machine building this test -- GOESB is hardware-generic

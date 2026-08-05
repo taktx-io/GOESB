@@ -18,16 +18,71 @@ from oesb_runner.metrics._align import edit_distance
 
 
 def test_edit_distance_known_values():
-    assert edit_distance("kitten", "sitting") == 3
-    assert edit_distance([], []) == 0
-    assert edit_distance(["a", "b"], ["a", "b"]) == 0
-    assert edit_distance(["a", "b"], []) == 2
+    assert edit_distance("kitten", "sitting").total == 3
+    assert edit_distance([], []).total == 0
+    assert edit_distance(["a", "b"], ["a", "b"]).total == 0
+    assert edit_distance(["a", "b"], []).total == 2
+
+
+def test_edit_distance_breaks_down_a_pure_substitution():
+    counts = edit_distance(["a", "b", "c"], ["a", "x", "c"])
+    assert (counts.substitutions, counts.deletions, counts.insertions) == (1, 0, 0)
+    assert counts.total == 1
+
+
+def test_edit_distance_breaks_down_a_pure_deletion():
+    # "b" is in the reference but missing from the hypothesis.
+    counts = edit_distance(["a", "b", "c"], ["a", "c"])
+    assert (counts.substitutions, counts.deletions, counts.insertions) == (0, 1, 0)
+    assert counts.total == 1
+
+
+def test_edit_distance_breaks_down_a_pure_insertion():
+    # "b" is extra in the hypothesis, not present in the reference.
+    counts = edit_distance(["a", "c"], ["a", "b", "c"])
+    assert (counts.substitutions, counts.deletions, counts.insertions) == (0, 0, 1)
+    assert counts.total == 1
 
 
 def test_wer_single_utterance_one_substitution():
     # "de kat zit" vs "de mat zit" -> 1 substitution / 3 ref words
     pairs = [("de kat zit", "de mat zit")]
     assert wer.compute(pairs) == pytest.approx(1 / 3)
+
+
+def test_wer_compute_detailed_matches_compute_and_reports_breakdown():
+    pairs = [("de kat zit", "de mat zit")]
+    detailed = wer.compute_detailed(pairs)
+    assert detailed.value == pytest.approx(wer.compute(pairs))
+    assert (detailed.substitutions, detailed.deletions, detailed.insertions) == (1, 0, 0)
+    assert detailed.ref_words == 3
+
+
+def test_wer_compute_detailed_sums_breakdown_across_the_whole_corpus():
+    pairs = [
+        ("een fout woord", "een verkeerd woord"),  # 1 substitution
+        ("nog een woord hier", "nog woord hier"),  # 1 deletion ("een" missing)
+        ("laatste zin", "laatste extra zin"),  # 1 insertion ("extra")
+    ]
+    detailed = wer.compute_detailed(pairs)
+    assert (detailed.substitutions, detailed.deletions, detailed.insertions) == (1, 1, 1)
+    assert detailed.value == pytest.approx(3 / detailed.ref_words)
+
+
+def test_wer_compute_detailed_reports_per_utterance_ratios_not_averaged_into_value():
+    pairs = [
+        ("fout", "anders"),  # 1/1 = 1.0
+        ("een twee drie vier vijf zes zeven acht negen", "een twee drie vier vijf zes zeven acht negen"),  # 0/9 = 0.0
+    ]
+    detailed = wer.compute_detailed(pairs)
+    assert detailed.per_utterance == (pytest.approx(1.0), pytest.approx(0.0))
+    assert detailed.value == pytest.approx(1 / 10)  # corpus-level, not mean(per_utterance)
+
+
+def test_wer_compute_detailed_excludes_empty_reference_from_per_utterance():
+    pairs = [("", "iets"), ("hallo wereld", "hallo wereld")]
+    detailed = wer.compute_detailed(pairs)
+    assert detailed.per_utterance == (0.0,)
 
 
 def test_wer_perfect_match_is_zero():
@@ -52,6 +107,20 @@ def test_wer_requires_non_empty_reference():
 def test_cer_single_utterance():
     # "kat" vs "kot": 1 char substitution / 3 ref chars
     assert cer.compute([("kat", "kot")]) == pytest.approx(1 / 3)
+
+
+def test_cer_compute_detailed_matches_compute_and_reports_breakdown():
+    pairs = [("kat", "kot")]
+    detailed = cer.compute_detailed(pairs)
+    assert detailed.value == pytest.approx(cer.compute(pairs))
+    assert (detailed.substitutions, detailed.deletions, detailed.insertions) == (1, 0, 0)
+    assert detailed.ref_chars == 3
+
+
+def test_cer_compute_detailed_reports_per_utterance_ratios():
+    pairs = [("kat", "kot"), ("hond", "hond")]
+    detailed = cer.compute_detailed(pairs)
+    assert detailed.per_utterance == (pytest.approx(1 / 3), pytest.approx(0.0))
 
 
 def test_cer_requires_non_empty_reference():

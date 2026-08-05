@@ -30,7 +30,11 @@
         "quantization": { "type": "string" },
         "beam_size": { "type": "integer", "minimum": 1 },
         "temperature": { "type": "number" },
-        "vad": { "type": "boolean" }
+        "vad": { "type": "boolean" },
+        "context_reset": { "enum": ["per_utterance", "carried"],
+          "description": "Whether the runtime resets its decoder context/prompt before every utterance ('per_utterance' — the correct choice for a benchmark corpus of independent clips) or lets it carry across calls within a run ('carried'). Its absence used to be ambiguous to a reader — a real, verified false-negative WER moved by tens of points when a downstream reimplementation carried context across a corpus loop; every batch/streaming profile should declare this explicitly rather than leave it implicit in adapter code a reader can't see." },
+        "initial_prompt": { "type": ["string", "null"],
+          "description": "Text prompt prepended before decoding each utterance, if the runtime supports one. Null/absent means no prompt is used." }
       }
     },
     "configuration": {

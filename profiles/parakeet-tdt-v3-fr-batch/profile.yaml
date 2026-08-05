@@ -4,7 +4,7 @@
 # model swap -- same shape as parakeet-tdt-v3-nl-batch. Validated
 # against schemas/benchmark-profile.schema.json.
 id: parakeet-tdt-v3-fr-batch
-version: 1.0.0
+version: 1.0.2
 title: Parakeet TDT 0.6b v3 FR (Batch)
 benchmark_type: batch
 language: fr-FR
@@ -13,6 +13,8 @@ runtime:
   min_version: 5.9.0
 model:
   name: parakeet-tdt-0.6b-v3
+  vad: false
+  context_reset: per_utterance
 configuration:
   threads: 4
 normalization:
@@ -27,7 +29,13 @@ scoring:
   - energy_wh
 metrics:
 - wer
+- wer_substitutions
+- wer_deletions
+- wer_insertions
 - cer
+- cer_substitutions
+- cer_deletions
+- cer_insertions
 - real_time_factor
 - cpu_pct
 - ram_mb
@@ -41,3 +49,7 @@ overridable:
 changelog:
 - version: 1.0.0
   notes: Initial profile.
+- version: 1.0.1
+  notes: Declare wer/cer substitution/deletion/insertion breakdown metrics, now that the runner computes them.
+- version: 1.0.2
+  notes: Declare model.vad (false -- this adapter never applies it) and model.context_reset (per_utterance -- ParakeetRNNTGenerationMixin.generate() resets its own decode state fresh at the top of every call, confirmed by reading generation_parakeet.py) so a reader never has to infer these from adapter code.

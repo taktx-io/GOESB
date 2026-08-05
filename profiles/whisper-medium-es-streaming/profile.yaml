@@ -1,5 +1,5 @@
 id: whisper-medium-es-streaming
-version: 1.0.0
+version: 1.0.2
 title: Whisper Medium ES (Streaming)
 benchmark_type: streaming
 language: es-419
@@ -12,6 +12,7 @@ model:
   temperature: 0.0
   quantization: int8
   vad: true
+  context_reset: per_utterance
 configuration:
   threads: 4
   chunk_ms: 1000
@@ -27,6 +28,9 @@ scoring:
   - real_time_factor
 metrics:
 - wer
+- wer_substitutions
+- wer_deletions
+- wer_insertions
 - real_time_factor
 - cpu_pct
 - ram_mb
@@ -63,3 +67,7 @@ changelog:
 - version: 1.0.0
   notes: Initial profile (bulk-generated streaming set, matching batch's language/engine/size
     coverage).
+- version: 1.0.1
+  notes: Declare wer/cer substitution/deletion/insertion breakdown metrics, now that the runner computes them.
+- version: 1.0.2
+  notes: Declare model.context_reset (per_utterance) explicitly -- confirmed empirically (not assumed) that this adapter's Python API already has no cross-utterance context-bleed risk; documents that fact instead of leaving it implicit.

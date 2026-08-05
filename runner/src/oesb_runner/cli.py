@@ -151,12 +151,12 @@ def _matching_packs(packs: list[dict], language: str) -> list[dict]:
 _MATRIX_BENCHMARK_TYPES = ("batch", "streaming")
 _MATRIX_ID_RE = {
     benchmark_type: re.compile(
-        rf"^(whisper|whispercpp|vosk|parakeet)-(tiny|base|small|medium|large-v3|tdt-v3)-([a-z]{{2}})-{benchmark_type}$"
+        rf"^(whisper|whispercpp|vosk|parakeet)-(tiny|base|small|medium|large-v3|large-v3-turbo|tdt-v3)-([a-z]{{2}})-{benchmark_type}$"
     )
     for benchmark_type in _MATRIX_BENCHMARK_TYPES
 }
 
-_MATRIX_SIZES = ["tiny", "base", "small", "medium", "large-v3"]
+_MATRIX_SIZES = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"]
 _MATRIX_COLUMNS = (
     [("whisper", size) for size in _MATRIX_SIZES]
     + [("whispercpp", size) for size in _MATRIX_SIZES]
@@ -1166,7 +1166,13 @@ LATENCY_METRIC_IDS = {
 
 _METRIC_UNITS = {
     wer.METRIC_ID: wer.UNIT,
+    wer.SUBSTITUTIONS_METRIC_ID: wer.BREAKDOWN_UNIT,
+    wer.DELETIONS_METRIC_ID: wer.BREAKDOWN_UNIT,
+    wer.INSERTIONS_METRIC_ID: wer.BREAKDOWN_UNIT,
     cer.METRIC_ID: cer.UNIT,
+    cer.SUBSTITUTIONS_METRIC_ID: cer.BREAKDOWN_UNIT,
+    cer.DELETIONS_METRIC_ID: cer.BREAKDOWN_UNIT,
+    cer.INSERTIONS_METRIC_ID: cer.BREAKDOWN_UNIT,
     rtf.METRIC_ID: rtf.UNIT,
     throughput.METRIC_ID: throughput.UNIT,
     cpu_ram.CPU_METRIC_ID: cpu_ram.CPU_UNIT,
@@ -2732,6 +2738,15 @@ def run(
     latency_samples_ms: dict[str, list[float]] = {
         m: [] for m in profile["metrics"] if m in pooled_metric_ids
     }
+    # wer/cer spread is pooled per-recording, not per-repeat (see
+    # docs/specs/metrics.md "Reporting") -- a corpus-aggregate value can
+    # look unremarkable while individual recordings sit at 60-90%+, a
+    # bimodal failure a 2-element repeat-spread hides entirely for any
+    # deterministic decoder. Populated below alongside per_repeat_metrics,
+    # consumed after the repeat loop instead of folded into it.
+    recording_samples: dict[str, list[float]] = {
+        m: [] for m in ("wer", "cer") if m in profile["metrics"]
+    }
     # One entry per utterance per repeat — reference vs what the engine
     # actually produced, captured before normalize() strips casing and
     # punctuation for WER scoring. The aggregate WER alone can't tell you
@@ -2780,9 +2795,17 @@ def run(
                 ))
 
             total_processing_s = sum(t.processing_time_s for t in transcriptions)
+            wer_detailed = wer.compute_detailed(pairs)
+            cer_detailed = cer.compute_detailed(pairs)
             computed = {
-                "wer": wer.compute(pairs),
-                "cer": cer.compute(pairs),
+                "wer": wer_detailed.value,
+                wer.SUBSTITUTIONS_METRIC_ID: wer_detailed.substitutions,
+                wer.DELETIONS_METRIC_ID: wer_detailed.deletions,
+                wer.INSERTIONS_METRIC_ID: wer_detailed.insertions,
+                "cer": cer_detailed.value,
+                cer.SUBSTITUTIONS_METRIC_ID: cer_detailed.substitutions,
+                cer.DELETIONS_METRIC_ID: cer_detailed.deletions,
+                cer.INSERTIONS_METRIC_ID: cer_detailed.insertions,
                 "real_time_factor": rtf.compute(total_processing_s, pack.total_duration_s),
                 "throughput": throughput.compute(pack.total_duration_s, total_processing_s),
                 "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
@@ -2799,6 +2822,10 @@ def run(
             for metric_id, values in per_repeat_metrics.items():
                 if metric_id in computed:
                     values.append(computed[metric_id])
+            if "wer" in recording_samples:
+                recording_samples["wer"].extend(wer_detailed.per_utterance)
+            if "cer" in recording_samples:
+                recording_samples["cer"].extend(cer_detailed.per_utterance)
 
         elif benchmark_type == "streaming":
 
@@ -2842,9 +2869,17 @@ def run(
             }
             update_freq = update_frequency.compute(traces)
             stability = partial_stability.compute(traces)
+            wer_detailed = wer.compute_detailed(pairs)
+            cer_detailed = cer.compute_detailed(pairs)
             computed = {
-                "wer": wer.compute(pairs),
-                "cer": cer.compute(pairs),
+                "wer": wer_detailed.value,
+                wer.SUBSTITUTIONS_METRIC_ID: wer_detailed.substitutions,
+                wer.DELETIONS_METRIC_ID: wer_detailed.deletions,
+                wer.INSERTIONS_METRIC_ID: wer_detailed.insertions,
+                "cer": cer_detailed.value,
+                cer.SUBSTITUTIONS_METRIC_ID: cer_detailed.substitutions,
+                cer.DELETIONS_METRIC_ID: cer_detailed.deletions,
+                cer.INSERTIONS_METRIC_ID: cer_detailed.insertions,
                 "real_time_factor": rtf.compute(total_processing_s, pack.total_duration_s),
                 "throughput": throughput.compute(pack.total_duration_s, total_processing_s),
                 "cpu_pct": cpu_ram.reduce_cpu_pct(samples),
@@ -2872,6 +2907,10 @@ def run(
                     values.append(computed[metric_id])
             for metric_id, values in latency_samples_ms.items():
                 values.extend(this_repeat_latency[metric_id])
+            if "wer" in recording_samples:
+                recording_samples["wer"].extend(wer_detailed.per_utterance)
+            if "cer" in recording_samples:
+                recording_samples["cer"].extend(cer_detailed.per_utterance)
 
         elif benchmark_type == "concurrency":
 
@@ -2936,6 +2975,19 @@ def run(
                 k: v for k, v in summary.items() if k != "value"
             }
             metrics_block[metric_id]["per_repeat"] = values
+
+    # wer/cer: overwrite whatever repeat-based spread the loop above just
+    # attached (or attach one for the first time at repeats=1) with the
+    # per-recording pooling docs/specs/metrics.md "Reporting" specifies --
+    # unconditional on repeat count, same as latency_samples_ms below, since
+    # a single repeat still has as many recordings as the pack does.
+    for metric_id, samples in recording_samples.items():
+        if metric_id not in metrics_block or not samples:
+            continue
+        summary = summarize(samples)
+        metrics_block[metric_id]["spread"] = {
+            k: v for k, v in summary.items() if k != "value"
+        }
 
     for metric_id, samples_ms in latency_samples_ms.items():
         summary = summarize(samples_ms)
@@ -3042,8 +3094,12 @@ def run(
     table.add_column("Spread (±std)", justify="right")
     table.add_column("Unit")
     for metric_id, block in metrics_block.items():
+        # "count" metrics (wer/cer_substitutions/deletions/insertions) are
+        # whole numbers -- "13.0000" reads as noise next to a real ratio's
+        # ".4f", not as a value with genuine sub-integer precision.
+        value_str = f"{block['value']:.0f}" if block["unit"] == "count" else f"{block['value']:.4f}"
         spread = f"± {block['spread']['std']:.4f}" if "spread" in block else "—"
-        table.add_row(metric_id, f"{block['value']:.4f}", spread, block["unit"])
+        table.add_row(metric_id, value_str, spread, block["unit"])
     Console().print(table)
 
 

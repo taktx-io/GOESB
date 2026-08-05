@@ -55,14 +55,20 @@ def test_run_produces_valid_signed_reproducible_result(tmp_path):
     # User-asserted hardware id makes it into the signed document as-is.
     assert doc["hardware_id"] == "intel-xeon-e3-1240-v6"
 
-    # Reproducibility: primary metric (wer) has zero spread across 2 repeats
-    # for this deterministic (beam_size, temperature=0.0) config — the
-    # concrete form of "two runs agree within tolerance" for this profile.
+    # Reproducibility: primary metric (wer) is identical across both
+    # corpus-level repeats for this deterministic (beam_size,
+    # temperature=0.0) config — "two runs agree within tolerance" lives in
+    # per_repeat, not spread. spread for wer/cer is pooled per-recording
+    # (docs/specs/metrics.md "Reporting"), not per-repeat — a per-repeat
+    # spread would be degenerate (always zero for a deterministic decoder,
+    # exactly the case this test exercises) and hide the real per-recording
+    # distribution checked below.
     assert doc["repeats"] == 2
     wer_block = doc["metrics"]["wer"]
-    assert "spread" in wer_block
-    assert wer_block["spread"]["std"] == pytest.approx(0.0)
+    assert wer_block["per_repeat"][0] == pytest.approx(wer_block["per_repeat"][1])
     assert wer_block["value"] < 0.25  # tiny model on clean read speech, sanity bound
+    assert "spread" in wer_block
+    assert set(wer_block["spread"]) == {"std", "min", "max", "p50", "p95"}
 
     # Every metric M1 implements (of the profile's required set) is present.
     # energy_wh is profile-required but not yet implemented — a known M1/M2 gap.

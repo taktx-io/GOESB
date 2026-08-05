@@ -184,6 +184,20 @@ def run_batch(
         print_realtime=False,
         print_progress=False,
         context_params={"use_gpu": _USE_GPU_BY_BACKEND[backend]},
+        no_context=True,  # ADR-0008: explicit, not left to pywhispercpp's own
+        # default. This model instance is loaded once and reused across
+        # every utterance in the pack (see the module docstring's "model
+        # load time deliberately excluded" convention) — without this,
+        # whisper.cpp's own C API defaults to *reusing* the previous
+        # transcription as decoder context, which the standalone whisper.cpp
+        # CLI never trips over (one file per process) but any harness
+        # looping over a corpus on a long-lived model does. pywhispercpp's
+        # own Python-level default already happens to be `True` (confirmed
+        # empirically: 60 real transcriptions in a row on one instance,
+        # byte-identical output before/after) — this makes that safety
+        # property an explicit, reviewed profile declaration instead of an
+        # implicit library default a reader can't see (see `context_reset`
+        # in this engine's own profiles).
         **language_params,
     )
 
@@ -305,6 +319,15 @@ def run_streaming(
         split_on_word=True,
         max_len=1,
         context_params={"use_gpu": _USE_GPU_BY_BACKEND[backend]},
+        no_context=True,  # ADR-0008: explicit, see run_batch's own comment
+        # for the general reasoning. Also correct specifically for the
+        # windowed re-decode loop below: each `decode_window()` call
+        # (whether the same utterance's next window, or a fresh
+        # utterance) is meant to be an independent decode of exactly the
+        # raw audio slice it's given — `run_windowed_local_agreement_
+        # streaming`'s own commit logic handles continuity via text
+        # overlap-matching, not decoder-state carry-over, so this doesn't
+        # fight the streaming algorithm.
         language=fixed_language or "en",  # placeholder when None; overridden per-call below
     )
 
@@ -427,6 +450,11 @@ def run_concurrency(
             print_realtime=False,
             print_progress=False,
             context_params={"use_gpu": _USE_GPU_BY_BACKEND[backend]},
+            no_context=True,  # ADR-0008: explicit, see run_batch's own
+            # comment. This benchmark type never scores accuracy, but each
+            # worker's model instance is still reused across many calls
+            # (round-robining through the pack) — same explicit-not-implicit
+            # reasoning applies regardless.
             **language_params,
         )
         for _ in range(concurrency)

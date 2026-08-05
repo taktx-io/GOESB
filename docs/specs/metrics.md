@@ -11,8 +11,10 @@ which metric ids they require; metric plugins compute them. Units are explicit.
 
 | id | Name | Unit | Definition |
 |----|------|------|-----------|
-| `wer` | Word Error Rate | ratio | `(S + D + I) / N_ref` after profile normalization, where S/D/I are substitutions/deletions/insertions from reference-hypothesis alignment and `N_ref` is reference word count. |
-| `cer` | Character Error Rate | ratio | Same as WER at character granularity after normalization. |
+| `wer` | Word Error Rate | ratio | `(S + D + I) / N_ref` after profile normalization, where S/D/I are substitutions/deletions/insertions from reference-hypothesis alignment and `N_ref` is reference word count. `value` is corpus-level (sum of edits / sum of ref words across the whole pack, not the mean of per-utterance ratios, which would bias short utterances); `spread` (p50/p95/std/min/max) is computed **per recording**, not per repeat — see Reporting below. |
+| `wer_substitutions` / `wer_deletions` / `wer_insertions` | WER error composition | count | Corpus-level totals from the same alignment that produces `wer` — a WER ratio alone can't distinguish "hears worse" (substitutions/deletions rising) from "runs away" (insertions rising), two different failure modes with two different fixes. |
+| `cer` | Character Error Rate | ratio | Same as WER at character granularity after normalization. Same `value`/`spread` convention as `wer`. |
+| `cer_substitutions` / `cer_deletions` / `cer_insertions` | CER error composition | count | Same as the `wer_*` breakdown, at character granularity. |
 
 Normalization (lowercasing, punctuation, number expansion, ruleset id) is fixed
 by the profile and applied identically to reference and hypothesis **before**
@@ -74,10 +76,23 @@ comparing streaming numbers across backends of very different speeds
 
 ## Reporting
 
-Each metric is reported with: value, unit, and — where meaningful — a spread
-(e.g. mean ± std over repeats, or p50/p95 for latencies). Latency metrics for
-streaming/conversation should always report p50 and p95, never mean alone, since
-tail latency is what users feel.
+Each metric is reported with: value, unit, and — where meaningful — a spread.
+The axis a spread is computed over depends on the metric:
+
+- **Most scalar metrics** (`real_time_factor`, `cpu_pct`, `ram_mb`, ...): mean ±
+  std **over repeats** — how stable is this number if you run the exact same
+  benchmark again.
+- **Latency metrics** (`first_partial_latency`, ...): p50/p95 pooled **over
+  per-utterance samples**, always reported (never mean alone, since tail
+  latency is what users feel), independent of repeat count.
+- **`wer`/`cer`**: p50/p95/std/min/max pooled **over per-recording ratios**
+  (one WER/CER value per utterance in the pack), always reported — not over
+  repeats. A corpus-aggregate WER can look unremarkable while a handful of
+  individual recordings sit at 60-90%+; that bimodal failure is invisible in
+  a mean and obvious in a p95-over-recordings (real report: this was
+  originally computed over the 1-2 repeats instead, which for a deterministic
+  decode — no adapter here samples with `temperature > 0` — produced a
+  spread of exactly zero and hid this signal entirely).
 
 ## Conversation (pipeline) metrics
 

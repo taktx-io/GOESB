@@ -150,6 +150,21 @@ def test_run_batch_passes_use_gpu_true_for_cuda_backend(monkeypatch, tmp_path):
     assert _FakeModel.last_init_kwargs.get("context_params") == {"use_gpu": True}
 
 
+def test_run_batch_passes_no_context_true_explicitly(monkeypatch, tmp_path):
+    """ADR-0008: this model instance is loaded once and reused across every
+    utterance in the pack -- without an explicit no_context=True, whisper.cpp's
+    own C API default is to *reuse* the previous transcription as decoder
+    context, a real verified failure mode for any harness that loops a
+    long-lived model over a corpus (see this adapter's own comment at the
+    Model(...) call site)."""
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    run_batch("tiny", [_fake_utterance(tmp_path)])
+
+    assert _FakeModel.last_init_kwargs.get("no_context") is True
+
+
 def test_run_batch_cuda_backend_raises_when_build_has_no_cuda_support(monkeypatch, tmp_path):
     """Real correctness gap this closes: use_gpu is a single boolean
     covering CUDA/Metal/Vulkan/nothing depending purely on how this exact
@@ -258,6 +273,17 @@ def test_run_concurrency_builds_one_model_instance_per_worker(monkeypatch, tmp_p
     # Every instance genuinely distinct -- not the same object constructed
     # once and appended 4 times.
     assert len({id(m) for m in _FakeConcurrentModel.instances_created}) == 4
+
+
+def test_run_concurrency_passes_no_context_true_explicitly(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_concurrency
+
+    monkeypatch.setattr("pywhispercpp.model.Model", _FakeModel)
+    monkeypatch.setattr(whisper_cpp, "decode_pcm", lambda *a, **k: [0.0])
+
+    run_concurrency("tiny", _fake_utterances(tmp_path), concurrency=1, duration_s=0.02)
+
+    assert _FakeModel.last_init_kwargs.get("no_context") is True
 
 
 def test_run_concurrency_each_worker_only_calls_its_own_instance(monkeypatch, tmp_path):
@@ -528,6 +554,17 @@ def test_run_streaming_passes_use_gpu_false_for_default_cpu_backend(monkeypatch,
     run_streaming("tiny", [_fake_utterance(tmp_path)], language="en")
 
     assert _FakeStreamingModel.last_init_kwargs.get("context_params") == {"use_gpu": False}
+
+
+def test_run_streaming_passes_no_context_true_explicitly(monkeypatch, tmp_path):
+    from oesb_runner.adapters.whisper_cpp import run_streaming
+
+    _reset_fake_streaming_model()
+    _fake_streaming_deps(monkeypatch)
+
+    run_streaming("tiny", [_fake_utterance(tmp_path)], language="en")
+
+    assert _FakeStreamingModel.last_init_kwargs.get("no_context") is True
 
 
 def test_run_streaming_metal_backend_raises_when_build_has_no_metal_support(monkeypatch, tmp_path):

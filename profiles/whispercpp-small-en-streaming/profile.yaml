@@ -1,5 +1,5 @@
 id: whispercpp-small-en-streaming
-version: 1.0.0
+version: 1.0.2
 title: Whisper.cpp Small EN (Streaming)
 benchmark_type: streaming
 language: en-US
@@ -10,6 +10,8 @@ model:
   name: whisper-small.en
   beam_size: 5
   temperature: 0.0
+  vad: false
+  context_reset: per_utterance
 configuration:
   threads: 4
   chunk_ms: 1000
@@ -25,6 +27,9 @@ scoring:
   - real_time_factor
 metrics:
 - wer
+- wer_substitutions
+- wer_deletions
+- wer_insertions
 - real_time_factor
 - cpu_pct
 - ram_mb
@@ -49,3 +54,7 @@ changelog:
 - version: 1.0.0
   notes: Initial profile (bulk-generated streaming set, matching batch's language/engine/size
     coverage).
+- version: 1.0.1
+  notes: Declare wer/cer substitution/deletion/insertion breakdown metrics, now that the runner computes them.
+- version: 1.0.2
+  notes: Declare model.vad (false -- this adapter never applies it) and model.context_reset (per_utterance -- the adapter now always passes no_context=True explicitly) so a reader never has to infer these from adapter code.
