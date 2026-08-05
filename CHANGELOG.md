@@ -5,6 +5,36 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.24] - 2026-08-05
+### Changed
+- **`wer`/`cer` `spread` now pools per-recording ratios, not per-repeat
+  values.** Real production feedback (Babbl): the old spread was computed
+  over the (typically 2) corpus-aggregate repeat values — degenerate
+  (`std` exactly 0) for any deterministic decoder, silently hiding a
+  bimodal per-recording failure distribution a corpus-level mean can't
+  show. Always attached now (not gated on `repeats > 1`), matching the
+  latency-metric convention. See docs/specs/metrics.md "Reporting".
+### Added
+- **`wer`/`cer` substitution/deletion/insertion breakdown** published as
+  their own metric ids (`wer_substitutions`/`wer_deletions`/
+  `wer_insertions`, and the `cer_*` equivalents) — a bare WER/CER ratio
+  can't distinguish "hears worse" from "runs away," two different
+  failure modes with two different fixes.
+- **`model.context_reset`/`model.vad` now required on every batch/streaming
+  profile** (schema + `validate_assets.py` enforcement) — makes decoder
+  context handling an explicit, reviewable fact instead of something a
+  reader has to infer from adapter source.
+- **`whisper-large-v3-turbo` profiles**, both runtimes (faster-whisper,
+  whisper-cpp), all 6 languages + concurrency — verified real support in
+  each runtime (not assumed) before adding, and confirmed end-to-end on
+  real Dutch audio.
+### Fixed
+- **The interactive wizard's language x engine/size matrix silently
+  dropped any profile whose size wasn't in a fixed, hardcoded list** —
+  found while adding the `large-v3-turbo` profiles above, which the
+  matrix regex/size list didn't recognize at all (no error, just absent
+  from the grid). `large-v3-turbo` added to both.
+
 ## [0.9.23] - 2026-08-04
 ### Added
 - **`goesb submit`'s comment/callsign credit is now reachable from the
