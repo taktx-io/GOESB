@@ -24,7 +24,9 @@ def _write_pack(pack_dir: Path, audio_dir: Path, manifest_entry: dict, audio_byt
 
     manifest_path = pack_dir / "manifest.jsonl"
     pack_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest_entry, sort_keys=True) + "\n")
+    manifest_path.write_text(
+        json.dumps(manifest_entry, sort_keys=True) + "\n", encoding="utf-8", newline=""
+    )
 
     pack = {
         "id": "fixture-pack", "version": "1.0.0", "profile_id": "whisper-medium-en-batch",
@@ -76,6 +78,60 @@ def test_load_pack_rejects_audio_that_does_not_match_its_declared_hash(tmp_path)
 
     with pytest.raises(PackIntegrityError, match="audio content hash mismatch"):
         load_pack(tmp_path / "pack")
+
+
+def test_load_pack_accepts_a_crlf_translated_manifest(tmp_path):
+    # Git for Windows checks out with core.autocrlf=true by default, and
+    # text-mode writes translate "\n" there too: the manifest's content is
+    # unchanged, only its line endings are, so this must load rather than
+    # fail every pack on Windows with "manifest.jsonl hash mismatch".
+    audio_bytes = b"fake but consistent audio content"
+    entry = {
+        "utterance_id": "u1", "relative_path": "u1.flac", "reference_text": "hello",
+        "duration_s": 1.0, "audio_sha256": sha256_bytes(audio_bytes),
+    }
+    pack_dir = tmp_path / "pack"
+    _write_pack(pack_dir, pack_dir / "audio", entry, audio_bytes)
+
+    manifest_path = pack_dir / "manifest.jsonl"
+    manifest_path.write_bytes(manifest_path.read_bytes().replace(b"\n", b"\r\n"))
+
+    pack = load_pack(pack_dir)
+    assert len(pack.utterances) == 1
+    assert pack.utterances[0].utterance_id == "u1"
+
+
+def test_load_pack_still_rejects_a_manifest_whose_content_really_changed(tmp_path):
+    audio_bytes = b"fake but consistent audio content"
+    entry = {
+        "utterance_id": "u1", "relative_path": "u1.flac", "reference_text": "hello",
+        "duration_s": 1.0, "audio_sha256": sha256_bytes(audio_bytes),
+    }
+    pack_dir = tmp_path / "pack"
+    _write_pack(pack_dir, pack_dir / "audio", entry, audio_bytes)
+
+    tampered = dict(entry, reference_text="goodbye")
+    (pack_dir / "manifest.jsonl").write_text(json.dumps(tampered, sort_keys=True) + "\n")
+
+    with pytest.raises(PackIntegrityError, match="manifest.jsonl hash mismatch"):
+        load_pack(pack_dir)
+
+
+def test_load_pack_reads_non_ascii_references_as_utf8(tmp_path):
+    # The nl/fr/de/es/pt packs all carry non-ASCII references; reading them
+    # in the platform's locale encoding (cp1252 on Windows) mangles or
+    # crashes on exactly those packs.
+    audio_bytes = b"fake but consistent audio content"
+    entry = {
+        "utterance_id": "u1", "relative_path": "u1.flac",
+        "reference_text": "een café in Curaçao", "duration_s": 1.0,
+        "audio_sha256": sha256_bytes(audio_bytes),
+    }
+    pack_dir = tmp_path / "pack"
+    _write_pack(pack_dir, pack_dir / "audio", entry, audio_bytes)
+
+    pack = load_pack(pack_dir)
+    assert pack.utterances[0].reference_text == "een café in Curaçao"
 
 
 def test_load_pack_skips_hash_check_when_manifest_entry_has_no_audio_sha256(tmp_path):

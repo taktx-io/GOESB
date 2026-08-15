@@ -69,10 +69,10 @@ def fetch_profile(profile_id: str, api_url: str) -> dict[str, Any]:
         data = _fetch_json(f"{api_url.rstrip('/')}/profiles/{profile_id}")
     except (urllib.error.URLError, urllib.error.HTTPError):
         if cache_path.exists():
-            return json.loads(cache_path.read_text())
+            return json.loads(cache_path.read_text(encoding="utf-8"))
         raise
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps(data))
+    cache_path.write_text(json.dumps(data), encoding="utf-8")
     return data
 
 
@@ -97,7 +97,19 @@ def fetch_pack(pack_id: str, api_url: str) -> Path:
         raise
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    pack_yaml_path.write_text(yaml.safe_dump(pack_data, sort_keys=False, allow_unicode=True))
-    manifest_path.write_text(manifest_text)
+    # newline="" + explicit utf-8, not bare write_text: a pack's declared
+    # manifest_sha256 is over the *bytes* GitHub serves (LF-terminated,
+    # UTF-8). Python text mode defaults to newline=None, which translates
+    # every "\n" to "\r\n" on Windows, and to the locale encoding, which is
+    # cp1252 there — so on Windows a bare write_text stored a manifest whose
+    # bytes could never hash to the declared value, failing every remotely
+    # fetched pack with "manifest.jsonl hash mismatch", and outright
+    # crashing on the non-ASCII references in the nl/fr/de/es/pt packs.
+    pack_yaml_path.write_text(
+        yaml.safe_dump(pack_data, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+        newline="",
+    )
+    manifest_path.write_text(manifest_text, encoding="utf-8", newline="")
 
     return cache_dir

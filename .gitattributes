@@ -1,0 +1,22 @@
+# Pack integrity is checked by hashing bytes on disk, so a checkout must
+# never rewrite line endings: Git for Windows defaults to core.autocrlf=true,
+# which turned every manifest.jsonl into a CRLF copy that could not hash to
+# the manifest_sha256 its own pack.yaml declares. Force LF for every asset
+# whose bytes are hashed, and for the sources/scripts around them.
+* text=auto eol=lf
+
+*.jsonl text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.json  text eol=lf
+*.py    text eol=lf
+*.sh    text eol=lf
+
+# Windows-only installer: keep native CRLF so PowerShell/Notepad see it right.
+*.ps1 text eol=crlf
+
+# Audio and model assets: byte-exact, never touched.
+*.flac binary
+*.wav  binary
+*.mp3  binary
+*.bin  binary

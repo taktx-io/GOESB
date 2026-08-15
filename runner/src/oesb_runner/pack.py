@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from .hashing import canonical_asset_sha256, sha256_file
+from .hashing import canonical_asset_sha256, sha256_bytes, sha256_file
 
 
 class PackIntegrityError(Exception):
@@ -50,7 +50,7 @@ def load_pack(pack_dir: Path, audio_dir: Path | None = None) -> Pack:
     pack_dir = Path(pack_dir)
     audio_dir = Path(audio_dir) if audio_dir is not None else pack_dir / "audio"
 
-    pack_yaml = yaml.safe_load((pack_dir / "pack.yaml").read_text())
+    pack_yaml = yaml.safe_load((pack_dir / "pack.yaml").read_text(encoding="utf-8"))
 
     declared_sha256 = pack_yaml["sha256"]
     actual_sha256 = canonical_asset_sha256(pack_yaml)
@@ -62,16 +62,28 @@ def load_pack(pack_dir: Path, audio_dir: Path | None = None) -> Pack:
 
     manifest_path = pack_dir / "manifest.jsonl"
     declared_manifest_sha256 = pack_yaml["audio"]["manifest_sha256"]
-    actual_manifest_sha256 = sha256_file(manifest_path)
+    manifest_bytes = manifest_path.read_bytes()
+    actual_manifest_sha256 = sha256_bytes(manifest_bytes)
     if actual_manifest_sha256 != declared_manifest_sha256:
-        raise PackIntegrityError(
-            f"manifest.jsonl hash mismatch for {pack_yaml['id']}: "
-            f"declared {declared_manifest_sha256}, computed {actual_manifest_sha256}"
-        )
+        # A CRLF-translated copy is the same manifest, byte-for-byte, once
+        # the line endings are undone — Git for Windows checks out with
+        # core.autocrlf=true by default, so an ordinary clone on Windows
+        # produced a manifest that could never match a hash taken over the
+        # LF original. Accept the normalized form (integrity means "same
+        # content", not "same line-ending convention"); only a genuine
+        # content difference is still an error.
+        normalized = manifest_bytes.replace(b"\r\n", b"\n")
+        if sha256_bytes(normalized) == declared_manifest_sha256:
+            manifest_bytes = normalized
+        else:
+            raise PackIntegrityError(
+                f"manifest.jsonl hash mismatch for {pack_yaml['id']}: "
+                f"declared {declared_manifest_sha256}, computed {actual_manifest_sha256}"
+            )
 
     utterances: list[Utterance] = []
     missing: list[str] = []
-    for line in manifest_path.read_text().splitlines():
+    for line in manifest_bytes.decode("utf-8").splitlines():
         if not line.strip():
             continue
         entry = json.loads(line)

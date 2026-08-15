@@ -5,6 +5,30 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.26] - 2026-08-15
+### Fixed
+- **Every pack failed on Windows with `manifest.jsonl hash mismatch`,
+  whichever profile you ran.** A pack's `manifest_sha256` is taken over the
+  bytes upstream serves — LF-terminated UTF-8 — but the manifest reached
+  disk through Python text mode (`Path.write_text` in `remote.fetch_pack`)
+  and, for a git checkout, through Git for Windows' default
+  `core.autocrlf=true`. Both rewrite every `\n` as `\r\n`, so the bytes on
+  disk could never hash to the declared value; text mode also encodes in
+  the locale codec (cp1252 on Windows), which mangles or crashes on the
+  non-ASCII references in the nl/fr/de/es/pt packs. Fetches now write
+  UTF-8 with newline translation off, reads are explicitly UTF-8, a
+  `.gitattributes` pins hashed assets to LF, and `load_pack` accepts a
+  manifest that differs from its declared hash *only* by CRLF translation
+  (a genuine content difference is still rejected) so caches and clones
+  already on disk aren't stuck.
+- **A Windows source checkout also recorded a different `runtime.sha256`
+  than every other platform for identical adapter code** — that field is a
+  hash of the adapter's own `.py` source bytes (the "which reviewed code
+  produced this result" fingerprint), so a CRLF checkout silently split
+  results for the same code into two fingerprints. Same `.gitattributes`
+  fix; pip wheels and the frozen binaries were never affected. Results
+  produced from a CRLF checkout should be discarded and re-run.
+
 ## [0.9.25] - 2026-08-05
 ### Fixed
 - **`goesb` wizard crashed with `KeyError: 'large-v3-turbo'` the instant

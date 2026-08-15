@@ -1205,7 +1205,7 @@ def env() -> None:
 @app.command()
 def validate(path: str) -> None:
     """Validate a profile or pack YAML file against its JSON Schema."""
-    data = yaml.safe_load(Path(path).read_text())
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     schema_filename = (
         "benchmark-pack.schema.json" if "profile_id" in data
         else "benchmark-profile.schema.json"
@@ -1220,7 +1220,7 @@ def validate(path: str) -> None:
 
 
 def _load_yaml(path: Path) -> dict:
-    return yaml.safe_load(path.read_text())
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def _resolve_pack_audio(
@@ -1258,7 +1258,7 @@ def _resolve_pack_audio(
     if manifest_path.exists():
         wanted_names = {
             json.loads(line)["relative_path"]
-            for line in manifest_path.read_text().splitlines()
+            for line in manifest_path.read_text(encoding="utf-8").splitlines()
             if line.strip()
         }
 

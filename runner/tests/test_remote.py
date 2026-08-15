@@ -191,3 +191,23 @@ def test_fetch_pack_does_not_write_a_half_updated_cache_when_manifest_fetch_fail
     assert result_dir == cache_dir
     assert yaml.safe_load((result_dir / "pack.yaml").read_text())["version"] == "original"
     assert (result_dir / "manifest.jsonl").read_text() == '{"relative_path": "original.wav"}\n'
+
+
+def test_fetch_pack_writes_the_manifest_byte_for_byte_as_served(tmp_path, monkeypatch):
+    """The pack's declared manifest_sha256 is taken over the bytes GitHub
+    serves — LF-terminated UTF-8. Python's text mode would translate those
+    newlines to CRLF on Windows and encode in cp1252, so every remotely
+    fetched pack failed there with 'manifest.jsonl hash mismatch' (and the
+    non-ASCII packs crashed outright on the encode)."""
+    monkeypatch.setattr(remote, "CACHE_ROOT", tmp_path)
+    served = '{"relative_path": "a.wav", "reference_text": "een café"}\n{"relative_path": "b.wav"}\n'
+    urlopen, _ = _fake_urlopen([
+        json.dumps({"id": "common-voice-nl", "audio": {"manifest_sha256": "x"}}).encode(),
+        served.encode("utf-8"),
+    ])
+    monkeypatch.setattr(remote.urllib.request, "urlopen", urlopen)
+
+    result_dir = remote.fetch_pack("common-voice-nl", "https://api.example")
+
+    assert (result_dir / "manifest.jsonl").read_bytes() == served.encode("utf-8")
+    assert b"\r\n" not in (result_dir / "pack.yaml").read_bytes()
