@@ -8,17 +8,31 @@
 #
 # GPU-only (ADR-0013 §4): `--backend cpu` is a hard error here.
 #
-# `concurrency`'s ceiling is 8, and it is a VRAM number, not a copy of
-# another engine's. Nemotron needs one full model instance PER worker --
-# transformers' generate() overrides for this model keep per-call state on
-# the instance and even rebind `self.get_audio_features` mid-call, so two
-# concurrent calls on one instance race and cross-contaminate language
-# conditioning (see runner/src/oesb_runner/adapters/nemotron.py's
-# run_concurrency docstring). Measured per instance: ~2.55 GB of fp32
-# weights, ~3.35 GB peak device allocation. 8 workers is therefore ~27 GB
-# -- a 32 GB+ accelerator. A 24 GB consumer card realistically tops out
-# around 4, which the sweep will show rather than the profile pretending
-# otherwise; the ceiling is a cap, not a claim that every GPU reaches it.
+# Nemotron needs one full model instance PER worker -- transformers'
+# generate() overrides for this model keep per-call state on the instance
+# and even rebind `self.get_audio_features` mid-call, so two concurrent
+# calls on one instance race and cross-contaminate language conditioning
+# (see runner/src/oesb_runner/adapters/nemotron.py's run_concurrency
+# docstring).
+#
+# `concurrency`'s ceiling is 8. Measured on a real NVIDIA RTX A6000
+# (48 GB), not extrapolated: one loaded+warmed instance consumes ~2.67 GB
+# of device memory, and peak VRAM across a whole timed window was 3.2 GiB
+# at concurrency 1, 5.6 GiB at 2, 10.5 GiB at 4 and 20.3 GiB at 8 -- so 8
+# workers fit comfortably on a 24 GB card. VRAM is NOT what makes 8 the
+# ceiling.
+#
+# What does: throughput peaks at concurrency 2 and then collapses.
+# Measured twice, independently, same box -- ~36-41 audio-s/s at 1,
+# ~50 at 2, then ~21 at 3, ~20 at 4, ~18-21 at 8. The cliff between 2 and
+# 3 is reproducible and is NOT CPU-thread contention: re-running 2/3/8 at
+# `threads=1` and `threads=4` moved throughput by less than the ~11-15%
+# run-to-run noise, and cpu_pct sat at ~150-190% throughout either way.
+# It is GPU-side -- N independent model instances contend for the same
+# SMs with no cross-request batching to amortise it. The ceiling of 8 is
+# therefore set to keep the *interesting* part of the curve sweepable
+# (`--param concurrency=1,2,4,8` shows the peak AND the collapse), not to
+# suggest 8 is a useful operating point. On this engine it is not.
 id: nemotron-3-5-concurrency
 version: 1.0.0
 title: Nemotron 3.5 ASR Streaming 0.6b (Concurrency)

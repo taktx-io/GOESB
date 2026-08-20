@@ -5442,3 +5442,42 @@ def test_ready_backends_never_reports_cpu_for_nemotron(monkeypatch):
 
     monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: True)
     assert cli_module._ready_backends("nemotron", "streaming", None) == frozenset({"metal"})
+
+
+def test_doctor_engine_line_nemotron_reports_per_backend_readiness(monkeypatch):
+    """Real report: `doctor` printed only "installed, supports ['cuda',
+    'metal']" for nemotron while giving parakeet a full per-backend
+    readiness breakdown on the same machine — observed directly on a rented
+    NVIDIA box. That is the worst engine to have the gap on: nemotron has no
+    cpu fallback, so a user with neither backend would learn it from a failed
+    run instead of from `doctor`, which is exactly the flywheel ADR-0008 §2
+    describes."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda _name: object())
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: True)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: False)
+
+    line = cli_module._doctor_engine_line("nemotron", "batch", {"model": "NVIDIA RTX A6000"})
+
+    assert "cuda ready" in line
+    assert "NVIDIA RTX A6000" in line
+    assert "metal unavailable" in line
+    # Never claims a cpu backend it doesn't declare.
+    assert "cpu ready" not in line
+
+
+def test_doctor_engine_line_nemotron_says_the_machine_cannot_run_it_at_all(monkeypatch):
+    """With neither backend present there is nothing to fall back to, and
+    the line has to say so — "cuda unavailable; metal unavailable" alone
+    reads like a partial capability rather than a hard stop."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module.importlib.util, "find_spec", lambda _name: object())
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: False)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: False)
+
+    line = cli_module._doctor_engine_line("nemotron", "batch", None)
+
+    assert "GPU-only and cannot run on this machine" in line
+    assert "cpu ready" not in line

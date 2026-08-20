@@ -24,17 +24,21 @@ into a real `prompt_ids` model input that conditions the decode (see
 `_resolve_language` below for the fallback chain, needed because GOESB's
 `es-419` is not a key this checkpoint carries).
 
-Measured, not assumed (Apple M-series, torch 2.13 / transformers 5.14.1,
-`packs/fleurs-nl`, 15 clips / 119.5s — see the ADR-0013 addendum for the
-full table):
+Measured, not assumed, on BOTH declared backends — Apple M-series MPS
+(torch 2.13 / transformers 5.14.1) and a real NVIDIA RTX A6000 (torch
+2.13+cu126 / transformers 5.15.1, driver 555.58) — against
+`packs/fleurs-nl`, 15 clips / 119.5s. See the ADR-0013 addendum for the
+full tables:
 
 - `processor.supported_streaming_latencies_ms` for this checkpoint is FOUR
   modes, `{0: 80, 3: 320, 6: 560, 13: 1120}` — not the five the model card
   lists. There is no 160 ms / right-context-1 mode on this checkpoint.
-- `--backend metal` (torch MPS) genuinely works: batch RTF 0.072x,
-  streaming RTF 0.216x at the 320 ms mode, WER 0.1314 both ways. Declared on
-  the strength of those numbers, not on torch shipping MPS support.
-- ~2.55 GB of fp32 weights, ~3.35 GB peak device allocation per instance.
+  Identical on transformers 5.14.1 and 5.15.1.
+- Both backends work and produce the same text. Batch RTF 0.035x on cuda /
+  0.072x on metal, WER 0.1314 on both (and on cpu, which this adapter
+  refuses to run — see `_DEVICE_BY_BACKEND`).
+- ~2.56 GB of fp32 weights; ~2.67 GB of device memory per loaded, warmed
+  instance measured on cuda (`torch.cuda.mem_get_info` delta).
 - The batch and streaming paths produce *identical* text at the 320 ms mode,
   not merely similar — this checkpoint's offline path is the same
   cache-aware limited-right-context decode run in one shot. See
@@ -384,7 +388,8 @@ def run_batch(
     produce normalize-identical text on all 15 clips — WER 0.1314 both
     ways, zero divergence. So what this profile contributes next to
     `nemotron-3-5-<lang>-streaming` is the compute baseline, not an
-    accuracy one: 0.072x RTF vs 0.216x for the same output.
+    accuracy one: 0.072x vs 0.216x RTF on metal, 0.035x vs 0.130x on cuda,
+    for the same output.
 
     Model load and accelerator warm-up are excluded from per-utterance
     timing, matching every other batch adapter.
@@ -500,10 +505,12 @@ def run_streaming(
     `chunk_end_s + decode_wall_s` arithmetic every
     other streaming adapter uses is exactly right here rather than merely
     conventional. Measured streaming RTF through this adapter, same 15-clip
-    fleurs-nl pack: 80 ms -> 0.539x, 320 ms -> 0.216x, 560 ms -> 0.160x,
-    1120 ms -> 0.123x. WER by mode over the same run: 0.1204 / 0.1314 /
-    0.1095 / 0.1095 — the 80 ms mode costs ~2.5x the compute of 320 ms and
-    is not more accurate.
+    fleurs-nl pack, metal / cuda: 80 ms -> 0.539x / 0.435x, 320 ms ->
+    0.216x / 0.130x, 560 ms -> 0.160x / 0.104x, 1120 ms -> 0.123x / 0.066x.
+    WER by mode is identical on both backends: 0.1204 / 0.1314 / 0.1095 /
+    0.1095 — the 80 ms mode costs ~3x the compute of 320 ms and is not more
+    accurate. Measured p50 first-partial latency on cuda: 359 / 680 / 733 /
+    995 ms, and `partial_stability` was exactly 1.0000 at every mode.
 
     Measured (ADR-0013 §2): at the 320 ms mode this
     produces text *identical* to `run_batch`'s on all 15 clips of
@@ -651,18 +658,30 @@ def run_concurrency(
     shape, not faster-whisper's genuinely-thread-safe shared ctranslate2
     `Translator`.
 
-    On a GPU that N-way cost is VRAM, which fails harder and less legibly
-    than a host that swaps. Measured: ~2.55 GB of fp32 weights and ~3.35 GB
-    peak device allocation per instance, so the `*-concurrency` profile caps
-    `concurrency` at 8 (~27 GB) rather than copying another engine's ceiling.
+    On a GPU that N-way cost is VRAM — but measured on a real RTX A6000,
+    VRAM is not what limits this engine. Peak device memory across a whole
+    timed window: 3.2 GiB at concurrency 1, 5.6 at 2, 10.5 at 4, 20.3 at 8,
+    so 8 workers fit on a 24 GB card.
+
+    What limits it is throughput, and the shape is worth knowing before
+    anyone plans capacity around this engine: throughput peaks at
+    concurrency **2** (~50 audio-s/s) and then collapses — ~21 at 3, ~20 at
+    4, ~18-21 at 8 — measured twice independently on the same box, with the
+    cliff between 2 and 3 reproducing both times. It is not CPU-thread
+    contention: re-running 2/3/8 at `threads=1` vs `threads=4` moved
+    throughput less than the ~11-15% run-to-run noise. N independent
+    instances contend for the same SMs and nothing batches across requests.
+    The profile's ceiling of 8 exists to keep that collapse sweepable, not
+    because 8 is a sensible operating point.
+
     ADR-0012's deferred pre-run OOM check is deliberately still deferred
     here and NOT silently omitted: a cheap `torch.cuda.mem_get_info()`
     precheck would only cover CUDA (MPS has no equivalent free-VRAM query),
     would still race any other process on the card, and — since model
     construction below is sequential and before the timed window — an OOM
     today already surfaces during load with a torch OOM message naming the
-    allocation, not midway through a timed run. Worth doing; not worth
-    doing halfway inside this change.
+    allocation, not midway through a timed run. It is also, on these
+    numbers, guarding a failure mode this engine reaches late if at all.
 
     Model construction — including each instance's own `_warm_up` — is
     sequential and happens before the timed window starts, same as every

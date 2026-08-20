@@ -36,6 +36,33 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "packs" / "fleurs-nl"
 MODEL = "nemotron-3.5-asr-streaming-0.6b"
 
+# The backend the fake-based tests drive. Arbitrary — the fakes replace the
+# model, not the device — but it must be one `_load` will accept, and
+# `_patch_transformers` forces its availability probe True so these tests run
+# anywhere. Real report: they originally hardcoded "metal" and passed only on
+# Apple Silicon; 8 of them failed on the first real CUDA box with
+# `--backend metal failed: torch.backends.mps.is_available() is False`.
+FAKE_BACKEND = "cuda"
+
+
+def _real_gpu_backend() -> str | None:
+    """Whichever GPU backend this machine genuinely has, for the slow
+    real-audio tests — "cuda" on an NVIDIA box, "metal" on Apple Silicon,
+    None otherwise. Deliberately not hardcoded to either: this engine is
+    GPU-only and both of its backends are real, so a test pinned to one of
+    them silently stops covering the other's hardware."""
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "metal"
+    return None
+
+
+requires_gpu = pytest.mark.skipif(
+    _real_gpu_backend() is None,
+    reason="nemotron is GPU-only (ADR-0013 §4): requires CUDA or Apple Silicon MPS",
+)
+
 requires_pack = pytest.mark.skipif(
     not (PACK_DIR / "audio").exists(),
     reason="requires fetched audio: run scripts/fetch_fleurs_subset.py --language nl_nl first",
@@ -186,6 +213,17 @@ class _FakeBatchFeature(dict):
         return self
 
 
+class _FakeDeviceTensor:
+    """`run_streaming` calls `.to(device)` on the processor's real
+    `prompt_ids` tensor before any faking can intercept it — which would
+    need FAKE_BACKEND's device to genuinely exist. Stand in for it so the
+    wiring tests stay hardware-independent; nothing in them inspects its
+    value."""
+
+    def to(self, *_args, **_kwargs):
+        return self
+
+
 class _FakeFeatureExtractor:
     sampling_rate = 16000
     hop_length = 160
@@ -242,7 +280,7 @@ class _FakeProcessor:
         )
         return _FakeBatchFeature(
             input_features=torch.zeros(1, frames + 1, 128),
-            prompt_ids=torch.zeros(1, dtype=torch.long),
+            prompt_ids=_FakeDeviceTensor(),
         )
 
     def decode(self, sequences, skip_special_tokens=True, durations=None):
@@ -284,6 +322,12 @@ class _FakeModel:
 def _patch_transformers(monkeypatch, samples_len: int = 16000):
     monkeypatch.setattr("transformers.AutoProcessor", _FakeProcessor)
     monkeypatch.setattr("transformers.AutoModelForRNNT", _FakeModel, raising=False)
+    # Faking the model doesn't fake the device: `_load` still runs the real
+    # torch availability probe for FAKE_BACKEND, which is False on any
+    # machine without that particular accelerator. The genuine probe is
+    # covered by the dedicated hard-fail tests above; here it just has to
+    # not gate wiring tests on what hardware happens to be present.
+    monkeypatch.setitem(nemotron._BACKEND_AVAILABLE_CHECK, FAKE_BACKEND, lambda _torch: True)
     monkeypatch.setattr(nemotron, "decode_pcm", lambda *a, **k: __import__("numpy").zeros(samples_len, dtype="float32"))
 
 
@@ -358,7 +402,7 @@ def test_run_batch_passes_the_resolved_language_into_the_processor(monkeypatch, 
     _patch_transformers(monkeypatch)
 
     results = run_batch(
-        MODEL, [_fake_utterance(tmp_path)], backend="metal",
+        MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND,
         language="nl-NL", download_root=tmp_path / "models",
     )
 
@@ -379,7 +423,7 @@ def test_run_batch_applies_threads_despite_being_a_gpu_only_engine(monkeypatch, 
     captured = {}
     monkeypatch.setattr(torch, "set_num_threads", lambda n: captured.setdefault("threads", n))
 
-    run_batch(MODEL, [_fake_utterance(tmp_path)], backend="metal", threads=7,
+    run_batch(MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND, threads=7,
               download_root=tmp_path / "models")
 
     assert captured["threads"] == 7
@@ -395,7 +439,7 @@ def test_run_batch_runs_a_warm_up_call_before_the_timed_loop(monkeypatch, tmp_pa
     original = _FakeModel.generate
     monkeypatch.setattr(_FakeModel, "generate", lambda self, **kw: (calls.append(kw), original(self, **kw))[1])
 
-    run_batch(MODEL, [_fake_utterance(tmp_path)], backend="metal", download_root=tmp_path / "models")
+    run_batch(MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND, download_root=tmp_path / "models")
 
     assert len(calls) == 2  # one warm-up on silence + one real utterance
 
@@ -416,7 +460,7 @@ def test_run_streaming_never_calls_the_shared_bounded_window_helper(monkeypatch,
 
     monkeypatch.setattr("oesb_runner.streaming.run_windowed_local_agreement_streaming", _explode)
 
-    traces = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend="metal", streaming_latency_ms=320)
+    traces = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND, streaming_latency_ms=320)
 
     assert len(traces) == 1
     assert traces[0].final_text == "hallo wereld"
@@ -428,7 +472,7 @@ def test_run_streaming_commits_every_emitted_word(monkeypatch, tmp_path):
     local-agreement approximation, unlike the re-decode engines."""
     _patch_transformers(monkeypatch)
 
-    traces = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend="metal", streaming_latency_ms=320)
+    traces = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND, streaming_latency_ms=320)
 
     for update in traces[0].updates:
         assert update.committed_word_count == len(update.text.split())
@@ -440,7 +484,7 @@ def test_run_streaming_partials_are_monotonic_and_perfectly_stable(monkeypatch, 
     word (nothing is ever rewritten), so `partial_stability` is exactly 1.0."""
     _patch_transformers(monkeypatch)
 
-    traces = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend="metal", streaming_latency_ms=320)
+    traces = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND, streaming_latency_ms=320)
 
     previous: list[str] = []
     for update in traces[0].updates:
@@ -454,7 +498,7 @@ def test_run_streaming_rejects_an_unsupported_latency_before_loading_weights(mon
     _patch_transformers(monkeypatch)
 
     with pytest.raises(ValueError, match="not supported by this checkpoint"):
-        run_streaming(MODEL, [_fake_utterance(tmp_path)], backend="metal", streaming_latency_ms=160)
+        run_streaming(MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND, streaming_latency_ms=160)
 
 
 def test_run_streaming_ignores_chunk_ms(monkeypatch, tmp_path):
@@ -463,9 +507,9 @@ def test_run_streaming_ignores_chunk_ms(monkeypatch, tmp_path):
     — the chunk size is fixed by the checkpoint's geometry."""
     _patch_transformers(monkeypatch)
 
-    at_250 = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend="metal",
+    at_250 = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND,
                            streaming_latency_ms=320, chunk_ms=250)
-    at_2000 = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend="metal",
+    at_2000 = run_streaming(MODEL, [_fake_utterance(tmp_path)], backend=FAKE_BACKEND,
                             streaming_latency_ms=320, chunk_ms=2000)
 
     assert len(at_250[0].updates) == len(at_2000[0].updates)
@@ -510,7 +554,7 @@ def test_run_concurrency_builds_one_model_instance_per_worker(monkeypatch, tmp_p
 
     created = _patch_load_with_fake_instances(monkeypatch)
 
-    run_concurrency(MODEL, _fake_utterances(tmp_path), concurrency=4, duration_s=0.02, backend="metal")
+    run_concurrency(MODEL, _fake_utterances(tmp_path), concurrency=4, duration_s=0.02, backend=FAKE_BACKEND)
 
     assert len(created) == 4
     assert len({id(m) for m in created}) == 4
@@ -522,7 +566,7 @@ def test_run_concurrency_each_worker_only_calls_its_own_instance(monkeypatch, tm
     _FakeConcurrentModel.instances_generated_from = set()
     created = _patch_load_with_fake_instances(monkeypatch)
 
-    run_concurrency(MODEL, _fake_utterances(tmp_path), concurrency=3, duration_s=0.05, backend="metal")
+    run_concurrency(MODEL, _fake_utterances(tmp_path), concurrency=3, duration_s=0.05, backend=FAKE_BACKEND)
 
     assert _FakeConcurrentModel.instances_generated_from
     assert _FakeConcurrentModel.instances_generated_from <= {id(m) for m in created}
@@ -534,7 +578,7 @@ def test_run_concurrency_returns_calls_with_the_utterances_own_duration(monkeypa
     _patch_load_with_fake_instances(monkeypatch)
 
     calls = run_concurrency(
-        MODEL, _fake_utterances(tmp_path, n=1), concurrency=1, duration_s=0.02, backend="metal"
+        MODEL, _fake_utterances(tmp_path, n=1), concurrency=1, duration_s=0.02, backend=FAKE_BACKEND
     )
 
     assert calls
@@ -546,7 +590,7 @@ def test_run_concurrency_returns_calls_with_the_utterances_own_duration(monkeypa
 
 @requires_pack
 @pytest.mark.slow
-@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="requires Apple Silicon MPS")
+@requires_gpu
 def test_run_batch_transcribes_real_dutch_audio_within_wer_tolerance(tmp_path):
     """End-to-end proof against real Dutch FLEURS audio — this adapter's
     actual reason for existing (Babbl's realtime Dutch STT hardware
@@ -555,7 +599,7 @@ def test_run_batch_transcribes_real_dutch_audio_within_wer_tolerance(tmp_path):
     does not pin an accuracy number."""
     pack = load_pack(PACK_DIR)
     transcriptions = run_batch(
-        MODEL, pack.utterances, backend="metal", language="nl-NL",
+        MODEL, pack.utterances, backend=_real_gpu_backend(), language="nl-NL",
         download_root=tmp_path / "models",
     )
     by_id = {t.utterance_id: t for t in transcriptions}
@@ -570,7 +614,7 @@ def test_run_batch_transcribes_real_dutch_audio_within_wer_tolerance(tmp_path):
 
 @requires_pack
 @pytest.mark.slow
-@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="requires Apple Silicon MPS")
+@requires_gpu
 def test_run_streaming_on_real_audio_collapses_first_partial_and_first_final_latency(tmp_path):
     """ADR-0013 §5's second documented consequence, on real audio rather
     than fakes: because every published word is already final, the first
@@ -580,7 +624,7 @@ def test_run_streaming_on_real_audio_collapses_first_partial_and_first_final_lat
     (docs/specs/metrics.md)."""
     pack = load_pack(PACK_DIR)
     traces = run_streaming(
-        MODEL, pack.utterances[:3], backend="metal", language="nl-NL",
+        MODEL, pack.utterances[:3], backend=_real_gpu_backend(), language="nl-NL",
         streaming_latency_ms=320, download_root=tmp_path / "models",
     )
 

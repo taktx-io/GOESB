@@ -29,9 +29,32 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
   plus one language-less concurrency profile, all GPU-only: `--backend cpu`
   against them is a hard error (ADR-0008), and `metal` is declared on the
   strength of a real Apple Silicon measurement (batch RTF 0.072x, streaming
-  0.216x at the 320 ms mode).
+  0.216x at the 320 ms mode). Since verified on real NVIDIA hardware too
+  (RTX A6000): batch RTF 0.035x, streaming 0.130x at 320 ms, and the same
+  WER on cuda, metal and cpu.
+
+### Changed
+- **`nemotron-3-5-concurrency`'s ceiling of 8 is now justified by measured
+  throughput, not by a VRAM estimate that was ~25% too high.** On a real
+  A6000 one warmed instance takes ~2.67 GB of device memory (not the
+  ~3.35 GB extrapolated from MPS) and 8 workers peak at 20.3 GiB — they fit
+  on a 24 GB card, not the 32 GB+ previously claimed. The actual limit is
+  throughput, which peaks at concurrency **2** (~50 audio-s/s) and collapses
+  to ~18-21 from 3 upward, reproducibly, and demonstrably not from
+  CPU-thread contention. See ADR-0013's second addendum.
 
 ### Fixed
+- **`goesb doctor` printed no readiness line for `nemotron`** — just
+  "installed, supports ['cuda', 'metal']", while giving `parakeet` a full
+  per-backend breakdown on the same machine. Worst place for that gap: this
+  is the one engine with no cpu fallback, so a user with neither backend
+  learned it from a failed run instead. It now reports per-backend readiness
+  and says plainly when the machine cannot run the engine at all.
+- **`tests/test_adapter_nemotron.py` only passed on Apple Silicon.** Its
+  fake-based tests hardcoded `backend="metal"`, so `_load`'s real
+  availability probe failed everywhere else — 8 of 28 failed on first
+  contact with a CUDA box. CI could not catch it (no torch installed there,
+  so the module skips entirely).
 - **`parakeet` (and now `nemotron`) were missing from the frozen-build hash
   manifest**, so `hashing._frozen_module_hash` would have raised
   `ValueError: no precomputed hash for ...` inside any standalone binary

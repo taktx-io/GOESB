@@ -558,3 +558,116 @@ described was a local build leftover, and the entire fix lives in the
 generator script. (Which is also why this change touching four other
 adapters' source — they all gained the `streaming_latency_ms` call-shape
 kwarg — needs no manifest commit: the next build recomputes them.)
+
+## Addendum (2026-08-20, second): CUDA verification on real NVIDIA hardware
+
+The first addendum closed with a hardware caveat: no CUDA device was
+available, so the `cuda` backend and the VRAM-derived concurrency ceiling
+were extrapolations. Both have now been measured on a rented **NVIDIA RTX
+A6000 (47.7 GB, driver 555.58.02, compute capability 8.6)**, torch
+2.13.0+cu126 / transformers 5.15.1 / Python 3.12, against the same
+`packs/fleurs-nl` pack. Nine signed result documents were produced,
+schema-validated and signature-verified.
+
+**The extrapolation was wrong in the safe direction on memory, and the
+concurrency ceiling turned out to be limited by something else entirely.**
+
+### 1. `cuda` works, and the four modes hold on a newer transformers
+
+Batch: **RTF 0.0349x, WER 0.1314** — the same WER as metal and as cpu, on a
+third backend and a different transformers minor version. Streaming, all
+four modes:
+
+| mode | RTF (cuda) | RTF (metal) | WER | first_partial = first_final (p50) | partial_stability |
+|---|---|---|---|---|---|
+| 80 ms | 0.4354x | 0.539x | 0.1204 | 359 ms | 1.0000 |
+| 320 ms | 0.1297x | 0.216x | 0.1314 | 680 ms | 1.0000 |
+| 560 ms | 0.1040x | 0.160x | 0.1095 | 733 ms | 1.0000 |
+| 1120 ms | 0.0661x | 0.123x | 0.1095 | 995 ms | 1.0000 |
+
+`supported_streaming_latencies_ms` reports the same four modes on
+transformers 5.15.1 as on 5.14.1, and the chunk-geometry test still passes
+there — so both the "four not five" finding and the off-by-one workaround in
+`_mel_chunks` are not artefacts of one library version.
+
+Both ADR-0008 gates behaved on real hardware: `--backend cpu` exited 1 with
+*"--backend 'cpu' is not supported by 'nemotron' ('batch') — this runtime
+supports: cuda, metal"*, and `--param streaming_latency_ms=160` exited 1
+with *"not in allowed values [80, 320, 560, 1120]"*. Neither was snapped or
+silently accepted.
+
+### 2. VRAM: the estimate was ~25% too high
+
+| measure | estimated (from MPS) | measured (cuda) |
+|---|---|---|
+| fp32 weights | 2.55 GB | 2.56 GB |
+| device memory, one warmed instance | ~3.35 GB | **~2.67 GB** |
+| peak VRAM at concurrency 8 | ~27 GB | **20.3 GiB** |
+
+The 3.35 GB figure came from MPS `driver_allocated_memory`, which counts
+more than CUDA's actual device consumption. **Eight workers fit on a 24 GB
+card, not the 32 GB+ the profile originally claimed.** Corrected in
+`profiles/nemotron-3-5-concurrency/profile.yaml` and in
+`run_concurrency`'s docstring.
+
+### 3. The real concurrency limit is throughput, and it collapses after 2
+
+Measured twice, independently, on the same box:
+
+| concurrency | throughput run 1 | throughput run 2 | RTF per call (run 2) | peak VRAM |
+|---|---|---|---|---|
+| 1 | 41.5 audio-s/s | 36.3 | 0.0285x | 3.2 GiB |
+| 2 | **50.6** | **50.8** | 0.0406x | 5.6 GiB |
+| 3 | — | 20.9 | 0.1485x | — |
+| 4 | 21.4 | 19.9 | 0.2105x | 10.5 GiB |
+| 8 | 18.9 | 17.7 | 0.4954x | 20.3 GiB |
+
+Throughput peaks at **2** and falls off a cliff between 2 and 3, reproducibly.
+
+**It is not CPU-thread contention**, which was the obvious suspect given that
+mel extraction is `torch.stft` on CPU inside every timed call: re-running
+concurrency 2 / 3 / 8 at `threads=1` and `threads=4` moved throughput by less
+than the ~11-15% run-to-run noise (50.1 vs 50.8, 21.7 vs 20.4, 17.8 vs 21.0),
+and `cpu_pct` sat at ~150-190% either way. The cause is GPU-side: N
+independent model instances contend for the same SMs, and nothing batches
+across requests — the direct cost of the thread-safety finding in the first
+addendum, which forces N instances rather than one shared model.
+
+This is a real result for Babbl's actual question, not just a benchmark
+curiosity: **on one A6000 this engine serves about two concurrent streams
+well and gains nothing past that.** The profile keeps its ceiling of 8 so a
+`--param concurrency=1,2,4,8` sweep shows both the peak and the collapse;
+that ceiling is now documented as "where the curve is flat", not "where the
+memory runs out".
+
+Two side notes worth recording rather than dropping:
+
+- `threads` genuinely is applied (`torch.set_num_threads`, and the
+  `overridable` declaration depends on that being true), but its measured
+  effect on this workload and this hardware is inside the noise. Applied ≠
+  impactful; the declaration stays honest either way.
+- Every concurrency run tripped the FR-5.3 reproducibility warning
+  (`real_time_factor` relative std 9.7-14.8% vs the 5% tolerance). That is
+  the runner surfacing genuine per-call variance under concurrent GPU load,
+  working as designed — not a defect, but a reason not to read a single
+  concurrency number too precisely.
+
+### 4. Two defects the CUDA box found in this change itself
+
+- **`tests/test_adapter_nemotron.py` was not portable.** Its fake-based
+  tests hardcoded `backend="metal"`, so `_load`'s real availability probe
+  failed on any machine without Apple Silicon: 8 of 28 tests failed on first
+  contact with CUDA hardware while passing locally. CI never caught it —
+  CI installs no torch, so the whole module skips. Fixed by forcing the probe
+  for a `FAKE_BACKEND` constant, and by routing the slow real-audio tests
+  through whichever GPU the machine actually has. Same file now passes 28/28
+  on both metal and cuda.
+- **`goesb doctor` gave nemotron no readiness line.** It printed only
+  "installed, supports ['cuda', 'metal']" while giving parakeet a full
+  per-backend readiness breakdown on the same box — worst possible place for
+  that gap, since nemotron is the one engine that cannot fall back to cpu.
+  `_doctor_engine_line`'s parakeet branch now covers both engines, and for a
+  cpu-less engine it says so explicitly rather than claiming "cpu ready".
+
+Total cost of this verification: **$0.98** of vast.ai credit, ~2.2 hours on
+one A6000. The instance was destroyed afterwards.

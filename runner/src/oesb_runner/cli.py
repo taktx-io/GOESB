@@ -2126,7 +2126,7 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
                 parts.append(f"{gpu_backend} ready")
         return f"{label}: cpu ready; " + "; ".join(parts)
 
-    if runtime_name == "parakeet":
+    if runtime_name in ("parakeet", "nemotron"):
         # Reported before the generic `gpu is None` early-exit below
         # (unlike faster-whisper, cuda-only): parakeet also supports
         # `metal`, which has nothing to do with the NVIDIA-only `gpu`
@@ -2158,6 +2158,18 @@ def _doctor_engine_line(runtime_name: str, benchmark_type: str, gpu: dict[str, A
                 parts.append("metal ready (torch.backends.mps.is_available() is True)")
             else:
                 parts.append("metal unavailable (not Apple Silicon, or this torch build has no MPS support)")
+        if "cpu" not in backends:
+            # nemotron: GPU-only (ADR-0013 §4). Saying "cpu ready" here
+            # would be flatly false, and this is the one engine where a
+            # reader most needs the real answer — a machine with neither
+            # backend cannot run these profiles at all, and should learn
+            # that from `doctor` rather than from a failed run. Real
+            # report: before this, `doctor` printed only "installed,
+            # supports ['cuda', 'metal']" for nemotron while giving
+            # parakeet a full per-backend readiness line, on the same box.
+            usable = [p for p in parts if " ready" in p]
+            suffix = "" if usable else " — this engine is GPU-only and cannot run on this machine"
+            return f"{label}: " + "; ".join(parts) + suffix
         return f"{label}: cpu ready; " + "; ".join(parts)
 
     if gpu is None:
