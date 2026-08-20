@@ -189,7 +189,27 @@ def _load(model_name: str, backend: str, threads: int, download_root: str | Path
 
     model_id = _resolve_model_id(model_name)
     cache_dir = str(download_root) if download_root is not None else None
-    processor = AutoProcessor.from_pretrained(model_id, cache_dir=cache_dir)
+    try:
+        processor = AutoProcessor.from_pretrained(model_id, cache_dir=cache_dir)
+    except ImportError as exc:  # pragma: no cover - environment-dependent
+        # This checkpoint's feature extractor calls `librosa.filters.mel`,
+        # and librosa imports numba at module scope. numba refuses to load
+        # against a numpy it doesn't support, and the resulting ImportError
+        # surfaces thousands of frames below anything recognisable — the
+        # first hint anything is wrong arrives at first inference, after a
+        # model download. Real report from a pipx install:
+        # `ImportError: Numba needs NumPy 2.4 or less. Got NumPy 2.5.`
+        # The extra now pins `numpy<2.5`, but an environment assembled
+        # incrementally can still drift into this state, so name the repair
+        # rather than let the raw traceback speak for itself.
+        raise RuntimeError(
+            f"nemotron's audio feature extractor failed to import its own "
+            f"dependencies: {exc}. This is usually a numpy/numba version "
+            f"conflict in this environment rather than a problem with the "
+            f"model. Check it with `pip check`; if it reports a numba/numpy "
+            f"mismatch, `pip install \"numpy<2.5\"` (or, for a pipx install, "
+            f"`pipx runpip goesb-runner install \"numpy<2.5\"`) repairs it."
+        ) from exc
     if streaming_latency_ms is not None:
         _select_streaming_latency(processor, streaming_latency_ms)
     model = AutoModelForRNNT.from_pretrained(model_id, cache_dir=cache_dir)

@@ -635,3 +635,36 @@ def test_run_streaming_on_real_audio_collapses_first_partial_and_first_final_lat
         for u, t in zip(pack.utterances[:3], traces, strict=True)
     ]
     assert wer.compute(pairs) < 0.6
+
+
+def test_load_turns_a_librosa_numba_import_error_into_actionable_guidance(monkeypatch, tmp_path):
+    """Real report from a pipx install: the feature extractor calls
+    `librosa.filters.mel`, librosa imports numba at module scope, and numba
+    refuses to load against an unsupported numpy —
+
+        ImportError: Numba needs NumPy 2.4 or less. Got NumPy 2.5.
+
+    — raised thousands of frames below anything recognisable, and only at
+    first inference, after a model download has already run. The extra now
+    pins numpy<2.5, but an incrementally-assembled environment can still
+    drift there, so the adapter has to name the repair instead of letting
+    the raw traceback speak."""
+    class _ExplodingProcessor:
+        @classmethod
+        def from_pretrained(cls, *_args, **_kwargs):
+            raise ImportError("Numba needs NumPy 2.4 or less. Got NumPy 2.5.")
+
+    monkeypatch.setattr("transformers.AutoProcessor", _ExplodingProcessor)
+    monkeypatch.setattr("transformers.AutoModelForRNNT", _FakeModel, raising=False)
+    monkeypatch.setitem(nemotron._BACKEND_AVAILABLE_CHECK, FAKE_BACKEND, lambda _torch: True)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        nemotron._load(MODEL, FAKE_BACKEND, 4, tmp_path / "models")
+
+    message = str(excinfo.value)
+    assert "pip check" in message
+    assert "numpy<2.5" in message
+    # The original ImportError stays chained — the actual library error must
+    # not be swallowed by the friendlier wrapper.
+    assert isinstance(excinfo.value.__cause__, ImportError)
+    assert "Numba" in str(excinfo.value.__cause__)

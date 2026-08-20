@@ -7,6 +7,18 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [0.9.28] - 2026-08-20
 ### Fixed
+- **`parakeet` and `nemotron` could install into a broken environment that
+  only failed at first inference**, after a model download had already run,
+  with `ImportError: Numba needs NumPy 2.4 or less. Got NumPy 2.5.` raised
+  thousands of frames deep inside librosa. Both checkpoints' feature
+  extractors call `librosa.filters.mel`, and librosa imports numba at module
+  scope. numba declares `numpy<2.5` correctly, so a clean resolve honours it
+  — but an incremental install into an environment that already carries a
+  newer numpy does not reliably downgrade it. Both extras now state
+  `numpy<2.5` themselves, and the nemotron adapter turns that ImportError
+  into a message naming the repair (`pip check`, then
+  `pip install "numpy<2.5"`) instead of letting the raw traceback speak.
+  Reported from a real pipx install; `pip check` flagged it directly.
 - **The wizard crashed at the compute-backend prompt for any GPU-only
   engine**, which since 0.9.27 means `nemotron`. `_wizard_pick_backends`
   passed a hardcoded `default="cpu"` to questionary, which requires the

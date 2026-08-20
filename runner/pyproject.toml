@@ -46,7 +46,17 @@ whisper-cpp = ["pywhispercpp>=1.5.0", "soundfile>=0.12"]
 # nemo_toolkit['all'] pulls in a much heavier stack -- pytorch-lightning,
 # hydra-core, onnx, etc. -- that this adapter never needs). Pinned to the
 # release line that actually ships Parakeet model classes.
-parakeet = ["transformers>=5.9", "torch>=2.2", "soundfile>=0.12", "librosa>=0.10"]
+# `numpy<2.5` is not ours to want -- it is numba's, reached transitively
+# (librosa imports numba at module scope, and transformers' feature
+# extractors for both NVIDIA checkpoints call librosa.filters.mel). numba
+# declares `numpy<2.5,>=1.22` correctly, so a clean resolve honours it --
+# but an *incremental* install into an env that already has a newer numpy
+# does not reliably downgrade it, and the result is a broken environment
+# that only fails at first inference with `ImportError: Numba needs NumPy
+# 2.4 or less`, thousands of frames deep. Real report from a pipx install.
+# Stating it here makes the constraint visible to the resolver at our
+# level. Drop it once numba supports numpy 2.5.
+parakeet = ["transformers>=5.9", "torch>=2.2", "soundfile>=0.12", "librosa>=0.10", "numpy<2.5"]
 # NVIDIA Nemotron 3.5 ASR streaming (ADR-0013), via transformers'
 # AutoModelForRNNT/AutoProcessor -- same "no nemo_toolkit" reasoning as
 # parakeet above. Pinned to >=5.13, the release line that actually ships the
@@ -54,7 +64,8 @@ parakeet = ["transformers>=5.9", "torch>=2.2", "soundfile>=0.12", "librosa>=0.10
 # stays where it is (the two extras overlap but each pins what it genuinely
 # needs). GPU-only at run time (ADR-0013 §4) -- nothing here can express
 # that, `--backend cpu` is refused by the adapter's declared backend set.
-nemotron = ["transformers>=5.13", "torch>=2.2", "soundfile>=0.12", "librosa>=0.10"]
+# Same transitive numba/numpy constraint as parakeet above.
+nemotron = ["transformers>=5.13", "torch>=2.2", "soundfile>=0.12", "librosa>=0.10", "numpy<2.5"]
 mozilla-data-collective = ["datacollective>=0.5.0"]
 
 [project.scripts]
