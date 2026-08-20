@@ -1,3 +1,4 @@
+import importlib.util
 import io
 import json
 import os
@@ -5430,6 +5431,14 @@ def test_ready_backends_never_reports_cpu_for_nemotron(monkeypatch):
     monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: False)
     monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: False)
     assert cli_module._ready_backends("nemotron", "streaming", None) == frozenset()
+
+    if importlib.util.find_spec("transformers") is None:
+        # `_ready_backends` short-circuits to the empty set for any engine
+        # whose module isn't installed, before it reaches a per-engine
+        # branch at all — so on a bare `runner[dev]` install (CI's own
+        # environment) the assertion below would pass for the wrong reason
+        # and prove nothing about the nemotron branch.
+        pytest.skip("nemotron's engine module (transformers) is not installed here")
 
     monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: True)
     assert cli_module._ready_backends("nemotron", "streaming", None) == frozenset({"metal"})
