@@ -5,7 +5,7 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
-## [0.9.28] - 2026-08-20
+## [0.9.29] - 2026-08-20
 ### Fixed
 - **`parakeet` and `nemotron` could install into a broken environment that
   only failed at first inference**, after a model download had already run,
@@ -19,6 +19,9 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
   into a message naming the repair (`pip check`, then
   `pip install "numpy<2.5"`) instead of letting the raw traceback speak.
   Reported from a real pipx install; `pip check` flagged it directly.
+
+## [0.9.28] - 2026-08-20
+### Fixed
 - **The wizard crashed at the compute-backend prompt for any GPU-only
   engine**, which since 0.9.27 means `nemotron`. `_wizard_pick_backends`
   passed a hardcoded `default="cpu"` to questionary, which requires the
