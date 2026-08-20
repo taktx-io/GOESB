@@ -5481,3 +5481,59 @@ def test_doctor_engine_line_nemotron_says_the_machine_cannot_run_it_at_all(monke
 
     assert "GPU-only and cannot run on this machine" in line
     assert "cpu ready" not in line
+
+
+def test_wizard_pick_backends_handles_an_engine_with_no_cpu_backend(monkeypatch):
+    """Real crash, reported from a real wizard run on Apple Silicon after
+    nemotron shipped in 0.9.27:
+
+        ValueError: Invalid `default` value passed. The value (`cpu`) does
+        not exist in the set of choices.
+
+    questionary requires `default` to be one of `choices`. Every engine
+    before nemotron always had "cpu" in its ready set, so a hardcoded
+    default="cpu" was safe by accident. nemotron declares no cpu backend
+    (ADR-0013 §4), so on a Mac with MPS its ready set is exactly {"metal"}
+    — enough to prompt, but with a default that isn't on offer. The whole
+    streaming wizard died at the backend prompt."""
+    from oesb_runner import cli as cli_module
+
+    captured = {}
+
+    def _fake_select(question, choices=None, default=None, **_kwargs):
+        captured["choices"] = choices
+        captured["default"] = default
+        if default is not None and default not in choices:
+            raise ValueError("Invalid `default` value passed")  # questionary's real behaviour
+        return _FakeAsk(choices[0])
+
+    monkeypatch.setattr(cli_module.questionary, "select", _fake_select)
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *_a, **_k: frozenset({"metal"}))
+
+    chosen = cli_module._wizard_pick_backends({"nemotron-3-5-nl-streaming": "nemotron"}, None)
+
+    assert captured["choices"] == ["metal"]
+    assert captured["default"] == "metal"
+    assert chosen == {"nemotron": "metal"}
+
+
+def test_wizard_pick_backends_still_defaults_to_cpu_when_cpu_is_available(monkeypatch):
+    """The fix must not change behaviour for every other engine: where cpu
+    is a real option it stays the default, so a full Enter-through keeps
+    reproducing today's cpu-only runs."""
+    from oesb_runner import cli as cli_module
+
+    captured = {}
+
+    def _fake_select(question, choices=None, default=None, **_kwargs):
+        captured["default"] = default
+        return _FakeAsk(default)
+
+    monkeypatch.setattr(cli_module.questionary, "select", _fake_select)
+    monkeypatch.setattr(cli_module, "_ready_backends", lambda *_a, **_k: frozenset({"cpu", "cuda"}))
+
+    chosen = cli_module._wizard_pick_backends({"parakeet-tdt-v3-nl-batch": "parakeet"}, None)
+
+    assert captured["default"] == "cpu"
+    # cpu entries are omitted — that's already `run`'s default.
+    assert chosen == {}

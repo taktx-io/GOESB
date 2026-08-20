@@ -5,6 +5,24 @@ Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
 
+## [0.9.28] - 2026-08-20
+### Fixed
+- **The wizard crashed at the compute-backend prompt for any GPU-only
+  engine**, which since 0.9.27 means `nemotron`. `_wizard_pick_backends`
+  passed a hardcoded `default="cpu"` to questionary, which requires the
+  default to be one of the offered choices. Every engine before nemotron
+  always had `cpu` in its ready set, so that default was safe by accident;
+  nemotron declares no cpu backend at all (ADR-0013 §4), so on a machine
+  with a GPU its ready set is exactly `{"metal"}` or `{"cuda"}` — enough to
+  prompt, with a default that isn't on offer. Reported from a real run on
+  Apple Silicon: selecting any `nm-35` cell killed the whole streaming
+  wizard with `ValueError: Invalid default value passed`. The default is now
+  the first available backend when cpu isn't among them, and unchanged
+  (`cpu`) when it is. `_ready_backends`' docstring claimed it "always
+  includes cpu", which nemotron made false — corrected, since that claim is
+  exactly what the crashing code relied on.
+
+
 ## [0.9.27] - 2026-08-20
 ### Added
 - **`nemotron`, a fifth runtime adapter — the first non-Kaldi engine with a

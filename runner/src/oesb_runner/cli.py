@@ -1976,7 +1976,14 @@ def _ready_backends(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] 
     `_doctor_engine_line` reports as text but nothing downstream can act
     on. Reuses `doctor`'s own probes (whisper-cpp's per-backend build-info
     check, faster-whisper's ctranslate2 CUDA device count) so the wizard
-    never offers a backend certain to fail. Always includes "cpu"."""
+    never offers a backend certain to fail.
+
+    Includes "cpu" for every engine that declares it — which was all of them
+    until nemotron (ADR-0013 §4), the first GPU-only adapter. For that one
+    the returned set can be {"cuda"}, {"metal"}, or empty, and callers must
+    not assume "cpu" is present: `_wizard_pick_backends` picked a
+    hardcoded default="cpu" on this basis and crashed the whole wizard on a
+    Mac, where nemotron's ready set is exactly {"metal"}."""
     backends = get_supported_backends(runtime_name, benchmark_type)
     module_name = _ENGINE_MODULE_NAMES.get(runtime_name)
     if module_name is None or importlib.util.find_spec(module_name) is None:
@@ -2059,10 +2066,20 @@ def _wizard_pick_backends(
             return None
         if ready <= {"cpu"}:
             continue
+        choices = sorted(ready)
+        # `default` must be one of `choices` or questionary raises outright.
+        # Every engine before nemotron always had "cpu" in `ready`, so a
+        # hardcoded default="cpu" was safe by accident; nemotron declares no
+        # cpu backend at all (ADR-0013 §4), so on a GPU-only-capable machine
+        # `ready` is e.g. {"metal"} and that default is not a valid choice.
+        # Real crash, reported from a real wizard run on Apple Silicon:
+        # `ValueError: Invalid default value passed. The value (cpu) does not
+        # exist in the set of choices.` Falls back to the first available
+        # backend, which for a cpu-less engine is the only honest default.
         backend = questionary.select(
             f"[{runtime_name}] compute backend:",
-            choices=sorted(ready),
-            default="cpu",
+            choices=choices,
+            default="cpu" if "cpu" in ready else choices[0],
         ).ask()
         if backend is None:
             return None
