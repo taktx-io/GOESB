@@ -25,8 +25,28 @@ from oesb_runner.hashing import sha256_module_source  # noqa: E402
 
 # The adapter modules sha256_module_source is actually called on (see
 # oesb_runner.adapters.__init__'s registry) — one entry per runtime.
+#
+# Every in-tree adapter is listed, including the two (parakeet, nemotron)
+# that .github/workflows/release-binaries.yml deliberately does NOT build a
+# standalone executable for. Listing them costs a few hundred bytes of
+# manifest and removes a latent failure: hashing._frozen_module_hash raises
+# `ValueError: no precomputed hash for ...` for any adapter missing here, so
+# an incomplete manifest turns "someone adds an engine to the release
+# matrix" into a runtime crash in the shipped binary rather than a build-time
+# error. Cheap insurance; the list is not a claim about what gets frozen.
+#
+# Why no torch-engine binaries: both torch adapters would have to bundle
+# torch itself — 501 MB installed for the CPU-only macOS arm64 wheel,
+# multiple GB for a Linux CUDA wheel with its bundled CUDA runtime, against
+# GitHub's 2 GB per-release-asset limit. And a CPU-torch binary is useless
+# for nemotron specifically, which declares no cpu backend at all (ADR-0013
+# §4). Both stay pip-only installs (`pip install goesb-runner[parakeet]` /
+# `[nemotron]`). Revisit if a slimmer packaging story appears; do not
+# "fix" it by adding a matrix entry without checking the artefact size.
 ADAPTER_MODULES = [
     "oesb_runner.adapters.faster_whisper",
+    "oesb_runner.adapters.nemotron",
+    "oesb_runner.adapters.parakeet",
     "oesb_runner.adapters.vosk",
     "oesb_runner.adapters.whisper_cpp",
 ]

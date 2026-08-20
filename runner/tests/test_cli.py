@@ -5381,3 +5381,55 @@ def test_resolve_pack_audio_offline_with_nothing_local_exits(tmp_path):
 
     with pytest.raises(typer.Exit):
         cli_module._resolve_pack_audio(pack_dir, pack_yaml, None, True)
+
+
+# --- ADR-0013: nemotron in the wizard ---
+
+
+def test_wizard_engine_parameters_surfaces_streaming_latency_ms_without_special_casing(monkeypatch):
+    """`_wizard_engine_parameters` reads a profile's own `overridable`
+    block, so a brand-new parameter name should need no code change to be
+    offered — confirmed here rather than assumed. The prompt must carry the
+    profile's own default (320), and a comma list must sweep it like any
+    other parameter.
+
+    The `concurrency` auto-sweep special case is keyed on that exact
+    parameter name, so it is unaffected."""
+    from oesb_runner import cli as cli_module
+
+    prompts: list[str] = []
+
+    def _fake_text(question, *a, **k):
+        prompts.append(question)
+        return _FakeAsk("320,1120" if "streaming_latency_ms" in question else "")
+
+    monkeypatch.setattr(cli_module.questionary, "text", _fake_text)
+
+    expanded = cli_module._wizard_engine_parameters(
+        [("nemotron-3-5-nl-streaming", "fleurs-nl")],
+        str(REPO_ROOT / "profiles"),
+        cli_module.DEFAULT_API_URL,
+    )
+
+    assert any("[nemotron] streaming_latency_ms (default 320)" in p for p in prompts)
+    assert expanded == [
+        ("nemotron-3-5-nl-streaming", "fleurs-nl", {"streaming_latency_ms": "320"}),
+        ("nemotron-3-5-nl-streaming", "fleurs-nl", {"streaming_latency_ms": "1120"}),
+    ]
+
+
+def test_ready_backends_never_reports_cpu_for_nemotron(monkeypatch):
+    """Every other engine's `_ready_backends` branch seeds itself with
+    "cpu". Nemotron must not: it declares no cpu backend at all (ADR-0013
+    §4), so on a machine with neither CUDA nor MPS the honest answer is the
+    empty set — the wizard then skips the backend prompt and `run` refuses
+    `--backend cpu` with the shared ADR-0008 message, instead of offering a
+    backend that cannot work."""
+    from oesb_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_torch_cuda_available", lambda: False)
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: False)
+    assert cli_module._ready_backends("nemotron", "streaming", None) == frozenset()
+
+    monkeypatch.setattr(cli_module, "_torch_mps_available", lambda: True)
+    assert cli_module._ready_backends("nemotron", "streaming", None) == frozenset({"metal"})

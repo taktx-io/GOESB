@@ -1,0 +1,59 @@
+# Concurrency/load profile (ADR-0012) for NVIDIA Nemotron 3.5 ASR
+# streaming 0.6b: does this GPU stay fast under N simultaneous requests,
+# not just one at a time? No `language`, no `normalization`, no wer/cer --
+# this doesn't score transcription accuracy, only performance under
+# concurrent load, so any open pack's audio works as filler content.
+# `--param concurrency=1,2,4,8` sweeps the levels; each is its own signed
+# result, same ADR-0009 sweep mechanism batch profiles use.
+#
+# GPU-only (ADR-0013 §4): `--backend cpu` is a hard error here.
+#
+# `concurrency`'s ceiling is 8, and it is a VRAM number, not a copy of
+# another engine's. Nemotron needs one full model instance PER worker --
+# transformers' generate() overrides for this model keep per-call state on
+# the instance and even rebind `self.get_audio_features` mid-call, so two
+# concurrent calls on one instance race and cross-contaminate language
+# conditioning (see runner/src/oesb_runner/adapters/nemotron.py's
+# run_concurrency docstring). Measured per instance: ~2.55 GB of fp32
+# weights, ~3.35 GB peak device allocation. 8 workers is therefore ~27 GB
+# -- a 32 GB+ accelerator. A 24 GB consumer card realistically tops out
+# around 4, which the sweep will show rather than the profile pretending
+# otherwise; the ceiling is a cap, not a claim that every GPU reaches it.
+id: nemotron-3-5-concurrency
+version: 1.0.0
+title: Nemotron 3.5 ASR Streaming 0.6b (Concurrency)
+benchmark_type: concurrency
+runtime:
+  name: nemotron
+  min_version: 5.13.0
+model:
+  name: nemotron-3.5-asr-streaming-0.6b
+configuration:
+  threads: 4
+  concurrency: 1
+  duration_s: 30
+scoring:
+  primary_metric: real_time_factor
+  tie_breakers:
+  - throughput
+  - gpu_pct
+metrics:
+- real_time_factor
+- throughput
+- cpu_pct
+- ram_mb
+- gpu_pct
+- energy_wh
+- temperature_c
+overridable:
+  concurrency:
+    range:
+      min: 1
+      max: 8
+  threads:
+    range:
+      min: 1
+      max: 16
+changelog:
+- version: 1.0.0
+  notes: Initial profile (ADR-0012 shape, ADR-0013 engine). concurrency ceiling 8 set from measured per-instance VRAM, not copied from another engine.

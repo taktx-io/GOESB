@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from oesb_runner.schema_validation import (
@@ -145,3 +146,74 @@ def test_result_schema_rejects_parameters_entry_missing_default():
     example["parameters"] = {"beam_size": {"value": 8}}  # missing required "default"
     errors = validate_against(example, "benchmark-result.schema.json")
     assert errors
+
+
+# --- nemotron profiles + the streaming_latency_ms configuration key (ADR-0013) ---
+
+NEMOTRON_PROFILE_IDS = [
+    f"nemotron-3-5-{language}-{benchmark_type}"
+    for benchmark_type in ("batch", "streaming")
+    for language in ("en", "nl", "de", "fr", "es", "pt")
+] + ["nemotron-3-5-concurrency"]
+
+
+@pytest.mark.parametrize("profile_id", NEMOTRON_PROFILE_IDS)
+def test_every_nemotron_profile_validates(profile_id):
+    data = yaml.safe_load((REPO_ROOT / "profiles" / profile_id / "profile.yaml").read_text())
+    assert validate_against(data, "benchmark-profile.schema.json") == []
+    assert data["id"] == profile_id
+    assert data["runtime"]["name"] == "nemotron"
+    assert data["model"]["name"] == "nemotron-3.5-asr-streaming-0.6b"
+
+
+@pytest.mark.parametrize(
+    "profile_id", [p for p in NEMOTRON_PROFILE_IDS if p.endswith("-streaming")]
+)
+def test_nemotron_streaming_profiles_declare_streaming_latency_ms_and_never_chunk_ms(profile_id):
+    """ADR-0013 §3 / ADR-0009 §2: these are different physical quantities
+    (encoder right-attention context vs bounded re-decode window), and this
+    adapter applies only the first. Declaring `chunk_ms` here — in
+    `configuration` or `overridable` — would sign a result asserting a value
+    that had no effect.
+
+    The `allowed` enum is exactly the four modes this checkpoint's own
+    processor reports via `supported_streaming_latencies_ms`, read off the
+    real checkpoint. NVIDIA's model card lists a fifth (160 ms) that this
+    checkpoint does not have; it must not appear here."""
+    data = yaml.safe_load((REPO_ROOT / "profiles" / profile_id / "profile.yaml").read_text())
+
+    assert data["configuration"]["streaming_latency_ms"] == 320
+    assert "chunk_ms" not in data["configuration"]
+    assert "chunk_ms" not in data["overridable"]
+    assert data["overridable"]["streaming_latency_ms"]["allowed"] == [80, 320, 560, 1120]
+    assert data["configuration"]["streaming_latency_ms"] in data["overridable"]["streaming_latency_ms"]["allowed"]
+    assert data["model"]["context_reset"] == "per_utterance"
+
+
+def test_schema_declares_streaming_latency_ms_in_configuration():
+    """The `configuration` block isn't `additionalProperties: false`, so this
+    is documentation rather than a gate — declared anyway, per that file's own
+    convention, so a reader meeting `streaming_latency_ms` in a profile finds
+    it defined instead of inferring it from adapter code."""
+    import json
+
+    schema = json.loads(
+        (REPO_ROOT / "runner" / "src" / "oesb_runner" / "schemas" / "benchmark-profile.schema.json").read_text()
+    )
+    entry = schema["properties"]["configuration"]["properties"]["streaming_latency_ms"]
+    assert entry["type"] == "integer"
+    assert entry["minimum"] == 1
+    assert "chunk_ms" in entry["description"]  # says what it is NOT, not just what it is
+
+
+def test_nemotron_concurrency_profile_has_no_language_or_accuracy_scoring():
+    """ADR-0012's corrected shape (one profile, not one per language), reused
+    verbatim — plus a `concurrency` ceiling set from this engine's own
+    measured per-instance VRAM rather than copied from another engine."""
+    data = yaml.safe_load(
+        (REPO_ROOT / "profiles" / "nemotron-3-5-concurrency" / "profile.yaml").read_text()
+    )
+    assert "language" not in data
+    assert "normalization" not in data
+    assert not {"wer", "cer"} & set(data["metrics"])
+    assert data["overridable"]["concurrency"]["range"]["max"] == 8

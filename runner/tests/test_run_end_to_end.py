@@ -1,5 +1,6 @@
 """M1 exit criterion (docs/03-roadmap.md): two runs on the same machine agree
 within tolerance, and the result validates + its hashes verify."""
+import importlib.util
 import json
 from pathlib import Path
 
@@ -87,3 +88,62 @@ def test_run_produces_valid_signed_reproducible_result(tmp_path):
     for entry in lines:
         assert entry.keys() == {"repeat", "utterance_id", "reference_text", "hypothesis_text"}
         assert entry["reference_text"]  # every LibriSpeech utterance has a non-empty transcript
+
+
+# --- nemotron batch (ADR-0013): GPU-only, one multilingual checkpoint ---
+#
+# Guarded lazily rather than with a module-level `pytest.importorskip
+# ("torch")` — a second module-level skip here would take the pre-existing
+# faster-whisper test above with it on any environment that has
+# faster-whisper but not torch.
+
+NEMOTRON_PACK_AUDIO_DIR = REPO_ROOT / "packs" / "fleurs-nl" / "audio"
+
+
+def _nemotron_gpu_backend() -> str | None:
+    if importlib.util.find_spec("torch") is None:
+        return None
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "metal"
+    return None
+
+
+@pytest.mark.skipif(
+    _nemotron_gpu_backend() is None,
+    reason="nemotron is GPU-only (ADR-0013 §4): requires CUDA or Apple Silicon MPS",
+)
+@pytest.mark.skipif(
+    not NEMOTRON_PACK_AUDIO_DIR.exists(),
+    reason="requires fetched audio: run scripts/fetch_fleurs_subset.py --language nl_nl first",
+)
+def test_nemotron_batch_run_produces_a_valid_signed_gpu_result(tmp_path):
+    """A `nemotron` result must ingest exactly like any other: `runtime.name`
+    and `runtime.backend` are free strings owned by the adapter registry, and
+    nothing downstream carries a hardcoded engine list. Proven here at the
+    document layer rather than asserted in the ADR."""
+    results_dir = tmp_path / "results"
+    backend = _nemotron_gpu_backend()
+    result = runner.invoke(app, [
+        "run", "nemotron-3-5-nl-batch", "fleurs-nl",
+        "--repeats", "1",
+        "--backend", backend,
+        "--profiles-dir", str(REPO_ROOT / "profiles"),
+        "--packs-dir", str(REPO_ROOT / "packs"),
+        "--results-dir", str(results_dir),
+        "--models-root", str(tmp_path / "models"),
+    ])
+    assert result.exit_code == 0, result.stdout
+
+    doc = json.loads(next(iter(results_dir.glob("*.json"))).read_text())
+
+    assert validate_against(doc, "benchmark-result.schema.json") == []
+    assert verify_result_document(doc) is True
+    assert doc["runtime"] == {**doc["runtime"], "name": "nemotron", "backend": backend}
+    assert doc["model"]["name"] == "nemotron-3.5-asr-streaming-0.6b"
+    # Real Dutch out of a real multilingual checkpoint — measured 0.131 WER
+    # on this pack; a loose bound, not a pinned accuracy number.
+    assert doc["metrics"]["wer"]["value"] < 0.5

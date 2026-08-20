@@ -227,6 +227,7 @@ def run_streaming(
     utterances: list[Utterance],
     *,
     chunk_ms: int = 1000,
+    streaming_latency_ms: int | None = None,
     quantization: str = "int8",
     beam_size: int = 5,
     temperature: float = 0.0,
@@ -273,6 +274,13 @@ def run_streaming(
     acceleration on that hardware, unlike faster-whisper's CPU-bound
     ctranslate2 backend (no Metal support at all — see
     `faster_whisper.run_streaming`'s own docstring).
+
+    `streaming_latency_ms` is accepted and IGNORED: it is a cache-aware
+    engine's encoder right-attention context (ADR-0013 §3), a different
+    physical quantity from this adapter's `chunk_ms` re-decode window, and
+    `cli.py`'s streaming dispatch passes one fixed kwarg set to every
+    streaming adapter. Profiles for this engine never declare it, so it
+    arrives as None.
     """
     try:
         from pywhispercpp.model import Model

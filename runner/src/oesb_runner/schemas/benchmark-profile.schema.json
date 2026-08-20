@@ -42,6 +42,8 @@
       "description": "Fixed decode/streaming knobs required for reproducibility.",
       "properties": {
         "chunk_ms": { "type": "integer", "minimum": 0 },
+        "streaming_latency_ms": { "type": "integer", "minimum": 1,
+          "description": "Encoder right-attention-context (lookahead) latency for cache-aware streaming engines, e.g. 'nemotron'. Deliberately NOT 'chunk_ms': that is a bounded re-decode window an adapter chooses freely, while this is a fixed algorithmic latency the checkpoint itself declares (transformers exposes it as processor.supported_streaming_latencies_ms) and which also fixes the exact mel-frame count every audio chunk must carry. A profile declares one or the other, never both (ADR-0013 §3)." },
         "threads": { "type": "integer", "minimum": 1 },
         "streaming": { "type": "object" },
         "concurrency": { "type": "integer", "minimum": 1,

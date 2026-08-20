@@ -47,6 +47,14 @@ whisper-cpp = ["pywhispercpp>=1.5.0", "soundfile>=0.12"]
 # hydra-core, onnx, etc. -- that this adapter never needs). Pinned to the
 # release line that actually ships Parakeet model classes.
 parakeet = ["transformers>=5.9", "torch>=2.2", "soundfile>=0.12", "librosa>=0.10"]
+# NVIDIA Nemotron 3.5 ASR streaming (ADR-0013), via transformers'
+# AutoModelForRNNT/AutoProcessor -- same "no nemo_toolkit" reasoning as
+# parakeet above. Pinned to >=5.13, the release line that actually ships the
+# nemotron3_5_asr/nemotron_asr_streaming model classes; parakeet's own >=5.9
+# stays where it is (the two extras overlap but each pins what it genuinely
+# needs). GPU-only at run time (ADR-0013 §4) -- nothing here can express
+# that, `--backend cpu` is refused by the adapter's declared backend set.
+nemotron = ["transformers>=5.13", "torch>=2.2", "soundfile>=0.12", "librosa>=0.10"]
 mozilla-data-collective = ["datacollective>=0.5.0"]
 
 [project.scripts]
@@ -61,6 +69,7 @@ markers = ["slow: exercises a real model/network (e.g. faster-whisper inference)
 "src/oesb_runner/adapters/__init__.py" = ["E402"]
 "src/oesb_runner/normalization/__init__.py" = ["E402"]
 "tests/test_adapter_faster_whisper.py" = ["E402"]
+"tests/test_adapter_nemotron.py" = ["E402"]
 "tests/test_adapter_parakeet.py" = ["E402"]
 "tests/test_adapter_vosk.py" = ["E402"]
 "tests/test_adapter_whisper_cpp.py" = ["E402"]

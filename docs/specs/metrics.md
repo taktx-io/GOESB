@@ -39,6 +39,42 @@ non-Latin scripts alike.
 | `partial_stability` ↑ | Partial Stability | ratio 0–1 | Fraction of partial-hypothesis tokens that survive unchanged into the final transcript (measures "flicker"). 1.0 = partials never rewritten. |
 | `streaming_responsiveness` ↑ | Streaming Responsiveness | index | Composite of update frequency and stability against latency; defined per profile. GOESB's default (used unless a profile overrides it): `(update_frequency_hz * partial_stability) / first_partial_latency_p50_s`. |
 
+**Two structurally different kinds of streaming engine sit behind these
+metrics, and three of them only discriminate among one kind.** GOESB's
+streaming adapters split in two (ADR-0013):
+
+- **Genuinely incremental** — `vosk` (Kaldi decoder state carried across
+  `AcceptWaveform`) and `nemotron` (cache-aware `chunked_limited` streaming;
+  each second of audio is encoded exactly once). Emission is left-to-right
+  and never revised.
+- **Bounded-window re-decode** — `faster-whisper`, `whisper-cpp` and
+  `parakeet`, which have no incremental path and re-transcribe a bounded
+  window every chunk (`streaming.run_windowed_local_agreement_streaming`),
+  reaching "final" only by a local-agreement approximation.
+
+For the incremental engines, `partial_stability` is **trivially ~1.0** —
+there is no revision mechanism for it to measure. `nemotron` reports exactly
+1.0 by construction (measured, not asserted: every published partial is a
+strict word-wise extension of the previous one). For the same reason
+`first_partial_latency` and `first_final_latency` **converge**, and for
+`nemotron` they are byte-identical: the first non-empty partial IS the first
+finalized word.
+
+Those are true statements about the engines, not flattering artefacts — but
+a leaderboard column showing `partial_stability` 1.00 next to
+faster-whisper's 0.8x invites exactly the wrong reading, because the two
+numbers are not answers to the same question. **`partial_stability` only
+discriminates among the re-decode engines**, and a `first_final_latency`
+column ranked across all five is comparing a measured revision delay against
+a quantity that is structurally zero. Anything ranking these across both
+kinds in one column must say which kind each row is.
+
+The nominal latency axes are not comparable either: the re-decode engines
+declare `chunk_ms` (a re-decode window an adapter picks) and `nemotron`
+declares `streaming_latency_ms` (an encoder right-attention context the
+checkpoint fixes). Deliberately different parameter names, because they are
+different physical quantities (ADR-0013 §3).
+
 **No backpressure/queueing model.** The runner simulates streaming with a
 virtual real-time clock: chunk *k*'s audio is always modeled as "arriving"
 at its fixed nominal offset, regardless of how long the previous chunk

@@ -142,6 +142,12 @@ def _matching_packs(packs: list[dict], language: str) -> list[dict]:
 # axis (see _wizard_run_concurrency's own docstring) so it was never a
 # candidate here.
 #
+# "3-5" is nemotron's, for the same reason plus one more: the profile
+# schema's own `id` pattern (^[a-z0-9][a-z0-9-]*$) forbids dots, so the
+# checkpoint's real "3.5" can't appear in an id at all. Exact checkpoint
+# identity lives in `model.name` (which permits dots), the same id vs
+# model.name split parakeet-tdt-v3 / parakeet-tdt-0.6b-v3 already uses.
+#
 # "tdt-v3" is parakeet's own "size" slot — it isn't a size tier the way
 # tiny/.../large-v3 are (parakeet-tdt-0.6b-v3 is one multilingual
 # checkpoint, no per-size variants the way Whisper has), but the id/matrix
@@ -151,7 +157,7 @@ def _matching_packs(packs: list[dict], language: str) -> list[dict]:
 _MATRIX_BENCHMARK_TYPES = ("batch", "streaming")
 _MATRIX_ID_RE = {
     benchmark_type: re.compile(
-        rf"^(whisper|whispercpp|vosk|parakeet)-(tiny|base|small|medium|large-v3|large-v3-turbo|tdt-v3)-([a-z]{{2}})-{benchmark_type}$"
+        rf"^(whisper|whispercpp|vosk|parakeet|nemotron)-(tiny|base|small|medium|large-v3|large-v3-turbo|tdt-v3|3-5)-([a-z]{{2}})-{benchmark_type}$"
     )
     for benchmark_type in _MATRIX_BENCHMARK_TYPES
 }
@@ -161,6 +167,7 @@ _MATRIX_COLUMNS = (
     [("whisper", size) for size in _MATRIX_SIZES]
     + [("whispercpp", size) for size in _MATRIX_SIZES]
     + [("parakeet", "tdt-v3")]
+    + [("nemotron", "3-5")]
     + [("vosk", "small"), ("vosk", "medium")]
 )
 
@@ -255,16 +262,18 @@ def _selection_to_profile_ids(selected: set[tuple[int, int]], matrix: _Matrix) -
     return sorted(profile_ids)
 
 
-_MATRIX_ENGINE_SHORT = {"whisper": "fw", "whispercpp": "wc", "vosk": "vk", "parakeet": "pk"}
+_MATRIX_ENGINE_SHORT = {
+    "whisper": "fw", "whispercpp": "wc", "vosk": "vk", "parakeet": "pk", "nemotron": "nm",
+}
 _MATRIX_SIZE_SHORT = {
     "tiny": "T", "base": "B", "small": "S", "medium": "M", "large-v3": "L",
-    "large-v3-turbo": "LT", "tdt-v3": "V3",
+    "large-v3-turbo": "LT", "tdt-v3": "V3", "3-5": "35",
 }
 _MATRIX_COLUMN_WIDTH = 7
 _MATRIX_ROW_HEADER_WIDTH = 8
 _MATRIX_LEGEND = (
-    "fw=faster-whisper  wc=whisper-cpp  vk=vosk  pk=parakeet    "
-    "T=tiny B=base S=small M=medium L=large-v3 LT=large-v3-turbo V3=tdt-v3\n"
+    "fw=faster-whisper  wc=whisper-cpp  vk=vosk  pk=parakeet  nm=nemotron (GPU only)    "
+    "T=tiny B=base S=small M=medium L=large-v3 LT=large-v3-turbo V3=tdt-v3 35=3.5\n"
     "Arrows to move, space to toggle a cell/row/column, enter to confirm, escape to go back."
 )
 
@@ -1346,6 +1355,7 @@ _ENGINE_MODULE_NAMES = {
     "vosk": "vosk",
     "whisper-cpp": "pywhispercpp",
     "parakeet": "transformers",
+    "nemotron": "transformers",
 }
 
 
@@ -1998,6 +2008,20 @@ def _ready_backends(runtime_name: str, benchmark_type: str, gpu: dict[str, Any] 
 
     if runtime_name == "parakeet":
         ready = {"cpu"}
+        if _torch_cuda_available():
+            ready.add("cuda")
+        if _torch_mps_available():
+            ready.add("metal")
+        return frozenset(ready)
+
+    if runtime_name == "nemotron":
+        # Same torch probes as parakeet, but NOT seeded with "cpu": this
+        # engine declares no cpu backend at all (ADR-0013 §4), so a machine
+        # with neither CUDA nor MPS genuinely has nothing ready here. The
+        # empty set is the honest answer — `run` then rejects `--backend cpu`
+        # with the shared ADR-0008 message rather than the wizard offering a
+        # backend that cannot work.
+        ready = set()
         if _torch_cuda_available():
             ready.add("cuda")
         if _torch_mps_available():
@@ -2831,10 +2855,23 @@ def run(
         elif benchmark_type == "streaming":
 
             def _do_transcribe():
+                # One fixed kwarg set for every streaming adapter (call-shape
+                # parity, docs/03-roadmap.md M2). `chunk_ms` and
+                # `streaming_latency_ms` are different physical quantities
+                # (ADR-0013 §3) and a profile declares exactly one of them:
+                # `chunk_ms` is a bounded re-decode window, defaulted to 1000
+                # for the engines that use one; `streaming_latency_ms` is a
+                # cache-aware engine's encoder right-attention context and is
+                # passed through as None when absent, so `nemotron` falls back
+                # to its checkpoint's own default mode rather than being handed
+                # a re-decode window it doesn't have. Each adapter accepts both
+                # and documents in its own docstring which one it ignores —
+                # nothing may silently receive a value it drops.
                 return adapter(
                     model_name,
                     pack.utterances,
                     chunk_ms=configuration.get("chunk_ms", 1000),
+                    streaming_latency_ms=configuration.get("streaming_latency_ms"),
                     quantization=model_cfg.get("quantization", "int8"),
                     beam_size=model_cfg.get("beam_size", 5),
                     temperature=model_cfg.get("temperature", 0.0),

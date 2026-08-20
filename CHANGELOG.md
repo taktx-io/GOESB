@@ -4,6 +4,44 @@ All notable changes to GOESB are documented here. Format loosely follows
 Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
+### Added
+- **`nemotron`, a fifth runtime adapter — the first non-Kaldi engine with a
+  genuinely cache-aware incremental streaming path** (ADR-0013). Backed by
+  `nvidia/nemotron-3.5-asr-streaming-0.6b` via `transformers`'
+  `AutoModelForRNNT` (no `nemo_toolkit`), implementing `batch`, `streaming`
+  and `concurrency`. `run_streaming` feeds `generate()` a generator of
+  fixed-geometry mel chunks and carries the encoder's `padding_cache` across
+  them — each second of audio is encoded exactly once — instead of the
+  bounded-window re-decode the Whisper-family adapters must simulate
+  streaming with. Because a streaming RNNT never revises an emitted token,
+  every published partial word is final: `partial_stability` is exactly 1.0
+  and `first_partial_latency` equals `first_final_latency`, both now
+  documented in `docs/specs/metrics.md` as metrics that only discriminate
+  among the re-decode engines.
+- **`configuration.streaming_latency_ms`**, a new profile parameter,
+  deliberately not `chunk_ms`: it is a cache-aware engine's encoder
+  right-attention context (which also fixes the exact mel-frame count every
+  chunk carries), not a re-decode window an adapter picks. Requesting a mode
+  the checkpoint doesn't support is a hard error, never snapped to the
+  nearest one. Measured against the real checkpoint: four modes
+  (80/320/560/1120 ms), not the five NVIDIA's model card lists.
+- **13 `nemotron-3-5-*` profiles** — batch and streaming for en/nl/de/fr/es/pt
+  plus one language-less concurrency profile, all GPU-only: `--backend cpu`
+  against them is a hard error (ADR-0008), and `metal` is declared on the
+  strength of a real Apple Silicon measurement (batch RTF 0.072x, streaming
+  0.216x at the 320 ms mode).
+
+### Fixed
+- **`parakeet` (and now `nemotron`) were missing from the frozen-build hash
+  manifest**, so `hashing._frozen_module_hash` would have raised
+  `ValueError: no precomputed hash for ...` inside any standalone binary
+  built for them. Latent rather than live — the release matrix builds no
+  such binary, and deliberately still doesn't (both bundle PyTorch, which
+  would blow past GitHub's per-asset size limit) — but the generator now
+  covers all five adapters so adding one later can't crash at runtime. The
+  manifest itself is a gitignored build artefact regenerated before every
+  freeze, so this is a one-line generator change, not a checked-in file.
+
 
 ## [0.9.26] - 2026-08-15
 ### Fixed

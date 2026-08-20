@@ -1,0 +1,89 @@
+# NVIDIA Nemotron 3.5 ASR streaming 0.6b (via transformers'
+# AutoModelForRNNT, no nemo_toolkit) — Dutch streaming. ADR-0013.
+#
+# One multilingual checkpoint covers every language GOESB has packs for
+# (all six are in the model card's top "transcription-ready" tier), so
+# there is no per-language model swap the way the Whisper family and vosk
+# need — but unlike parakeet, `language` is genuinely applied: this
+# processor turns it into a `prompt_ids` model input that conditions the
+# decode.
+#
+# GPU-only (ADR-0013 §4): `--backend cpu` against this profile is a hard
+# error, not a slow success. Validated against
+# runner/src/oesb_runner/schemas/benchmark-profile.schema.json.
+#
+# `configuration.streaming_latency_ms`, NOT `chunk_ms` (ADR-0013 §3): this
+# engine has no bounded re-decode window. It has a fixed encoder right
+# attention context that is both its algorithmic latency and the thing
+# fixing the exact mel-frame count every audio chunk must carry. Declaring
+# `chunk_ms` here would sign a result asserting a window value that had no
+# effect (ADR-0009 §2), so this profile declares neither the key nor an
+# override for it.
+#
+# The `allowed` enum is exactly what this checkpoint's own processor
+# reports via `supported_streaming_latencies_ms` — read off the real
+# checkpoint, not copied from the model card, which lists a fifth 160 ms
+# mode this checkpoint does not have. The adapter re-validates against the
+# processor at run time and never snaps to a nearest supported mode.
+#
+# Default 320 ms: the checkpoint's own `default_num_lookahead_tokens` (3),
+# and the defensible "responsive but not degenerate" point of the four —
+# measured through the adapter on one Apple Silicon MPS box, 15-clip
+# fleurs-nl, RTF / WER per mode: 80 ms -> 0.539x / 0.1204, 320 ms -> 0.216x /
+# 0.1314, 560 ms -> 0.160x / 0.1095, 1120 ms -> 0.123x / 0.1095. The 80 ms
+# mode costs ~2.5x the compute of 320 ms and is not more accurate. Sweep
+# `--param streaming_latency_ms=80,320,560,1120` to put all four on the
+# board; the default is what a single run signs.
+id: nemotron-3-5-nl-streaming
+version: 1.0.0
+title: Nemotron 3.5 ASR Streaming 0.6b Dutch (Streaming)
+benchmark_type: streaming
+language: nl-NL
+runtime:
+  name: nemotron
+  min_version: 5.13.0
+model:
+  name: nemotron-3.5-asr-streaming-0.6b
+  vad: false
+  context_reset: per_utterance
+configuration:
+  threads: 4
+  streaming_latency_ms: 320
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: goesb-nl-v1
+scoring:
+  primary_metric: first_partial_latency
+  tie_breakers:
+  - streaming_responsiveness
+  - real_time_factor
+metrics:
+- wer
+- wer_substitutions
+- wer_deletions
+- wer_insertions
+- real_time_factor
+- cpu_pct
+- ram_mb
+- first_partial_latency
+- first_final_latency
+- end_of_speech_latency
+- update_frequency
+- partial_stability
+- streaming_responsiveness
+overridable:
+  threads:
+    range:
+      min: 1
+      max: 16
+  streaming_latency_ms:
+    allowed:
+    - 80
+    - 320
+    - 560
+    - 1120
+changelog:
+- version: 1.0.0
+  notes: Initial profile (ADR-0013). Genuinely incremental cache-aware streaming, not the shared bounded-window re-decode path -- partial_stability is 1.0 and first_partial_latency equals first_final_latency here by construction, which is why those two columns must not be ranked against the re-decode engines (docs/specs/metrics.md).

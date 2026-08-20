@@ -116,4 +116,4 @@ def get_supported_backends(runtime_name: str, benchmark_type: str = "batch") -> 
 
 
 # Built-in adapters register themselves on import.
-from . import faster_whisper, parakeet, vosk, whisper_cpp  # noqa: F401
+from . import faster_whisper, nemotron, parakeet, vosk, whisper_cpp  # noqa: F401

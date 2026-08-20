@@ -41,6 +41,18 @@ jobs:
           - extra: whisper-cpp
             collect: ["pywhispercpp"]
             adapter: oesb_runner.adapters.whisper_cpp
+          # No parakeet or nemotron entry, deliberately (not an oversight):
+          # both are torch adapters and a standalone build would have to
+          # bundle torch -- 501 MB installed for the CPU-only macOS arm64
+          # wheel, multiple GB for a Linux CUDA wheel with its bundled CUDA
+          # runtime, against GitHub's 2 GB per-release-asset limit. A
+          # CPU-torch binary would also be useless for nemotron, which
+          # declares no cpu backend at all (ADR-0013 section 4). Both stay
+          # pip-only installs. Their adapter hashes ARE in
+          # scripts/generate_frozen_adapter_hashes.py's manifest anyway, so
+          # adding an entry here later is a one-line change rather than a
+          # runtime ValueError in the shipped binary -- but check the
+          # artefact size against that 2 GB limit before doing it.
         include:
           - os: ubuntu-latest
             platform_tag: linux-x64

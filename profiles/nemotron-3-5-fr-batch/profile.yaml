@@ -1,0 +1,68 @@
+# NVIDIA Nemotron 3.5 ASR streaming 0.6b (via transformers'
+# AutoModelForRNNT, no nemo_toolkit) — French batch. ADR-0013.
+#
+# One multilingual checkpoint covers every language GOESB has packs for
+# (all six are in the model card's top "transcription-ready" tier), so
+# there is no per-language model swap the way the Whisper family and vosk
+# need — but unlike parakeet, `language` is genuinely applied: this
+# processor turns it into a `prompt_ids` model input that conditions the
+# decode.
+#
+# GPU-only (ADR-0013 §4): `--backend cpu` against this profile is a hard
+# error, not a slow success. Validated against
+# runner/src/oesb_runner/schemas/benchmark-profile.schema.json.
+#
+# Measured caveat worth reading before comparing this against the matching
+# `-streaming` profile: this checkpoint's "offline" path is the same
+# cache-aware encoder run in one shot, at the processor's own default right
+# attention context (3 / the 320 ms mode) -- not a full-right-context
+# baseline. On packs/fleurs-nl the batch and 320 ms streaming paths produce
+# normalize-identical text on every clip (WER 0.1314 both ways). What this
+# profile adds is the compute baseline, not an accuracy one: 0.072x RTF vs
+# streaming's 0.216x for the same output.
+id: nemotron-3-5-fr-batch
+version: 1.0.0
+title: Nemotron 3.5 ASR Streaming 0.6b French (Batch)
+benchmark_type: batch
+language: fr-FR
+runtime:
+  name: nemotron
+  min_version: 5.13.0
+model:
+  name: nemotron-3.5-asr-streaming-0.6b
+  vad: false
+  context_reset: per_utterance
+configuration:
+  threads: 4
+normalization:
+  lowercase: true
+  remove_punctuation: true
+  expand_numbers: true
+  ruleset_id: goesb-fr-v1
+scoring:
+  primary_metric: wer
+  tie_breakers:
+  - real_time_factor
+  - energy_wh
+metrics:
+- wer
+- wer_substitutions
+- wer_deletions
+- wer_insertions
+- cer
+- cer_substitutions
+- cer_deletions
+- cer_insertions
+- real_time_factor
+- cpu_pct
+- ram_mb
+- energy_wh
+- temperature_c
+overridable:
+  threads:
+    range:
+      min: 1
+      max: 16
+changelog:
+- version: 1.0.0
+  notes: Initial profile (ADR-0013). The offline/batch baseline the same checkpoint's streaming latency numbers are read against.
