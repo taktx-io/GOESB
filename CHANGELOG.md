@@ -4,6 +4,8 @@ All notable changes to GOESB are documented here. Format loosely follows
 Keep a Changelog; the project uses semantic versioning once it ships releases.
 
 ## [Unreleased]
+
+## [0.9.27] - 2026-08-20
 ### Added
 - **`nemotron`, a fifth runtime adapter — the first non-Kaldi engine with a
   genuinely cache-aware incremental streaming path** (ADR-0013). Backed by
